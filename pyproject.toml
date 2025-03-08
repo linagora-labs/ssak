@@ -1,0 +1,77 @@
+[tool.poetry]
+name = "ssak"
+version = "0.0.1"
+description = "Toolbox for Audio Processing"
+authors = []
+license = "GPL-3.0"
+readme = "README.md"
+packages = []
+
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.1.11"
+pre-commit = "^3.6.0"
+
+[tool.ruff]
+line-length = 250 # Allow lines to be as long as 250.
+target-version = "py39"
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    # "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "B006", # Do not use mutable data structures for argument defaults
+    "B007", # Loop control variable `...` not used within loop body
+    "B008", # Do not perform function call `...` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+    "B018", # Found useless expression. Either assign it to a variable or remove it.
+    "B020", # Loop control variable `elt` overrides iterable it iterates
+    "B022", # No arguments passed to `contextlib.suppress`. No exceptions will be suppressed and therefore this context manager is redundant
+    "B023",
+    "B028", # No explicit `stacklevel` keyword argument found
+    "B034", # `re.sub` should pass `count` and `flags` as keyword arguments to avoid confusion due to unintuitive argument positions
+    "B904", # Within an `except` clause, raise exceptions with `raise ... from err` or `raise ... from None` to distinguish them from errors in exception handling
+
+    "C402", # Unnecessary generator
+    "C408",
+    "C401", # Unnecessary generator (rewrite as a `set` comprehension)
+    "C403", # Unnecessary `list` comprehension (rewrite as a `set` comprehension)
+    "C404", # Unnecessary `list` comprehension (rewrite as a `dict` comprehension)
+    "C405", # Unnecessary `list` literal (rewrite as a `set` literal)
+    "C413", # Unnecessary `reversed` call around `sorted()`
+    "C414", # Unnecessary `list` call within `sorted()`
+    "C416", # Unnecessary `dict` comprehension (rewrite using `dict()`)
+    "C417", # Unnecessary `map` usage (rewrite using a generator expression)
+    "C419", # Unnecessary list comprehension
+    "C901", # `...` is too complex
+
+    "E402", # Module level import not at top of file
+    "E711", # Comparison to `None` should be `cond is None`
+    "E721", # Do not compare types, use `isinstance()`
+    "E722", # Do not use bare `except`
+    "E731", # Do not assign a `lambda` expression, use a `def`
+    "E741", # Ambiguous variable name: `l`
+
+    "F403", # `from ... import *` used; unable to detect undefined names
+    "F405", # `...` may be undefined, or defined from star imports
+    "F601", # Dictionary key literal `"lt"` repeated
+    "F811", # Redefinition of unused `argparse` from line 3
+    "F821", # Undefined name `...`
+    "F841", # Local variable `...` is assigned to but never used
+  
+    "UP008", # Use `super()` instead of `super(__class__, self)`
+    "UP028", # Replace `yield` over `for` loop with `yield from`
+    "UP022", # Prefer `capture_output` over sending `stdout` and `stderr` to `PIPE`
+    "UP031", # Use format specifiers instead of percent format
+]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

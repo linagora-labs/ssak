@@ -1,0 +1,2 @@
+epoch: 1, epoch_finished: True, total_samples: 8, total_audio_h: 3.50e-03, total_tokens: 112, train_time_h: 2.05e-03, valid_time_h: 3.47e-04, lr_model: 1.00e+00, lr_wav2vec: 1.00e-04 - train loss: 25.20 - valid loss: 28.12, valid CER: 85.71, valid WER: 1.00e+02
+epoch: 2, epoch_finished: True, total_samples: 16, total_audio_h: 6.99e-03, total_tokens: 224, train_time_h: 3.84e-03, valid_time_h: 7.44e-04, lr_model: 1.00e+00, lr_wav2vec: 1.00e-04 - train loss: 19.19 - valid loss: 26.68, valid CER: 85.71, valid WER: 1.00e+02

@@ -1,0 +1,6 @@
+__pycache__
+tmp*
+models
+.idea
+build
+*.egg-info

@@ -1,0 +1,4 @@
+cfpp sox $DATAPATH/audio/cfpp2channels.mp3 -t wav -r 16k -b 16 -c 1 - |
+separation_per_14 sox $DATAPATH/audio/tcof13bits.wav -t wav -r 16k -b 16 -c 1 - |
+toy_bonjour sox $DATAPATH/audio/bonjour.wav -t wav -r 16k -b 16 -c 1 - |
+toy_bonjour2 sox '$DATAPATH/audio/bonjour 8k.wav' -t wav -r 16k -b 16 -c 1 - |

@@ -1,0 +1,2 @@
+$DATAPATH/kaldi/small    1
+$DATAPATH/kaldi/minimal 2
