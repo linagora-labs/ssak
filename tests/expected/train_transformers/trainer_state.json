@@ -1,0 +1,46 @@
+{
+  "best_metric": 0.0,
+  "best_model_checkpoint": "./hf_c98d67d4cf540fcdea3d919fb4c4a479_md-10_md-1_bm-Ilyes_wav2vec2-large-xlsr-53-french_lr-0.0001_bs-4_wd-0_ad-0.1_hd-0.05_fpd-0_ld-0.1_mtp-0.05_s-69_adamwt/checkpoint-1",
+  "epoch": 1.0,
+  "global_step": 2,
+  "is_hyper_param_search": false,
+  "is_local_process_zero": true,
+  "is_world_process_zero": true,
+  "log_history": [
+    {
+      "epoch": 0.5,
+      "learning_rate": 2.0000000000000002e-07,
+      "loss": 2.9725,
+      "step": 1
+    },
+    {
+      "epoch": 0.5,
+      "eval_loss": 2.284808397293091,
+      "eval_runtime": 1.1049,
+      "eval_samples_per_second": 1.81,
+      "eval_steps_per_second": 0.905,
+      "eval_wer": 0.0,
+      "step": 1
+    },
+    {
+      "epoch": 1.0,
+      "learning_rate": 4.0000000000000003e-07,
+      "loss": 2.503,
+      "step": 2
+    },
+    {
+      "epoch": 1.0,
+      "eval_loss": 2.2824997901916504,
+      "eval_runtime": 1.1077,
+      "eval_samples_per_second": 1.805,
+      "eval_steps_per_second": 0.903,
+      "eval_wer": 0.0,
+      "step": 2
+    }
+  ],
+  "max_steps": 2,
+  "num_train_epochs": 1,
+  "total_flos": 713071051764480.0,
+  "trial_name": null,
+  "trial_params": null
+}

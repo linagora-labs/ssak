@@ -1,0 +1,6 @@
+cfpp sox $DATAPATH/audio/cfpp2channels.mp3 -t wav -r 16k -b 16 -c 1 - |
+rec_pasip8-1616725058869-1410772_33688106676_33180045003_S1625047306396s3694170_20210916_175250 sox $DATAPATH/audio/edf8k.mp3 -t wav -r 16k -b 16 -c 1 - |
+salledebain_sch_13 sox $DATAPATH/audio/tcof2channels.wav -t wav -r 16k -b 16 -c 1 - |
+separation_per_14 sox $DATAPATH/audio/tcof13bits.wav -t wav -r 16k -b 16 -c 1 - |
+toy_bonjour sox $DATAPATH/audio/bonjour.wav -t wav -r 16k -b 16 -c 1 - |
+toy_bonjour2 sox '$DATAPATH/audio/bonjour 8k.wav' -t wav -r 16k -b 16 -c 1 - |

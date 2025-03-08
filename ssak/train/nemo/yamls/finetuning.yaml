@@ -1,0 +1,128 @@
+name: "STT_Finetuning"
+
+# use `init_from_nemo_model` or `init_from_pretrained_model` to initialize the model
+# We do not currently support `init_from_ptl_ckpt` to create a single script for all types of models.
+init_from_pretrained_model: "nvidia/parakeet-ctc-0.6b" # path to nemo model
+# init_from_pretrained_model: "nvidia/stt_fr_conformer_ctc_large" # path to nemo model
+
+model:
+  sample_rate: 16000
+  compute_eval_loss: true # eval samples can be very long and exhaust memory. Disable computation of transducer loss during validation/testing with this flag.
+  log_prediction: false # enables logging sample predictions in the output during training
+  rnnt_reduction: 'mean_volume'
+  skip_nan_grad: false
+  freeze_encoder: true
+  override_config_path: null # path to yaml file to override the model config
+  seed: 42
+  train_ds:
+    manifest_filepath: splits/train.jsonl
+    sample_rate: ${model.sample_rate}
+    batch_size: 16 # you may increase batch_size if your memory allows
+    shuffle: false
+    num_workers: 4
+    pin_memory: true
+    max_duration: 20
+    min_duration: 0.1
+    is_tarred: false
+    shuffle_n: 2048
+
+  validation_ds:
+    manifest_filepath: splits/validation.jsonl
+    sample_rate: ${model.sample_rate}
+    batch_size: 16
+    shuffle: false
+    use_start_end_token: false
+    num_workers: 8
+    pin_memory: true
+
+  test_ds:
+    manifest_filepath: null
+    sample_rate: ${model.sample_rate}
+    batch_size: 16
+    shuffle: false
+    use_start_end_token: false
+    num_workers: 8
+    pin_memory: true
+  
+  char_labels: # use for char based models
+    update_labels: false
+    labels: null # example list config: \[' ', 'a', 'b', 'c'\]
+
+  tokenizer: # use for spe/bpe based tokenizer models
+    update_tokenizer: true
+    dir: tokenizer/tokenizer_spe_bpe_v1024  # path to directory which contains either tokenizer.model (bpe) or vocab.txt (for wpe)
+    type: bpe  # Can be either bpe (SentencePiece tokenizer) or wpe (WordPiece tokenizer)
+
+  spec_augment:
+    _target_: nemo.collections.asr.modules.SpectrogramAugmentation
+    freq_masks: 2 # set to zero to disable it
+    time_masks: 10 # set to zero to disable it
+    freq_width: 27
+    time_width: 0.05
+
+  optim:
+    name: adamw
+    lr: 1e-2
+    # optimizer arguments
+    betas: [0.9, 0.98]
+    weight_decay: 1e-3
+
+    # scheduler setup
+    sched:
+      name: CosineAnnealing
+      # scheduler config override
+      warmup_steps: 500
+      warmup_ratio: null
+      min_lr: 5e-6
+
+trainer:
+  devices: -1 # number of GPUs, -1 would use all available GPUs
+  num_nodes: 1
+  max_epochs: 10
+  max_steps: null # computed at runtime if not set
+  val_check_interval: 1000 # Set to 0.25 to check 4 times per epoch, or an int for number of iterations
+  limit_val_batches: 100 # how many batches to use during validation
+  accelerator: auto
+  strategy: ddp
+  accumulate_grad_batches: 1
+  gradient_clip_val: 0.0
+  precision: 32 # 16-mixed, 32, or bf16
+  log_every_n_steps: 100  # Interval of logging.
+  enable_progress_bar: True
+  num_sanity_val_steps: 0 # number of steps to perform validation steps for sanity check the validation process before starting the training, setting to 0 disables it
+  check_val_every_n_epoch: 1 # number of evaluations on validation every n epochs
+  sync_batchnorm: true
+  enable_checkpointing: False  # Provided by exp_manager
+  logger: false  # Provided by exp_manager
+  benchmark: false # needs to be false for models with variable-length speech input as it slows down training
+  fast_dev_run: false
+
+
+exp_manager:
+  exp_dir: null
+  name: ${name}
+  create_tensorboard_logger: true
+  # create_preemption_callback: true
+  create_checkpoint_callback: true
+  create_early_stopping_callback: true
+  early_stopping_callback_params:
+    check_finite: False
+    patience: 5
+    mode: "min"
+    monitor: "val_loss"
+  checkpoint_callback_params:
+    # in case of multiple validation sets, first one is used
+    monitor: "val_loss" # "val_wer" "train_loss"
+    mode: "min"
+    save_top_k: 10
+    always_save_nemo: True # saves the checkpoints as nemo files along with PTL checkpoints
+    save_last: false
+    train_time_interval: 1200
+    every_n_epochs: 1
+  resume_if_exists: false
+  resume_ignore_no_checkpoint: false
+
+  create_wandb_logger: false
+  wandb_logger_kwargs:
+    name: null
+    project: null
