@@ -5,12 +5,14 @@ from ssak.utils.text_basic import (
     _punctuation,
 )
 from ssak.utils.text_utils import (
-    collapse_whitespace,
-    format_special_characters,
     numbers_and_symbols_to_letters,
     regex_escape,
-    remove_punctuations,
     remove_special_characters,
+)
+from ssak.utils.text_basic import (
+    collapse_whitespace,
+    format_special_characters,
+    remove_punctuations,
     transliterate,
 )
 

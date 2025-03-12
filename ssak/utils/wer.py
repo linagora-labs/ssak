@@ -126,7 +126,7 @@ def compute_wer(
                     preds[i] = re.sub(r"\b" + k + r"\b", v, preds[i])
 
     if normalization:
-        from ssak.utils.text import collapse_whitespace, format_text
+        from ssak.utils.text import format_text
 
         strong_normalization = normalization.endswith("+")
         if strong_normalization:
@@ -154,7 +154,7 @@ def compute_wer(
             normalize_funcs.append(further_normalize)
 
         if strong_normalization:
-
+            from ssak.utils.text_basic import collapse_whitespace
             def remove_not_words(s):
                 # Remove any character that is not alpha-numeric (e.g. apostrophes, dashes, ...)
                 return collapse_whitespace(re.sub(r"[^\w]", " ", s))
