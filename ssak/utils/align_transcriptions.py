@@ -13,7 +13,7 @@ from ssak.infer.general import (
     load_model,
 )
 from ssak.utils.misc import hashmd5
-from ssak.utils.text import transliterate
+from ssak.utils.text_basic import transliterate
 from ssak.utils.text_basic import _punctuation
 from ssak.utils.viewer import PlayWav
 

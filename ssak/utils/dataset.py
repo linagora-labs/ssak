@@ -16,7 +16,7 @@ from ssak.utils.monitoring import logger
 
 from .audio import array_to_bytes, load_audio
 from .misc import hashmd5
-from .text import remove_special_words
+from .text_basic import remove_special_words
 
 try:
     # Avoid VisibleDeprecationWarning: Creating an ndarray from ragged nested sequences (which is a list-or-tuple of lists-or-tuples-or ndarrays with different lengths or shapes)
