@@ -126,7 +126,7 @@ def compute_wer(
                     preds[i] = re.sub(r"\b" + k + r"\b", v, preds[i])
 
     if normalization:
-        from ssak.utils.text import collapse_whitespace, format_text
+        from ssak.utils.text import format_text
 
         strong_normalization = normalization.endswith("+")
         if strong_normalization:
@@ -154,7 +154,7 @@ def compute_wer(
             normalize_funcs.append(further_normalize)
 
         if strong_normalization:
-
+            from ssak.utils.text_basic import collapse_whitespace
             def remove_not_words(s):
                 # Remove any character that is not alpha-numeric (e.g. apostrophes, dashes, ...)
                 return collapse_whitespace(re.sub(r"[^\w]", " ", s))
@@ -554,9 +554,17 @@ def aggregate_wer(measures, scale=1, count=None, norm_rates=False):
         count = measures.get("count")
     c_scale = count if count else 1
     del_count = measures["del"] * c_scale / scale
+    if abs(round(del_count) - del_count) < 0.0001:  # avoid problems with float operations like having 1.9999999997
+        del_count = round(del_count)
     ins_count = measures["ins"] * c_scale / scale
+    if abs(round(ins_count) - ins_count) < 0.0001:
+        ins_count = round(ins_count)
     hits_count = measures["hits"] * c_scale / scale
+    if abs(round(hits_count) - hits_count) < 0.0001:
+        hits_count = round(hits_count)
     sub_count = measures["sub"] * c_scale / scale
+    if abs(round(sub_count) - sub_count) < 0.0001:
+        sub_count = round(sub_count)
     if count is None:
         count = hits_count + del_count + sub_count
     assert del_count % 1 == 0, f"{del_count=} ({count=}, {measures['count']=}, {measures['del']=}, {measures['hits']=}, {measures['ins']=}, {measures['sub']=} {scale=})"

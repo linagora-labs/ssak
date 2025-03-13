@@ -45,7 +45,7 @@ def load_audio(path, start=None, end=None, sample_rate=16_000, mono=True, return
     verbose: bool
         if True, print the steps
     """
-    assert return_format in ["array", "torch", "bytes"]
+    assert return_format in ["array", "torch", "bytes", "librosa"]
     if not os.path.isfile(path):
         # Because soxbindings does not indicate the filename if the file does not exist
         raise RuntimeError("File not found: %s" % path)
@@ -75,7 +75,13 @@ def load_audio(path, start=None, end=None, sample_rate=16_000, mono=True, return
             audio, sr = torchaudio.load(path, frame_offset=offset, num_frames=num_frames)
         else:
             audio, sr = torchaudio.load(path)
-
+    if return_format=="librosa":
+        import librosa
+        offset = float(start if start else 0)
+        duration = None
+        if end:
+            duration = end - start
+        audio, sr = librosa.load(path, offset=offset, duration=duration)
     else:
         with suppress_stderr():
             # stderr could print these harmless warnings:
