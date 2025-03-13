@@ -398,6 +398,7 @@ class Monitoring:
 
     def __init__(self, output_folder="", name="", interval=0.25, device="cuda", plot_monitoring=True, show_steps_in_plots=True):
         self.device = device
+        self.device_name = None
         self.output_folder = output_folder
         if not name:
             self.name = output_folder
@@ -464,9 +465,11 @@ class Monitoring:
             start = time.time() - monitoring["time_points"][-1]
             if "device" in monitoring and monitoring["device"] != (pynvml.nvmlDeviceGetName(handle) if handle else "cpu"):
                 raise ValueError("The device used in the monitoring is different from the one specified in the current monitoring")
+            self.device_name = monitoring.get('device', 'cpu')
         else:
             monitoring = dict()
             monitoring["device"] = pynvml.nvmlDeviceGetName(handle) if handle else "cpu"
+            self.device_name = monitoring["device"]
             start = time.time()
         step = 0
         step_monitoring = dict()
@@ -529,6 +532,11 @@ class Monitoring:
         else:
             self.event_stop.set()
         self.monitoring_thread.join()
+
+    def get_device_name(self):
+        if self.device_name is None:
+            logger.warning("You have not started monitoring! You are not monitoring any device yet!")
+        return self.device_name
 
     def plot_hardware(self, values, times, output_folder, ylabel="RAM Usage", lims=None, steps=None):
         import matplotlib.pyplot as plt
