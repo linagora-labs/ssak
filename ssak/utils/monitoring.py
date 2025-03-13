@@ -409,6 +409,12 @@ class Monitoring:
         self.will_plot_monitoring = plot_monitoring
         if self.will_plot_monitoring:
             pass
+        self.device = self.device if self.device else 0
+        if self.device == "cuda" or self.device == "gpu":
+            self.device = 0
+        if self.device != "cpu":
+            get_num_gpus()
+            self.device = ALL_GPU_INDICES[self.device]
 
     def _finish_step(self, monitoring, step_values, step=0, start=0):
         for i in step_values:
@@ -501,12 +507,6 @@ class Monitoring:
             steps: list of str
                 List of steps to monitor
         """
-        self.device = self.device if self.device else 0
-        if self.device == "cuda" or self.device == "gpu":
-            self.device = 0
-        if self.device != "cpu":
-            get_num_gpus()
-            self.device = ALL_GPU_INDICES[self.device]
         self.event_stop = threading.Event()
         self.event_next = threading.Event()
         self.event_error = threading.Event()
@@ -535,7 +535,14 @@ class Monitoring:
 
     def get_device_name(self):
         if self.device_name is None:
-            logger.warning("You have not started monitoring! You are not monitoring any device yet!")
+            if self.device != "cpu":
+                pynvml.nvmlInit()
+                handle = pynvml.nvmlDeviceGetHandleByIndex(self.device)
+            else:
+                handle = None
+            self.device_name = pynvml.nvmlDeviceGetName(handle) if handle else "cpu"
+            if handle:
+                pynvml.nvmlShutdown()
         return self.device_name
 
     def plot_hardware(self, values, times, output_folder, ylabel="RAM Usage", lims=None, steps=None):
