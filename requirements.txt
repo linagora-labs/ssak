@@ -22,17 +22,14 @@ openai-whisper
 peft
 psutil
 praat-textgrids
-PyAudio
 py3nvml
 pyannote.audio
 pyannote.pipeline
 pyarabic
 pyctcdecode
-pypi-kenlm
 python-magic
 python-slugify
 so-vits-svc-fork
-soxbindings
 speechbrain
 tensorboard
 text2num
