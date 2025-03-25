@@ -64,15 +64,16 @@ def text_to_speech(
 
         model = parler_tts.ParlerTTSForConditionalGeneration.from_pretrained(model_name).to(device)
         tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
+        description_tokenizer = transformers.AutoTokenizer.from_pretrained(model.config.text_encoder._name_or_path)
         model_sample_rate = model.config.sampling_rate
 
-        _tts_models[model_name] = (model, tokenizer, model_sample_rate)
+        _tts_models[model_name] = (model, tokenizer, description_tokenizer, model_sample_rate)
     
-    (model, tokenizer, model_sample_rate) = _tts_models[model_name]
+    (model, tokenizer, description_tokenizer, model_sample_rate) = _tts_models[model_name]
     model = model.to(device)
 
     text_tokens = tokenizer(text, return_tensors="pt").input_ids.to(device)
-    speaker_type_prompt_tokens = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+    speaker_type_prompt_tokens = description_tokenizer(prompt, return_tensors="pt").input_ids.to(device)
     audio_tensor = model.generate(input_ids=speaker_type_prompt_tokens, prompt_input_ids=text_tokens)
 
     if len(audio_tensor.shape) == 2 and audio_tensor.shape[0] == 1:
