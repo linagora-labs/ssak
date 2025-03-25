@@ -155,6 +155,7 @@ def compute_wer(
 
         if strong_normalization:
             from ssak.utils.text_basic import collapse_whitespace
+
             def remove_not_words(s):
                 # Remove any character that is not alpha-numeric (e.g. apostrophes, dashes, ...)
                 return collapse_whitespace(re.sub(r"[^\w]", " ", s))

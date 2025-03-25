@@ -75,8 +75,9 @@ def load_audio(path, start=None, end=None, sample_rate=16_000, mono=True, return
             audio, sr = torchaudio.load(path, frame_offset=offset, num_frames=num_frames)
         else:
             audio, sr = torchaudio.load(path)
-    if return_format=="librosa":
+    if return_format == "librosa":
         import librosa
+
         offset = float(start if start else 0)
         duration = None
         if end:

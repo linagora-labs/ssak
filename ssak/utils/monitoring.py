@@ -421,7 +421,7 @@ class Monitoring:
             if i not in monitoring:
                 monitoring[i] = []
             monitoring[i].extend(step_values[i])
-        if self.steps and len(self.steps)>0 and step<len(self.steps):
+        if self.steps and len(self.steps) > 0 and step < len(self.steps):
             if "steps" not in monitoring:
                 monitoring["steps"] = []
             if "steps_end" not in monitoring:
@@ -471,7 +471,7 @@ class Monitoring:
             start = time.time() - monitoring["time_points"][-1]
             if "device" in monitoring and monitoring["device"] != (pynvml.nvmlDeviceGetName(handle) if handle else "cpu"):
                 raise ValueError("The device used in the monitoring is different from the one specified in the current monitoring")
-            self.device_name = monitoring.get('device', 'cpu')
+            self.device_name = monitoring.get("device", "cpu")
         else:
             monitoring = dict()
             monitoring["device"] = pynvml.nvmlDeviceGetName(handle) if handle else "cpu"
