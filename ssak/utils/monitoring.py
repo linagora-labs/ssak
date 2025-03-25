@@ -421,7 +421,7 @@ class Monitoring:
             if i not in monitoring:
                 monitoring[i] = []
             monitoring[i].extend(step_values[i])
-        if self.steps and len(self.steps)>0:
+        if self.steps and len(self.steps)>0 and step<len(self.steps):
             if "steps" not in monitoring:
                 monitoring["steps"] = []
             if "steps_end" not in monitoring:
