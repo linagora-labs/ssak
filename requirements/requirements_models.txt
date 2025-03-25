@@ -1,0 +1,6 @@
+pyannote.audio
+pyannote.pipeline
+onnxruntime
+openai-whisper
+pypi-kenlm
+vosk

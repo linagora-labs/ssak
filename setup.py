@@ -2,7 +2,7 @@ import os
 
 from setuptools import find_packages, setup
 
-required_packages_filename = os.path.join(os.path.dirname(__file__), "requirements.txt")
+required_packages_filename = os.path.join(os.path.dirname(__file__), "requirements/requirements.txt")
 if os.path.exists(required_packages_filename):
     install_requires = [l.strip() for l in open(required_packages_filename).readlines()]
 
@@ -42,5 +42,11 @@ setup(
         ],
     },
     include_package_data=True,
-    extras_require={},
+    # extras_require={
+    #     "full": [
+    #         "soxbindings",
+    #         "pypi-kenlm",
+    #         "PyAudio",
+    #     ],
+    # },
 )
