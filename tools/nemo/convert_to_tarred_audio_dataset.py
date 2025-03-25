@@ -567,7 +567,7 @@ class ASRTarredDatasetBuilder:
 
         new_entries = []
         tar = None
-        if not os.path.exists(os.path.join(target_dir, f"audio_{shard_id}.tar")):
+        if not os.path.exists(os.path.join(target_dir, f"audio_{shard_id}.tar.completed")):
             tar = tarfile.open(
                 os.path.join(target_dir, f"audio_{shard_id}.tar"),
                 mode="w",
@@ -626,6 +626,8 @@ class ASRTarredDatasetBuilder:
 
         if tar:
             tar.close()
+            with open(os.path.join(target_dir, f"audio_{shard_id}.tar.completed"), "w"):
+                pass
         return new_entries
 
     @classmethod
