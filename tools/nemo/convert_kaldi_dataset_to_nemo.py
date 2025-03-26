@@ -3,6 +3,7 @@ import json
 import logging
 import os
 
+from find_long_transcriptions import filter_incoherent_segments
 from tqdm import tqdm
 
 from ssak.utils.kaldi_dataset import KaldiDataset
@@ -49,7 +50,7 @@ def kaldi_to_nemo(kaldi_dataset, output_file):
             f.write("\n")
 
 
-def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False):
+def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False):
     logger.info(f"Converting Kaldi dataset {kaldi_input_dataset} to NeMo format")
     splitted_path = kaldi_input_dataset.split(os.sep)
     if splitted_path[-1] == "":
@@ -82,9 +83,15 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
             target_extension="wav",
             num_workers=6,
         )  # wavs are faster to load than mp3
+    if check_if_in_audio:
+        logger.info("Check if segments are in audios")
+        kaldi_dataset.check_if_segments_in_audios()
     logger.info(f"Writing to {file}")
     os.makedirs(output_dir, exist_ok=True)
     kaldi_to_nemo(kaldi_dataset, file)
+    if remove_incoherent_texts:
+        logger.info("Check for incoherent texts (very long text with a short audio segment)")
+        filter_incoherent_segments(file, file + "_removed_lines")
     logger.info(f"Conversion done (saved to {len(kaldi_dataset)} lines to {file})")
 
 

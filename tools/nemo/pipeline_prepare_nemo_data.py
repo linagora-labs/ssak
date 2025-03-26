@@ -7,6 +7,10 @@ from convert_kaldi_datasets_to_nemo import convert_datasets
 from generate_dataset_list_files import generate_dataset_list_files
 from merge_manifest import merge_manifests
 
+CHECK_AUDIO = True
+CHECK_IF_SEGMENT_IN_AUDIO = False
+REMOVE_INCOHERENT_TEXTS = True
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Prepare data for Nemo")
     parser.add_argument("--train_input_datasets", help="Input datasets", type=str, default=None)
@@ -103,7 +107,9 @@ if __name__ == "__main__":
                 [os.path.join(tmp_manifest_dir, "datasets_list", f"{i}_datasets")],
                 os.path.join(tmp_manifest_dir, f"{i}_manifests"),
                 output_wav_dir,
-                check_audio=True,
+                check_audio=CHECK_AUDIO,
+                check_if_in_audio=CHECK_IF_SEGMENT_IN_AUDIO,
+                remove_incoherent_texts=REMOVE_INCOHERENT_TEXTS,
             )
         except FileExistsError:
             pass

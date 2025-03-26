@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio=False):
+def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False):
     input_files = inputs
     if len(input_files) == 1:
         logger.warning("One input file, considering it as containing a list of files")
@@ -20,7 +20,7 @@ def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio
             raise FileNotFoundError(f"Non-existing file {input_folder}")
         if not os.path.isdir(input_folder):
             raise NotADirectoryError(f"File {input_folder} is not a directory")
-        convert_dataset(input_folder, output_file, output_wav_dir, check_audio=check_audio)
+        convert_dataset(input_folder, output_file, output_wav_dir, check_audio=check_audio, check_if_in_audio=check_if_in_audio, remove_incoherent_texts=remove_incoherent_texts)
     logger.info(f"Finished converting datasets from {input_files} to {output_file}")
 
 

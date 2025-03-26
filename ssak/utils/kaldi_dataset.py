@@ -247,6 +247,29 @@ class KaldiDataset:
             return mode(durations)
         return mode([i.duration for i in self.dataset])
 
+    def check_if_segments_in_audios(self, acceptance_end_s=0.25):
+        from pydub.utils import mediainfo
+
+        new_data = []
+        removed_lines = []
+        files_duration = dict()
+        for row in tqdm(self, desc="Check if segments are in audios"):
+            if row.audio_path not in files_duration:
+                dur = round(float(mediainfo(row.audio_path)["duration"]), 3)
+                files_duration[row.audio_path] = dur
+            dur = files_duration[row.audio_path]
+            if row.start >= dur:
+                removed_lines.append(row)
+            elif row.end > dur + acceptance_end_s:
+                removed_lines.append(row)
+            else:
+                new_data.append(row)
+        self.dataset = new_data
+        logger.info(f"Removed {len(removed_lines)} segments that were not in audios (start or end after audio), check removed_lines_not_in_audios file")
+        with open("removed_lines_not_in_audios", "w") as f:
+            for row in removed_lines:
+                f.write(str(row) + "\n")
+
     def filter_by_audio_ids(self, audio_ids):
         """
         Filter the dataset by audio ids
@@ -357,7 +380,7 @@ class KaldiDataset:
                 else:
                     removed_lines.append(row)
             self.dataset = new_dataset
-            with open("removed_lines", "w") as f:
+            with open("removed_lines_audio_empty", "w") as f:
                 for row in removed_lines:
                     f.write(str(row) + "\n")
 
