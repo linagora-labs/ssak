@@ -7,13 +7,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def generate_dataset_list_files(dateset_list, dataset_folder, dest, mode, subset_pattern):
+def generate_dataset_list_files(dataset_list, dataset_folder, dest, mode, subset_pattern):
     if os.path.exists(dest):
         logger.info(f"Reading dataset list from {dest} (already exists)")
         with open(dest) as f:
             return f.read().strip().split("\n")
     new_list = []
-    with open(dateset_list) as f:
+    with open(dataset_list) as f:
         datasets = f.read().strip().split("\n")
 
     patterns = ""

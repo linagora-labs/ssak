@@ -19,6 +19,7 @@ if __name__ == "__main__":
     parser.add_argument("--datasets_folder", help="Dataset folder", type=str, default=None)
     parser.add_argument("--output_wav_dir", help="Output wav directory", type=str, default="processed_dataset")
     parser.add_argument("--manifest_dir", default="input_manifests")
+    parser.add_argument("--subset_pattern", default="nocasepunc_max30", type=str)
     # Options for creating a tokenizer using all splits
     parser.add_argument("--create_tokenizer", default=None, help="Folder to save tokenizer (if not set, no tokenizer is created)")
     parser.add_argument("--vocab_size", help="Vocab size", type=int, default=1024)
@@ -78,7 +79,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "train_datasets"),
             mode="train",
-            subset_pattern="nocasepunc_max30",
+            subset_pattern=args.subset_pattern,
         )
     if args.test_input_datasets:
         splits_to_process.append("test")
@@ -87,7 +88,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "test_datasets"),
             mode="test",
-            subset_pattern="nocasepunc_max30",
+            subset_pattern=args.subset_pattern,
         )
     if args.dev_input_datasets:
         splits_to_process.append("dev")
@@ -96,7 +97,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "dev_datasets"),
             mode="dev",
-            subset_pattern="nocasepunc_max30",
+            subset_pattern=args.subset_pattern,
         )
     if len(splits_to_process) == 0:
         raise ValueError("No splits to process")
