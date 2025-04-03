@@ -1,21 +1,21 @@
 name: Auto-publish
 
-on: [push, workflow_dispatch]
+on:
+  release:
+    types: [created]
+
 
 jobs:
   # Auto-publish when version is increased
   pypi-publish:
     name: Publish release to PyPI
-    if: github.ref == 'refs/heads/pypi'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: 
       name: pypi
       url: https://pypi.org/project/ssak/
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
-    # defaults:
-    #   run:
-    #     working-directory: ./src
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -31,21 +31,3 @@ jobs:
           python setup.py sdist bdist_wheel  # Could also be python -m build
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-
-
-
-
-  # publish-job:
-  #   # Only publish on `main` branch
-  #   if: github.ref == 'refs/heads/pypi'
-  #   runs-on: ubuntu-latest
-  #   permissions: # Don't forget permissions
-  #     contents: write
-
-  #   steps:
-  #     - uses: etils-actions/pypi-auto-publish@v1
-  #       with:
-  #         pkg-name: ssak
-  #         # pypi-token: ${{ secrets.PYPI_API_TOKEN }}
-  #         # gh-token: ${{ secrets.GITHUB_TOKEN }}
-  #         parse-changelog: false
