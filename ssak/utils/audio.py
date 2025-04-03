@@ -175,6 +175,8 @@ def save_audio(path, audio, sample_rate=16_000):
     if isinstance(audio, torch.Tensor):
         audio = audio.numpy()
         audio = audio.transpose()
+    elif isinstance(audio, list):
+        audio = np.array(audio, dtype=np.float32)
     sox.write(path, audio, sample_rate)
 
 
