@@ -80,11 +80,11 @@ sudo apt-get install -y --no-install-recommends firefox-esr
 
 If not done, pull the docker image:
 ```
-docker pull lintoai/sak:latest
+docker pull lintoai/ssak:latest
 ```
 or build it:
 ```
-docker build -t lintoai/sak:latest .
+docker build -t lintoai/ssak:latest .
 ```
 
 Run it, with advised options:
@@ -94,7 +94,7 @@ docker run -it --rm \
     --user $(id -u):$(id -g) \
     --env HOME=~ --workdir ~ \
     -v /home:/home \
-    --name sak_workspace \
-    lintoai/sak:latest
+    --name ssak_workspace \
+    lintoai/ssak:latest
 ```
 (also add `--gpus all` to use GPU).
