@@ -4,17 +4,54 @@ on: [push, workflow_dispatch]
 
 jobs:
   # Auto-publish when version is increased
-  publish-job:
-    # Only publish on `main` branch
-    if: github.ref == 'refs/heads/pypi'
+  deploy:
     runs-on: ubuntu-latest
-    permissions: # Don't forget permissions
-      contents: write
-
+    environment: 
+      name: pypi
+      url: https://pypi.org/project/ssak/
+    permissions:
+      id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
+    defaults:
+      run:
+        working-directory: ./src
     steps:
-      - uses: etils-actions/pypi-auto-publish@v1
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          pkg-name: ssak
-          # pypi-token: ${{ secrets.PYPI_API_TOKEN }}
-          # gh-token: ${{ secrets.GITHUB_TOKEN }}
-          parse-changelog: false
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install build
+
+      - name: Build package
+        run: |
+          python3 -m pip install --upgrade build
+          python3 -m build
+
+      - name: Publish package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: ./src/dist/
+
+
+
+
+  # publish-job:
+  #   # Only publish on `main` branch
+  #   if: github.ref == 'refs/heads/pypi'
+  #   runs-on: ubuntu-latest
+  #   permissions: # Don't forget permissions
+  #     contents: write
+
+  #   steps:
+  #     - uses: etils-actions/pypi-auto-publish@v1
+  #       with:
+  #         pkg-name: ssak
+  #         # pypi-token: ${{ secrets.PYPI_API_TOKEN }}
+  #         # gh-token: ${{ secrets.GITHUB_TOKEN }}
+  #         parse-changelog: false
