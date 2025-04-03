@@ -6,7 +6,7 @@ jobs:
   # Auto-publish when version is increased
   publish-job:
     # Only publish on `main` branch
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/pypi'
     runs-on: ubuntu-latest
     permissions: # Don't forget permissions
       contents: write
@@ -15,6 +15,6 @@ jobs:
       - uses: etils-actions/pypi-auto-publish@v1
         with:
           pkg-name: ssak
-          pypi-token: ${{ secrets.PYPI_API_TOKEN }}
-          gh-token: ${{ secrets.GITHUB_TOKEN }}
+          # pypi-token: ${{ secrets.PYPI_API_TOKEN }}
+          # gh-token: ${{ secrets.GITHUB_TOKEN }}
           parse-changelog: false
