@@ -4,39 +4,33 @@ on: [push, workflow_dispatch]
 
 jobs:
   # Auto-publish when version is increased
-  deploy:
+  pypi-publish:
+    name: Publish release to PyPI
+    if: github.ref == 'refs/heads/pypi'
     runs-on: ubuntu-latest
     environment: 
       name: pypi
       url: https://pypi.org/project/ssak/
     permissions:
       id-token: write # IMPORTANT: this permission is mandatory for trusted publishing
-    defaults:
-      run:
-        working-directory: ./src
+    # defaults:
+    #   run:
+    #     working-directory: ./src
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        
+      - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: "3.x"
-
       - name: Install dependencies
         run: |
-          python3 -m pip install --upgrade pip
-          pip install build
-
+          python -m pip install --upgrade pip
+          pip install setuptools wheel
       - name: Build package
         run: |
-          python3 -m pip install --upgrade build
-          python3 -m build
-
-      - name: Publish package to PyPI
+          python setup.py sdist bdist_wheel  # Could also be python -m build
+      - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          packages-dir: ./src/dist/
 
 
 
