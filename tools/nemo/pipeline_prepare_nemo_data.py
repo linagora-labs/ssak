@@ -122,12 +122,7 @@ if __name__ == "__main__":
         except FileExistsError:
             logger.info(f"{i} merged manifest already exists")
         try:
-            clean_text_fr(
-                input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"),
-                output=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"),
-                keep_punc=False,
-                empty_string_policy="ignore",
-            )
+            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"), keep_punc=False, empty_string_policy="ignore", wer_format=False)
         except FileExistsError:
             logger.info(f"{i} cleaned manifest already exists")
     if len(splits_to_process) > 1:

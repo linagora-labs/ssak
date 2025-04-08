@@ -78,7 +78,7 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
     if check_audio:
         logger.info("Checking (and transforming if needed) audio files")
         kaldi_dataset.normalize_audios(
-            os.path.join(new_audio_folder, kaldi_dataset.name),
+            os.path.join(new_audio_folder, kaldi_dataset.name.replace("_casepunc", "").replace("_nocasepunc", "")),
             target_sample_rate=16000,
             target_extension="wav",
             num_workers=6,

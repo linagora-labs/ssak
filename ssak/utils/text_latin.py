@@ -40,17 +40,7 @@ _ALL_ACRONYMS = []
 
 
 def format_text_latin(
-    text,
-    lang="fr",
-    lower_case=True,
-    keep_punc=False,
-    remove_ligatures=True,
-    convert_numbers=True,
-    extract_parenthesis=False,
-    fid_acronyms=None,
-    fid_special_chars=None,
-    safety_checks=True,
-    remove_suspicious_entry=False,
+    text, lang="fr", lower_case=True, keep_punc=False, remove_ligatures=True, convert_numbers=True, extract_parenthesis=False, fid_acronyms=None, fid_special_chars=None, safety_checks=True, remove_suspicious_entry=False, wer_format=True
 ):
     opts = _rm_key(locals(), "text")
 
@@ -137,7 +127,10 @@ def format_text_latin(
             text = re.sub(":", " : ", text)
             text = re.sub(";", " ; ", text)
         # text = re.sub("^ *-+", "", text)
-        text = re.sub("'", "' ", text)
+        if wer_format:
+            text = re.sub("'", "' ", text)
+        else:
+            text = re.sub("' ", "'", text)
         text = re.sub(r"\^+", "", text)
         text = re.sub(" +(- +)+", " ", text)
         text = re.sub("- ", " ", text)
@@ -169,7 +162,6 @@ def format_text_latin(
                 # text_rep=split_h[0]+' heures '+split_h[1]
                 text = text.replace(h, text_rep)
 
-        if convert_numbers:
             text = numbers_and_symbols_to_letters(text, lang=lang)
 
             if lang == "fr":

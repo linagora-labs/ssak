@@ -304,7 +304,7 @@ class KaldiDataset:
                 new_dataset.append(row)
         return new_dataset
 
-    def normalize_dataset(self, apply_text_normalization=True):
+    def normalize_dataset(self, apply_text_normalization=True, wer_format=False):
         """
         Normalize the texts in the dataset using the format_text_latin function from ssak.utils.text_latin
 
@@ -319,7 +319,7 @@ class KaldiDataset:
         for row in tqdm(self.dataset, total=len(self.dataset), desc="Normalizing texts"):
             from ssak.utils.text_latin import format_text_latin
 
-            row.normalized_text = format_text_latin(row.text)
+            row.normalized_text = format_text_latin(row.text, wer_format=wer_format)
             if apply_text_normalization:
                 row.text = row.normalized_text
 
