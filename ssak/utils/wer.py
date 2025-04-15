@@ -782,7 +782,9 @@ where a result is a dictionary as returned by compute_wer, or a list of such dic
         plt.legend(
             fontsize=label_size,
             ncols=2,
-            loc="best",
+            # loc="best",
+            loc='upper left', 
+            bbox_to_anchor=(1, 1)
         )
     if show_axisnames:
         use_percent = scale == 100
