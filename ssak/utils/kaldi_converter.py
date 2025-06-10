@@ -116,7 +116,7 @@ class ToKaldi:
                 logger.warning(f"Dataset ({len(dataset)} rows) has {len(diff_a_b)} rows not present in new data")
                 logger.warning(f"New data ({len(new_data)} rows) has {len(diff_b_a)} rows not present in dataset")
                 logger.warning("Writing ids to log2kaldi/missing_ids.txt")
-                os.makedirs("log2kaldi", exist_ok=True)
+                os.makedirs("kaldi_data_processing", exist_ok=True)
                 if len(diff_a_b) > 0:
                     with open(os.path.join("kaldi_data_processing",f"merge_new_data_missing_{self.execute_order}_{self.__class__.__name__}.txt"), "w") as f:
                             f.write("In dataset but not in new data:\n")

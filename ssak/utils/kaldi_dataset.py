@@ -598,7 +598,7 @@ class KaldiDataset:
                 removed_lines.append(row)
         self.dataset = new_data
         os.makedirs(LOG_FOLDER, exist_ok=True)
-        with open(os.path.join(LOG_FOLDER, "filtered_out"), "w") as f:
+        with open(os.path.join(LOG_FOLDER, f"filtered_out_with_{filter.__name__ }"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
 
