@@ -113,15 +113,17 @@ class ToKaldi:
                 diff_a_b = set(dict_dataset.keys()).difference(set(dict_new_data.keys()))
                 diff_b_a = set(dict_new_data.keys()).difference(set(dict_dataset.keys()))
                 logger.warning(f"The data you are trying to merge have different lengths at step {self.__class__.__name__} (execute_order={self.execute_order})!")
-                logger.warning(f"Dataset {len(dataset)} has {len(diff_a_b)} not present in new data")
-                logger.warning(f"New data {len(new_data)} has {len(diff_b_a)} not present in dataset")
-                logger.warning("Writing ids to debug.txt")
-                with open("debug.txt", "w") as f:
-                    if len(diff_a_b) > 0:
-                        f.write("In datset but not in new data:\n")
-                        for i in diff_a_b:
-                            f.write(f"{i}\n")
-                    if len(diff_b_a) > 0:
+                logger.warning(f"Dataset ({len(dataset)} rows) has {len(diff_a_b)} rows not present in new data")
+                logger.warning(f"New data ({len(new_data)} rows) has {len(diff_b_a)} rows not present in dataset")
+                logger.warning("Writing ids to log2kaldi/missing_ids.txt")
+                os.makedirs("log2kaldi", exist_ok=True)
+                if len(diff_a_b) > 0:
+                    with open(os.path.join("kaldi_data_processing",f"merge_new_data_missing_{self.execute_order}_{self.__class__.__name__}.txt"), "w") as f:
+                            f.write("In dataset but not in new data:\n")
+                            for i in diff_a_b:
+                                f.write(f"{i}\n")
+                if len(diff_b_a) > 0:
+                    with open(os.path.join("kaldi_data_processing",f"merge_dataset_missing_{self.execute_order}_{self.__class__.__name__}.txt"), "w") as f:
                         f.write("In new data but not in dataset:\n")
                         for i in diff_b_a:
                             f.write(f"{i}\n")

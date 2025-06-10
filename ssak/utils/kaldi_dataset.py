@@ -10,6 +10,7 @@ from ssak.utils.kaldi import check_kaldi_dir
 
 logger = logging.getLogger(__name__)
 
+LOG_FOLDER = "kaldi_data_processing"
 
 @dataclass
 class KaldiDatasetRow:
@@ -266,7 +267,8 @@ class KaldiDataset:
                 new_data.append(row)
         self.dataset = new_data
         logger.info(f"Removed {len(removed_lines)} segments that were not in audios (start or end after audio), check removed_lines_not_in_audios file")
-        with open("removed_lines_not_in_audios", "w") as f:
+        os.makedirs(LOG_FOLDER, exist_ok=True)
+        with open(os.path.join(LOG_FOLDER, "removed_lines_not_in_audios"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
 
@@ -380,7 +382,8 @@ class KaldiDataset:
                 else:
                     removed_lines.append(row)
             self.dataset = new_dataset
-            with open("removed_lines_audio_empty", "w") as f:
+            os.makedirs(LOG_FOLDER, exist_ok=True)
+            with open(os.path.join(LOG_FOLDER, "removed_lines_audio_empty"), "w") as f:
                 for row in removed_lines:
                     f.write(str(row) + "\n")
 
@@ -594,7 +597,8 @@ class KaldiDataset:
             else:
                 removed_lines.append(row)
         self.dataset = new_data
-        with open("filtered_out", "w") as f:
+        os.makedirs(LOG_FOLDER, exist_ok=True)
+        with open(os.path.join(LOG_FOLDER, "filtered_out"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
 
