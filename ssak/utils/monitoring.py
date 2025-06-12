@@ -410,11 +410,17 @@ class Monitoring:
         if self.will_plot_monitoring:
             pass
         self.device = self.device if self.device else 0
-        if self.device == "cuda" or self.device == "gpu":
+        if self.device=="cuda" or self.device == "gpu":
             self.device = 0
-        if self.device != "cpu":
-            get_num_gpus()
+        elif self.device.startswith("cuda:"):
+            self.device = int(self.device.split(":")[1])
+        if self.device != "cpu" and isinstance(self.device, int):
+            num_gpus = get_num_gpus()
+            if self.device>num_gpus:
+                raise ValueError(f"GPU {self.device} doesn't exist, only {num_gpus} GPUs available")
             self.device = ALL_GPU_INDICES[self.device]
+        elif self.device != "cpu":
+            raise ValueError(f"Device {self.device} doesn't exist, use 'gpu', 'cpu', 'cuda', 'cuda:0' or '0' for example")
 
     def _finish_step(self, monitoring, step_values, step=0, start=0):
         for i in step_values:
