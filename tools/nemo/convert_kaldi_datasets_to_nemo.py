@@ -25,7 +25,7 @@ def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Merge manifest files")
+    parser = argparse.ArgumentParser(description="Convert a list of Kaldi datasets to Nemo format")
     parser.add_argument("inputs", help="Input files", type=str, nargs="+")
     parser.add_argument("output", help="Output file", type=str)
     parser.add_argument("--output_wav_dir", type=str, default=None)

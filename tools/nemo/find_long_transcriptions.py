@@ -55,7 +55,7 @@ def filter_incoherent_segments(input_file, filtered_out_file):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Remove incoherent lines from nemo manifest")
+    parser = argparse.ArgumentParser(description="Remove incoherent lines by looking at the number of words and segment duration from nemo manifest")
     parser.add_argument("file", help="Input file", type=str)
     parser.add_argument("output", help="output file", type=str)
     # parser.add_argument('--max_char', help="Depends on segments max length", type=int, default=700)

@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#
+# This script was modified by LINAGORA to skip shards that were finished when restarting the conversion to tarred dataset
+
 """
 # This script converts an existing audio dataset with a manifest to
 # a tarred and sharded audio dataset that can be read by the

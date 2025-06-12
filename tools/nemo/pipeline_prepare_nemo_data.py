@@ -12,7 +12,7 @@ CHECK_IF_SEGMENT_IN_AUDIO = False
 REMOVE_INCOHERENT_TEXTS = True
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Prepare data for Nemo")
+    parser = argparse.ArgumentParser(description="Prepare data for Nemo: generate dataset list files, convert datasets from kaldi format, merge them, clean them and if needed create a tarred version and a tokenizer.")
     parser.add_argument("--train_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--test_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--dev_input_datasets", help="Input datasets", type=str, default=None)
