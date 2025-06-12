@@ -17,12 +17,12 @@ if __name__ == "__main__":
     parser.add_argument("--test_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--dev_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--datasets_folder", help="Dataset folder", type=str, default=None)
-    parser.add_argument("--output_wav_dir", help="Output wav directory", type=str, default="processed_dataset")
-    parser.add_argument("--manifest_dir", default="input_manifests")
-    parser.add_argument("--subset_pattern", default="nocasepunc_max30", type=str)
+    parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default="processed_dataset")
+    parser.add_argument("--manifest_dir", default="input_manifests", help="Place to store/load manifests")
+    parser.add_argument("--subset_pattern", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
     # Options for creating a tokenizer using all splits
     parser.add_argument("--create_tokenizer", default=None, help="Folder to save tokenizer (if not set, no tokenizer is created)")
-    parser.add_argument("--vocab_size", help="Vocab size", type=int, default=1024)
+    parser.add_argument("--vocab_size", help="Vocab size of the tokenizer", type=int, default=1024)
     parser.add_argument("--spe_type", help="Type of tokenizer", choices=["unigram", "bpe", "char", "word"], type=str, default="bpe")
     # Options for making buckets for the training data
     parser.add_argument("--create_tarred", default=None, help="Folder to save tarred dataset (if not set, no tarred dataset is created)")
