@@ -58,10 +58,10 @@ SPECIAL_CHARS = {
 }
 
 
-def check_kaldi_dir(dirname, language=None, strict_sort=False):
+def check_kaldi_dir(dirname, language=None, strict_sort=False, tool_dir=None):
     strict_sort = "true" if strict_sort else "false"
-    tool_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))), "tools", "kaldi", "utils")
-
+    if not tool_dir:
+        tool_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))), "tools", "kaldi", "utils")
     if os.path.isfile(os.path.join(dirname, "text")):
         with open(os.path.join(dirname, "text")) as f:
             texts = dict(parse_line(line) for line in f)

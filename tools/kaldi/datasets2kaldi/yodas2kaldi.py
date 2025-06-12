@@ -13,7 +13,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert yodas dataset to Kaldi format")
     parser.add_argument("--force", action="store_true", default=True)
     parser.add_argument("--input", type=str, default="/data-server/datasets/audio/transcript/fr/YODAS/fr000")
-    parser.add_argument("--output", type=str, default="/data-server/datasets/audio/kaldi/fr/YODAS/fr000_2")
+    parser.add_argument("--output", type=str, default="/data-server/datasets/audio/kaldi/fr/YODAS/fr000")
     args = parser.parse_args()
 
     input_dataset = args.input
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     audio_ids = Row2Info("id", ["audio_id"], 3, None, None)
     spk_ids = Row2Info("id", ["speaker"], 4, None, None)
     dev_reader = Reader2Kaldi(input_dataset, processors=[texts, durations, audios, audio_ids, spk_ids])
-    dataset = dev_reader.load(debug=False, accept_missing_speaker=True)
+    dataset = dev_reader.load(debug=False, accept_missing_speaker=False)
     
     def filter(row):
         if row.id.startswith("E--pPwqi_50-"):
