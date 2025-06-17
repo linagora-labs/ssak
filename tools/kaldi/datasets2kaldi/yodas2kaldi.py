@@ -51,15 +51,19 @@ if __name__ == "__main__":
     audio_ids = Row2Info("id", ["audio_id"], 3, None, None)
     spk_ids = Row2Info("id", ["speaker"], 4, None, None)
     dev_reader = Reader2Kaldi(input_dataset, processors=[texts, durations, audios, audio_ids, spk_ids])
-    dataset = dev_reader.load(debug=False, accept_missing_speaker=True)
-    dataset.normalize_audios(os.path.join(input_dataset, "converted"), target_extension="wav", num_workers=16)
-
+    dataset = dev_reader.load(debug=False, accept_missing_speaker=False)
+    
     def filter(row):
         if row.id.startswith("E--pPwqi_50-"):
+            return True
+        elif "#" in row.text:
             return True
         return False
 
     removed_lines = dataset.apply_filter(filter)
+    
+    dataset.normalize_audios(os.path.join(input_dataset, "converted"), target_extension="wav", num_workers=16)
+
     logger.info(f"Dataset duration: {dataset.get_duration('sum')/3600:.2f}h")
     dataset.save(raw, False)
 

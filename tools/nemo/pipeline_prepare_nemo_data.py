@@ -7,17 +7,22 @@ from convert_kaldi_datasets_to_nemo import convert_datasets
 from generate_dataset_list_files import generate_dataset_list_files
 from merge_manifest import merge_manifests
 
+CHECK_AUDIO = True
+CHECK_IF_SEGMENT_IN_AUDIO = False
+REMOVE_INCOHERENT_TEXTS = True
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Prepare data for Nemo")
+    parser = argparse.ArgumentParser(description="Prepare data for Nemo: generate dataset list files, convert datasets from kaldi format, merge them, clean them and if needed create a tarred version and a tokenizer.")
     parser.add_argument("--train_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--test_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--dev_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--datasets_folder", help="Dataset folder", type=str, default=None)
-    parser.add_argument("--output_wav_dir", help="Output wav directory", type=str, default="processed_dataset")
-    parser.add_argument("--manifest_dir", default="input_manifests")
+    parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default="processed_dataset")
+    parser.add_argument("--manifest_dir", default="input_manifests", help="Place to store/load manifests")
+    parser.add_argument("--subset_pattern", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
     # Options for creating a tokenizer using all splits
     parser.add_argument("--create_tokenizer", default=None, help="Folder to save tokenizer (if not set, no tokenizer is created)")
-    parser.add_argument("--vocab_size", help="Vocab size", type=int, default=1024)
+    parser.add_argument("--vocab_size", help="Vocab size of the tokenizer", type=int, default=1024)
     parser.add_argument("--spe_type", help="Type of tokenizer", choices=["unigram", "bpe", "char", "word"], type=str, default="bpe")
     # Options for making buckets for the training data
     parser.add_argument("--create_tarred", default=None, help="Folder to save tarred dataset (if not set, no tarred dataset is created)")
@@ -74,7 +79,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "train_datasets"),
             mode="train",
-            subset_pattern="nocasepunc_max30",
+            subset_pattern=args.subset_pattern,
         )
     if args.test_input_datasets:
         splits_to_process.append("test")
@@ -83,7 +88,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "test_datasets"),
             mode="test",
-            subset_pattern="nocasepunc_max30",
+            subset_pattern=args.subset_pattern,
         )
     if args.dev_input_datasets:
         splits_to_process.append("dev")
@@ -92,7 +97,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "dev_datasets"),
             mode="dev",
-            subset_pattern="nocasepunc_max30",
+            subset_pattern=args.subset_pattern,
         )
     if len(splits_to_process) == 0:
         raise ValueError("No splits to process")
@@ -103,7 +108,9 @@ if __name__ == "__main__":
                 [os.path.join(tmp_manifest_dir, "datasets_list", f"{i}_datasets")],
                 os.path.join(tmp_manifest_dir, f"{i}_manifests"),
                 output_wav_dir,
-                check_audio=True,
+                check_audio=CHECK_AUDIO,
+                check_if_in_audio=CHECK_IF_SEGMENT_IN_AUDIO,
+                remove_incoherent_texts=REMOVE_INCOHERENT_TEXTS,
             )
         except FileExistsError:
             pass
@@ -115,12 +122,7 @@ if __name__ == "__main__":
         except FileExistsError:
             logger.info(f"{i} merged manifest already exists")
         try:
-            clean_text_fr(
-                input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"),
-                output=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"),
-                keep_punc=False,
-                empty_string_policy="ignore",
-            )
+            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"), keep_punc=False, empty_string_policy="ignore", wer_format=False)
         except FileExistsError:
             logger.info(f"{i} cleaned manifest already exists")
     if len(splits_to_process) > 1:

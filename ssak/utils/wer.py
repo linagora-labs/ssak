@@ -155,6 +155,7 @@ def compute_wer(
 
         if strong_normalization:
             from ssak.utils.text_basic import collapse_whitespace
+
             def remove_not_words(s):
                 # Remove any character that is not alpha-numeric (e.g. apostrophes, dashes, ...)
                 return collapse_whitespace(re.sub(r"[^\w]", " ", s))
@@ -781,7 +782,9 @@ where a result is a dictionary as returned by compute_wer, or a list of such dic
         plt.legend(
             fontsize=label_size,
             ncols=2,
-            loc="best",
+            # loc="best",
+            loc='upper left', 
+            bbox_to_anchor=(1, 1)
         )
     if show_axisnames:
         use_percent = scale == 100

@@ -22,9 +22,9 @@ def rename_audio_path(input, old_path, new_path):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Merge manifest files")
+    parser = argparse.ArgumentParser(description="Replace a string by another in audio paths for JSONL")
     parser.add_argument("input", type=str, help="")
-    parser.add_argument("search", type=str, default="/data-server/datasets/audio/transcript/fr/YODAS/", help="")
+    parser.add_argument("search", type=str, default="", help="")
     parser.add_argument("replace_with", type=str, help="")
     args = parser.parse_args()
     rename_audio_path(args.input, args.search, args.replace_with)

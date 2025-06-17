@@ -4,9 +4,8 @@ import os
 
 import soundfile
 from datasets import load_dataset
-from tqdm import tqdm
-
 from linastt.utils.kaldi_dataset import KaldiDataset
+from tqdm import tqdm
 
 
 def write_dataset(

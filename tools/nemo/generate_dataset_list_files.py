@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 import re
@@ -7,15 +8,27 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def generate_dataset_list_files(dateset_list, dataset_folder, dest, mode, subset_pattern):
+def generate_dataset_list_files(dataset_list, dataset_folder, dest, mode, subset_pattern):
     if os.path.exists(dest):
         logger.info(f"Reading dataset list from {dest} (already exists)")
         with open(dest) as f:
             return f.read().strip().split("\n")
     new_list = []
-    with open(dateset_list) as f:
-        datasets = f.read().strip().split("\n")
-
+    if dataset_list.endswith(".json"):
+        with open(dataset_list) as f:
+            data = json.load(f)
+        datasets = []
+        for d in data:
+            if data[d]:
+                if mode == "dev" and data[d].get("valid", False):
+                    datasets.append(data[d].get("kaldi_subpath", d))
+                elif mode == "train":
+                    datasets.append(data[d].get("kaldi_subpath", d))
+            elif mode == "train":
+                datasets.append(d)
+    else:
+        with open(dataset_list) as f:
+            datasets = f.read().strip().split("\n")
     patterns = ""
     if mode == "train":
         patterns = r"train$|split\d$"

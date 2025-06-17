@@ -10,6 +10,7 @@ from ssak.utils.kaldi import check_kaldi_dir
 
 logger = logging.getLogger(__name__)
 
+LOG_FOLDER = "kaldi_data_processing"
 
 @dataclass
 class KaldiDatasetRow:
@@ -247,6 +248,30 @@ class KaldiDataset:
             return mode(durations)
         return mode([i.duration for i in self.dataset])
 
+    def check_if_segments_in_audios(self, acceptance_end_s=0.25):
+        from pydub.utils import mediainfo
+
+        new_data = []
+        removed_lines = []
+        files_duration = dict()
+        for row in tqdm(self, desc="Check if segments are in audios"):
+            if row.audio_path not in files_duration:
+                dur = round(float(mediainfo(row.audio_path)["duration"]), 3)
+                files_duration[row.audio_path] = dur
+            dur = files_duration[row.audio_path]
+            if row.start >= dur:
+                removed_lines.append(row)
+            elif row.end > dur + acceptance_end_s:
+                removed_lines.append(row)
+            else:
+                new_data.append(row)
+        self.dataset = new_data
+        logger.info(f"Removed {len(removed_lines)} segments that were not in audios (start or end after audio), check removed_lines_not_in_audios file")
+        os.makedirs(LOG_FOLDER, exist_ok=True)
+        with open(os.path.join(LOG_FOLDER, "removed_lines_not_in_audios"), "w") as f:
+            for row in removed_lines:
+                f.write(str(row) + "\n")
+
     def filter_by_audio_ids(self, audio_ids):
         """
         Filter the dataset by audio ids
@@ -281,7 +306,7 @@ class KaldiDataset:
                 new_dataset.append(row)
         return new_dataset
 
-    def normalize_dataset(self, apply_text_normalization=True):
+    def normalize_dataset(self, apply_text_normalization=True, wer_format=False):
         """
         Normalize the texts in the dataset using the format_text_latin function from ssak.utils.text_latin
 
@@ -296,7 +321,7 @@ class KaldiDataset:
         for row in tqdm(self.dataset, total=len(self.dataset), desc="Normalizing texts"):
             from ssak.utils.text_latin import format_text_latin
 
-            row.normalized_text = format_text_latin(row.text)
+            row.normalized_text = format_text_latin(row.text, wer_format=wer_format)
             if apply_text_normalization:
                 row.text = row.normalized_text
 
@@ -357,7 +382,8 @@ class KaldiDataset:
                 else:
                     removed_lines.append(row)
             self.dataset = new_dataset
-            with open("removed_lines", "w") as f:
+            os.makedirs(LOG_FOLDER, exist_ok=True)
+            with open(os.path.join(LOG_FOLDER, "removed_lines_audio_empty"), "w") as f:
                 for row in removed_lines:
                     f.write(str(row) + "\n")
 
@@ -571,7 +597,8 @@ class KaldiDataset:
             else:
                 removed_lines.append(row)
         self.dataset = new_data
-        with open("filtered_out", "w") as f:
+        os.makedirs(LOG_FOLDER, exist_ok=True)
+        with open(os.path.join(LOG_FOLDER, f"filtered_out_with_{filter.__name__ }"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
 
