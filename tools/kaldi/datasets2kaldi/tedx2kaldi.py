@@ -20,9 +20,9 @@ if __name__ == "__main__":
 
     output_path = args.output
 
-    raw_dev = os.path.join(output_path, "casepunc/dev")
-    raw_test = os.path.join(output_path, "casepunc/test")
-    raw_train = os.path.join(output_path, "casepunc/train")
+    raw_dev = os.path.join(output_path, "raw/dev")
+    raw_test = os.path.join(output_path, "raw/test")
+    raw_train = os.path.join(output_path, "raw/train")
 
     nocasepunc_dev = os.path.join(output_path, "nocasepunc/dev")
     nocasepunc_test = os.path.join(output_path, "nocasepunc/test")
