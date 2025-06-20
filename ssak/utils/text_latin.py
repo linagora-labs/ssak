@@ -134,6 +134,8 @@ def format_text_latin(
         text = re.sub(r"\^+", "", text)
         text = re.sub(" +(- +)+", " ", text)
         text = re.sub("- ", " ", text)
+
+        text = re.sub(r"\([^)]*\)", "", text)
         # text = re.sub("([a-zàâäçèéêëîïôùûü]+)- +", r"\1-", text)
         # text = re.sub(" -([a-zàâäçèéêëîïôùûü]+)", r"-\1", text)
         # text = re.sub("([,;:\!\?\.]) -([a-zàâäçèéêëîïôùûü]+)", r"\1 \2", text)
@@ -251,7 +253,10 @@ def format_text_latin(
 
         if not keep_punc:
             text = remove_punctuations(text, " ")
-
+        else:
+            if lang == "fr":
+                text = re.sub(r"\s+([,\.!?])", r"\1", text)  # in french ,.!? must not have space before them
+            text = re.sub(r"^\s*[-,\.!?\s]*", "", text)  # remove punct if begining of string
         if lower_case:
             text = text.lower()
 
@@ -522,7 +527,7 @@ _corrections_abbreviations_fr = [
         # ("L", "litres"), # Caution with "L'"
         ("ml", "millilitres"),
         ("cm2", "centimètres carrés"),
-        (r"[Mm]\.?", "monsieur"),
+        (r"[Mm]\.", "monsieur"),
         (r"[Mm]me\.?", "madame"),
         (r"[Mm]lle\.?", "mademoiselle"),
     ]

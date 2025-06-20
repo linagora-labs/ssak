@@ -24,6 +24,7 @@ def clean_text_fr(
     ignore_first=0,
     file_acronyms=None,
     file_special_char=None,
+    wer_format=False,
 ):
     if file_clean_mode == "kaldi":
         ignore_first = 1
@@ -90,6 +91,7 @@ def clean_text_fr(
                 fid_acronyms=fid_acronyms,
                 fid_special_chars=fid_special_char,
                 remove_suspicious_entry=remove_suspicious_entry,
+                wer_format=wer_format,
             )
             num_dumps = 0
             for subline in line.splitlines():
@@ -136,6 +138,7 @@ if __name__ == "__main__":
     parser.add_argument("--keep_punc", help="Keep punctuations", default=False, action="store_true")
     parser.add_argument("--keep_num", help="Keep numbers and symbols", default=False, action="store_true")
     parser.add_argument("--keep_case", help="Keep case (otherwise, everything will be lowercased)", default=False, action="store_true")
+    parser.add_argument("--wer_format", help="", default=False, action="store_true")
     parser.add_argument(
         "--empty_string_policy",
         choices=["fail", "allow", "ignore"],
@@ -190,4 +193,5 @@ if __name__ == "__main__":
         ignore_first=args.ignore_first,
         file_acronyms=args.file_acronyms,
         file_special_char=args.file_special_char,
+        wer_format=args.wer_format,
     )

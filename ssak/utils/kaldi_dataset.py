@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 LOG_FOLDER = "kaldi_data_processing"
 
+
 @dataclass
 class KaldiDatasetRow:
     """
@@ -306,7 +307,7 @@ class KaldiDataset:
                 new_dataset.append(row)
         return new_dataset
 
-    def normalize_dataset(self, apply_text_normalization=True, wer_format=False):
+    def normalize_dataset(self, apply_text_normalization=True, wer_format=False, keep_punc=False, keep_case=False):
         """
         Normalize the texts in the dataset using the format_text_latin function from ssak.utils.text_latin
 
@@ -318,12 +319,18 @@ class KaldiDataset:
         if self.dataset[0].normalized_text is not None:
             logger.warning("Dataset is already normalized (or at least first segment), skipping normalization")
             return
-        for row in tqdm(self.dataset, total=len(self.dataset), desc="Normalizing texts"):
-            from ssak.utils.text_latin import format_text_latin
 
-            row.normalized_text = format_text_latin(row.text, wer_format=wer_format)
+        from ssak.utils.text_latin import format_text_latin
+
+        new_dataset = []
+        for row in tqdm(self.dataset, total=len(self.dataset), desc="Normalizing texts"):
+            row.normalized_text = format_text_latin(row.text, wer_format=wer_format, keep_punc=keep_punc, lower_case=not keep_case)
             if apply_text_normalization:
                 row.text = row.normalized_text
+                if len(row.text) > 0:
+                    new_dataset.append(row)
+        if len(new_dataset) > 0:
+            self.dataset = new_dataset
 
     def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
         """
