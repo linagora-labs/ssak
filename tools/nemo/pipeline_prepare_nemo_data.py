@@ -21,6 +21,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default="processed_dataset")
     parser.add_argument("--manifest_dir", default="input_manifests", help="Place to store/load manifests")
     parser.add_argument("--subset_pattern", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
+    parser.add_argument("--nocasepunc", default=False, action="store_true", help="Remove casing and punctuations when cleaning")
     # Options for creating a tokenizer using all splits
     parser.add_argument("--create_tokenizer", default=None, help="Folder to save tokenizer (if not set, no tokenizer is created)")
     parser.add_argument("--vocab_size", help="Vocab size of the tokenizer", type=int, default=1024)
@@ -40,6 +41,7 @@ if __name__ == "__main__":
     input_datasets = args.train_input_datasets
     output_wav_dir = args.output_wav_dir
     tmp_manifest_dir = args.manifest_dir
+    casepunc = not args.nocasepunc
 
     logger.info(f"Train input is set to {input_datasets}")
     logger.info(f"Test input is set to {args.test_input_datasets}")
@@ -126,7 +128,7 @@ if __name__ == "__main__":
         if not os.path.exists(clean_path):
             if os.path.exists(clean_path + ".tmp"):
                 os.remove(clean_path + ".tmp")
-            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=clean_path + ".tmp", keep_punc=True, keep_case=True, empty_string_policy="ignore", wer_format=False)
+            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=clean_path + ".tmp", keep_punc=casepunc, keep_case=casepunc, empty_string_policy="ignore", wer_format=False)
             shutil.move(clean_path + ".tmp", clean_path)
         else:
             logger.info(f"{i} cleaned manifest already exists")
