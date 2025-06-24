@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 
 from find_long_transcriptions import filter_incoherent_segments
 from tqdm import tqdm
@@ -24,6 +25,9 @@ def get_args():
         help="Output folder for converted audio files (if check_audio is True)",
     )
     parser.add_argument("--check_audio", action="store_true", default=False, help="Check audio files for correct format")
+    parser.add_argument("--check_if_in_audio", action="store_true", default=False, help="Check if segment is part of the audio")
+    parser.add_argument("--remove_incoherent_texts", action="store_true", default=False, help="Remove text with incoherent length")
+
     return parser.parse_args()
 
 
@@ -34,7 +38,7 @@ def get_output_file(dataset, output_dir):
 
 def kaldi_to_nemo(kaldi_dataset, output_file):
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    with open(output_file, "w", encoding="utf-8") as f:
+    with open(output_file + ".tmp", "w", encoding="utf-8") as f:
         for row in tqdm(kaldi_dataset):
             row_data = vars(row)
             row_data.pop("id")
@@ -48,10 +52,12 @@ def kaldi_to_nemo(kaldi_dataset, output_file):
                 row_data.pop("gender")
             json.dump(row_data, f, ensure_ascii=False)
             f.write("\n")
+    shutil.move(output_file + ".tmp", output_file)
 
 
 def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False):
     logger.info(f"Converting Kaldi dataset {kaldi_input_dataset} to NeMo format")
+    logger.info(f"check_audio : {check_audio}, check_if_in_audio : {check_if_in_audio}, remove_incoherent_texts : {remove_incoherent_texts}")
     splitted_path = kaldi_input_dataset.split(os.sep)
     if splitted_path[-1] == "":
         splitted_path = splitted_path[:-1]

@@ -560,7 +560,7 @@ class KaldiDataset:
             raise ValueError("New folder must be specified for audio conversion")
         if not os.path.exists(new_path):
             if not os.path.exists(audio_path):
-                raise FileNotFoundError(f"Audio file {audio_path} does not exist")
+                raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
             infos = mediainfo(audio_path)
             src_sample_rate = int(infos["sample_rate"])
             src_n_channels = int(infos["channels"])

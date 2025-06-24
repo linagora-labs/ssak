@@ -1,6 +1,7 @@
 import argparse
 import logging
 import os
+import shutil
 
 from clean_manifest_text_fr import clean_text_fr
 from convert_kaldi_datasets_to_nemo import convert_datasets
@@ -121,9 +122,13 @@ if __name__ == "__main__":
             )
         except FileExistsError:
             logger.info(f"{i} merged manifest already exists")
-        try:
-            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"), keep_punc=False, empty_string_policy="ignore", wer_format=False)
-        except FileExistsError:
+        clean_path = os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl")
+        if not os.path.exists(clean_path):
+            if os.path.exists(clean_path + ".tmp"):
+                os.remove(clean_path + ".tmp")
+            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=clean_path + ".tmp", keep_punc=False, empty_string_policy="ignore", wer_format=False)
+            shutil.move(clean_path + ".tmp", clean_path)
+        else:
             logger.info(f"{i} cleaned manifest already exists")
     if len(splits_to_process) > 1:
         try:

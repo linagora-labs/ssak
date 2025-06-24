@@ -1,4 +1,5 @@
 import argparse
+import json
 import logging
 import os
 
@@ -13,14 +14,24 @@ def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio
     input_files = inputs
     if len(input_files) == 1:
         logger.warning("One input file, considering it as containing a list of files")
-        with open(input_files[0], encoding="utf-8") as f:
-            input_files = [l.strip() for l in f.readlines()]
+        with open(input_files[0]) as f:
+            input_files = json.load(f)
     for input_folder in tqdm(input_files, desc=f"Converting datasets from {inputs} to {output_file}"):
         if not os.path.exists(input_folder):
             raise FileNotFoundError(f"Non-existing file {input_folder}")
         if not os.path.isdir(input_folder):
             raise NotADirectoryError(f"File {input_folder} is not a directory")
-        convert_dataset(input_folder, output_file, output_wav_dir, check_audio=check_audio, check_if_in_audio=check_if_in_audio, remove_incoherent_texts=remove_incoherent_texts)
+        if isinstance(input_files, dict):
+            convert_dataset(
+                input_folder,
+                output_file,
+                output_wav_dir,
+                check_audio=input_files[input_folder].get("check_audio", True),
+                check_if_in_audio=input_files[input_folder].get("check_if_in_audio", False),
+                remove_incoherent_texts=input_files[input_folder].get("remove_incoherent_texts", False),
+            )
+        else:
+            convert_dataset(input_folder, output_file, output_wav_dir, check_audio=check_audio, check_if_in_audio=check_if_in_audio, remove_incoherent_texts=remove_incoherent_texts)
     logger.info(f"Finished converting datasets from {input_files} to {output_file}")
 
 

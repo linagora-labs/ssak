@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import shutil
 
 from tqdm import tqdm
 
@@ -24,7 +25,7 @@ def merge_manifests(inputs, output):
             with open(inputs[0], encoding="utf-8") as f:
                 input_files = [l.strip() for l in f.readlines()]
     data = 0
-    with open(output, "w", encoding="utf-8") as out:
+    with open(output + ".tmp", "w", encoding="utf-8") as out:
         for input_file in tqdm(input_files, desc="Merging manifest files"):
             if not os.path.exists(input_file):
                 raise FileNotFoundError(f"Non-existing file {input_file}")
@@ -57,6 +58,7 @@ def merge_manifests(inputs, output):
                     json.dump(row, out, ensure_ascii=False)
                     out.write("\n")
                     data += 1
+    shutil.move(output + ".tmp", output)
     logger.info(f"Saved {data} lines to {output}")
 
 

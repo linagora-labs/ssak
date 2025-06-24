@@ -14,9 +14,9 @@ logger.setLevel(logging.INFO)
 def clean_dataset(dataset_name, dataset_path, casepunc=False, subset=None):
     input_dataset_path = os.path.join(dataset_path, "raw", subset if subset else "")
     target = "casepunc" if casepunc else "nocasepunc"
-    if os.path.exists(os.path.join(input_dataset_path, "segments")):
+    if os.path.exists(os.path.join(input_dataset_path, "text")):
         output_dataset_path = os.path.join(dataset_path, target, subset if subset else "")
-        if os.path.exists(os.path.join(output_dataset_path, "segments")):
+        if os.path.exists(os.path.join(output_dataset_path, "text")):
             logger.info(f"Dataset {dataset_name} already exist in {target} version")
             return
         os.makedirs(output_dataset_path, exist_ok=True)
@@ -54,7 +54,7 @@ if __name__ == "__main__":
         dataset_path = os.path.join(args.path, subpath)
         input_dataset_path = os.path.join(dataset_path, "raw")
 
-        if os.path.exists(os.path.join(input_dataset_path, "segments")):
+        if os.path.exists(os.path.join(input_dataset_path, "text")):
             tqdm.write(f"▶ Cleaning: {key}")
             clean_dataset(key, dataset_path, args.casepunc)
         elif os.path.exists(input_dataset_path):
@@ -66,4 +66,4 @@ if __name__ == "__main__":
                 tqdm.write(f"▶ Cleaning: {full_name}")
                 clean_dataset(full_name, dataset_path, args.casepunc, subset=subset)
         else:
-            logger.warning(f"Dataset {key} does not exist")
+            logger.warning(f"Dataset {input_dataset_path} does not exist")
