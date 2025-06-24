@@ -126,7 +126,7 @@ if __name__ == "__main__":
         if not os.path.exists(clean_path):
             if os.path.exists(clean_path + ".tmp"):
                 os.remove(clean_path + ".tmp")
-            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=clean_path + ".tmp", keep_punc=False, empty_string_policy="ignore", wer_format=False)
+            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=clean_path + ".tmp", keep_punc=True, keep_case=True, empty_string_policy="ignore", wer_format=False)
             shutil.move(clean_path + ".tmp", clean_path)
         else:
             logger.info(f"{i} cleaned manifest already exists")
