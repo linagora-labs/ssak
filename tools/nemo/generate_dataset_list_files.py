@@ -12,7 +12,7 @@ def generate_dataset_list_files(dataset_list, dataset_folder, dest, mode, subset
     if os.path.exists(dest):
         logger.info(f"Reading dataset list from {dest} (already exists)")
         with open(dest) as f:
-            return f.read().strip().split("\n")
+            return json.load(f)
     if dataset_list.endswith(".json"):
         with open(dataset_list) as f:
             data = json.load(f)
