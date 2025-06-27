@@ -23,11 +23,17 @@ if __name__ == "__main__":
     raw = os.path.join(output_path, "raw")
 
     nocasepunc = os.path.join(output_path, "nocasepunc")
+    casepunc = os.path.join(output_path, "casepunc")
 
     if os.path.exists(nocasepunc) and not args.force:
         raise RuntimeError("The output folder already exists. Use --force to overwrite it.")
     elif os.path.exists(nocasepunc):
         shutil.rmtree(nocasepunc)
+
+    if os.path.exists(casepunc) and not args.force:
+        raise RuntimeError("The output folder already exists. Use --force to overwrite it.")
+    elif os.path.exists(casepunc):
+        shutil.rmtree(casepunc)
 
     audios = AudioFolder2Kaldi("audio", execute_order=3, extracted_id="id", audio_extensions=[".wav"], sort_merging="only_new")
     file_reader = TextFile2Kaldi("", return_columns=["id", "text"], execute_order=0, separator=" ")
@@ -66,5 +72,7 @@ if __name__ == "__main__":
 
     logger.info(f"Dataset duration: {dataset.get_duration('sum')/3600:.2f}h")
     dataset.save(raw, False)
+
+    clean_text_fr(raw, casepunc, ignore_first=1, empty_string_policy="ignore", file_clean_mode="kaldi", keep_case=True, keep_num=True)
 
     clean_text_fr(raw, nocasepunc, ignore_first=1, empty_string_policy="ignore", file_clean_mode="kaldi")
