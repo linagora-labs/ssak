@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import shutil
+from functools import partial
 
 from clean_manifest_text_fr import clean_text_fr
 from convert_kaldi_datasets_to_nemo import convert_datasets
@@ -166,15 +167,20 @@ if __name__ == "__main__":
         else:
             logging.info(f"Tokenizer already exists in {path_to_tokenizer}")
     if args.create_tarred:
-        from convert_to_tarred_audio_dataset import convert_to_tarred_audio_dataset
+        from convert_to_tarred_audio_dataset import convert_to_tarred_audio_dataset, hybrid_bucketing_times
 
         logging.info(f"Creating tarred dataset in {output_tarred_dir}")
+        if args.num_buckets == 6:
+            custom_hybrid_method = partial(hybrid_bucketing_times, threshold=10, num_buckets_linear=4, num_buckets_log=2)
+        else:
+            custom_hybrid_method = "linear"
         convert_to_tarred_audio_dataset(
             manifest_path=os.path.join(tmp_manifest_dir, "train_manifest_clean.jsonl"),
             target_dir=output_tarred_dir,
             num_shards=args.num_shards,
             max_duration=args.max_duration,
             min_duration=0.1,
+            method=custom_hybrid_method,
             workers=args.num_workers,
             buckets_num=args.num_buckets,
             shuffle_seed=42,

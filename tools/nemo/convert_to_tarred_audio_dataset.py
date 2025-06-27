@@ -758,7 +758,26 @@ def create_tar_datasets(
         dali_index.main(index_config)
 
 
-def compute_bucket_times(index_bucket, min_duration, max_duration, number_of_buckets, method="log"):
+def hybrid_bucketing_times(index_bucket, min_duration, max_duration, number_of_buckets, threshold=10, num_buckets_linear=4, num_buckets_log=2):
+    if number_of_buckets != num_buckets_linear + num_buckets_log:
+        raise ValueError(f"number_of_buckets must be equal to num_buckets_linear + num_buckets_log got {number_of_buckets} instead of {num_buckets_linear+num_buckets_log}")
+    if index_bucket < num_buckets_linear:
+        linear_range = threshold - min_duration
+        linear_step = linear_range / num_buckets_linear
+        bucket_min = min_duration + index_bucket * linear_step
+        bucket_max = min_duration + (index_bucket + 1) * linear_step
+    else:
+        log_min = math.log(threshold)
+        log_max = math.log(max_duration)
+        log_step = (log_max - log_min) / num_buckets_log
+        log_index = index_bucket - num_buckets_linear
+        bucket_min = math.exp(log_min + log_index * log_step)
+        bucket_max = math.exp(log_min + (log_index + 1) * log_step)
+
+    return bucket_min, bucket_max
+
+
+def compute_bucket_times(index_bucket, min_duration, max_duration, number_of_buckets, method="linear"):
     if method == "log":
         if min_duration <= 0:
             print(f"min_duration must be > 0 for log method, got {min_duration}, setting to 1e-6")
@@ -788,6 +807,7 @@ def convert_to_tarred_audio_dataset(
     num_shards=-1,
     max_duration=None,
     min_duration=None,
+    method="linear",
     shuffle=False,
     shuffle_seed=None,
     sort_in_shards=False,
@@ -801,7 +821,7 @@ def convert_to_tarred_audio_dataset(
 ):
     if buckets_num > 1:
         for i in range(buckets_num):
-            bucket_min_duration, bucket_max_duration = compute_bucket_times(i, min_duration, max_duration, float(buckets_num), method="linear")
+            bucket_min_duration, bucket_max_duration = compute_bucket_times(i, min_duration, max_duration, float(buckets_num), method=method)
             if i == buckets_num - 1:
                 # add a small number to cover the samples with exactly duration of max_duration in the last bucket.
                 max_duration += 1e-5
