@@ -1,4 +1,4 @@
-from .text_latin import format_text_latin
+from .text_latin import format_text_latin, numbers_and_symbols_to_letters
 
 
 def format_text(text, language, **kwargs):

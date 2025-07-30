@@ -59,6 +59,7 @@ _symbol_to_word = {
         "+": "plus",
         "⁺": "plus",
         "⁻": "moins",
+        "=": "égale",
         "&": "et",
         "@": "arobase",
         "µ": "micro",
