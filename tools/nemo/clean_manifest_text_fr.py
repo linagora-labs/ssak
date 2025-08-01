@@ -15,7 +15,19 @@ logger = logging.getLogger(__name__)
 
 
 def clean_text_fr(
-    input, output, keep_punc=True, keep_num=False, keep_case=True, empty_string_policy="fail", linebreak_policy="fail", remove_suspicious_entry=False, extract_parenthesis=False, file_acronyms=None, file_special_char=None, wer_format=True
+    input,
+    output,
+    keep_punc=True,
+    keep_num=False,
+    keep_case=True,
+    empty_string_policy="fail",
+    linebreak_policy="fail",
+    remove_suspicious_entry=False,
+    extract_parenthesis=False,
+    file_acronyms=None,
+    file_special_char=None,
+    wer_format=True,
+    replacements=None,
 ):
     """
     Clean the text of a manifest file for French language (remove special characters, numbers, etc.)
@@ -74,6 +86,7 @@ def clean_text_fr(
                 fid_special_chars=fid_special_char,
                 remove_suspicious_entry=remove_suspicious_entry,
                 wer_format=wer_format,
+                replacements=replacements,
             )
 
             if len(line["text"]) > 0 and line["text"][-1] == '"' and line["text"][0] == '"':

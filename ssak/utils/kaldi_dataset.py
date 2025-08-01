@@ -603,6 +603,7 @@ class KaldiDataset:
                 new_data.append(row)
             else:
                 removed_lines.append(row)
+        logger.info(f"Removed (Filtered out) {len(removed_lines)}/{len(self.dataset)} ({len(removed_lines)/len(self.dataset)*100:.2f}%) lines with {filter.__name__}")
         self.dataset = new_data
         os.makedirs(LOG_FOLDER, exist_ok=True)
         with open(os.path.join(LOG_FOLDER, f"filtered_out_with_{filter.__name__ }"), "w") as f:

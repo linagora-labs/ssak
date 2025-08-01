@@ -10,6 +10,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def duration_filder(row, min_duration):
+    return row.duration >= min_duration
+
+
 def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False):
     input_files = inputs
     if len(input_files) == 1:
@@ -22,6 +26,9 @@ def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio
         if not os.path.isdir(input_folder):
             raise NotADirectoryError(f"File {input_folder} is not a directory")
         if isinstance(input_files, dict):
+            filter = None
+            if "min_duration" in input_files[input_folder]:
+                filter = lambda row: duration_filder(row, input_files[input_folder]["min_duration"])
             convert_dataset(
                 input_folder,
                 output_file,
@@ -29,6 +36,7 @@ def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio
                 check_audio=input_files[input_folder].get("check_audio", True),
                 check_if_in_audio=input_files[input_folder].get("check_if_in_audio", False),
                 remove_incoherent_texts=input_files[input_folder].get("remove_incoherent_texts", False),
+                filter=filter,
             )
         else:
             convert_dataset(input_folder, output_file, output_wav_dir, check_audio=check_audio, check_if_in_audio=check_if_in_audio, remove_incoherent_texts=remove_incoherent_texts)

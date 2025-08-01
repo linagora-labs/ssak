@@ -40,7 +40,19 @@ _ALL_ACRONYMS = []
 
 
 def format_text_latin(
-    text, lang="fr", lower_case=True, keep_punc=False, remove_ligatures=True, convert_numbers=True, extract_parenthesis=False, fid_acronyms=None, fid_special_chars=None, safety_checks=True, remove_suspicious_entry=False, wer_format=True
+    text,
+    lang="fr",
+    lower_case=True,
+    keep_punc=False,
+    remove_ligatures=True,
+    convert_numbers=True,
+    extract_parenthesis=False,
+    fid_acronyms=None,
+    fid_special_chars=None,
+    safety_checks=True,
+    remove_suspicious_entry=False,
+    wer_format=True,
+    replacements=None,
 ):
     opts = _rm_key(locals(), "text")
 
@@ -116,13 +128,18 @@ def format_text_latin(
 
         # Special Symbols
         text = format_special_characters(text, remove_ligatures=remove_ligatures)
-
+        if replacements:
+            for replacement in replacements:
+                text = re.sub(replacement[0], replacement[1], text)
         # text = re.sub('"',' " ', text)
         # text = re.sub("' '", "''", text)
         # text = re.sub(',|¸',',', text)
         # text = re.sub(", ", " , ", text)
         # text = re.sub("\!", " ! ", text)
         if lang == "fr":
+            text = re.sub(r"\.*!\.*", "!", text)
+            text = re.sub(r"\.*\?\.*", "?", text)
+            text = re.sub(r"\!", " ! ", text)
             text = re.sub(r"\?", " ? ", text)
             text = re.sub(":", " : ", text)
             text = re.sub(";", " ; ", text)

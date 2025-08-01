@@ -42,11 +42,12 @@ def generate_dataset_list_files(dataset_list, dataset_folder, dest, mode, subset
     for i, dataset in enumerate(datasets):
         if data:
             dataset_processing = dict()
-            dataset_processing["check_audio"] = data[dataset].get("check_audio", True) if data[dataset] else True
-            dataset_processing["check_if_in_audio"] = data[dataset].get("check_if_in_audio", False) if data[dataset] else False
-            dataset_processing["remove_incoherent_texts"] = data[dataset].get("remove_incoherent_texts", False) if data[dataset] else False
+            dataset_processing["check_audio"] = data[dataset].pop("check_audio", True) if data[dataset] else True
+            dataset_processing["check_if_in_audio"] = data[dataset].pop("check_if_in_audio", False) if data[dataset] else False
+            dataset_processing["remove_incoherent_texts"] = data[dataset].pop("remove_incoherent_texts", False) if data[dataset] else False
             if data[dataset]:
                 dataset = data[dataset].get("kaldi_subpath", dataset)
+                dataset_processing["min_duration"] = data[dataset].get("min_duration", None)
         else:
             dataset_processing = None
         dataset_path = os.path.join(dataset_folder, dataset)

@@ -55,7 +55,7 @@ def kaldi_to_nemo(kaldi_dataset, output_file):
     shutil.move(output_file + ".tmp", output_file)
 
 
-def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False):
+def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False, filter=None):
     logger.info(f"Converting Kaldi dataset {kaldi_input_dataset} to NeMo format")
     logger.info(f"check_audio : {check_audio}, check_if_in_audio : {check_if_in_audio}, remove_incoherent_texts : {remove_incoherent_texts}")
     splitted_path = kaldi_input_dataset.split(os.sep)
@@ -81,6 +81,8 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
         logger.warning(f"File {file} already exists. Abording conversion to NeMo...")
         return
     kaldi_dataset.load(kaldi_input_dataset)
+    if filter:
+        kaldi_dataset.apply_filter(filter, filter_out=False)
     if check_audio:
         logger.info("Checking (and transforming if needed) audio files")
         kaldi_dataset.normalize_audios(
