@@ -65,7 +65,7 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
     moved = True
     while moved:
         moved = True
-        if splitted_path[idx].startswith("case") or splitted_path[idx].startswith("nocase"):
+        if splitted_path[idx].startswith("case") or splitted_path[idx].startswith("nocase") or splitted_path[idx].startswith("recase"):
             idx -= 1
         elif splitted_path[idx].startswith("train") or splitted_path[idx].startswith("dev") or splitted_path[idx].startswith("valid") or splitted_path[idx].startswith("test"):
             idx -= 1
@@ -86,7 +86,7 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
     if check_audio:
         logger.info("Checking (and transforming if needed) audio files")
         kaldi_dataset.normalize_audios(
-            os.path.join(new_audio_folder, kaldi_dataset.name.replace("_casepunc", "").replace("_nocasepunc", "")),
+            os.path.join(new_audio_folder, kaldi_dataset.name.replace("_casepunc", "").replace("_nocasepunc", "").replace("_recasepunc", "")),
             target_sample_rate=16000,
             target_extension="wav",
             num_workers=6,

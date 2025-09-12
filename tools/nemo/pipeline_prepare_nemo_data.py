@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument("--datasets_folder", help="Dataset folder", type=str, default=None)
     parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default="processed_dataset")
     parser.add_argument("--manifest_dir", default="input_manifests", help="Place to store/load manifests")
-    parser.add_argument("--subset_pattern", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
+    parser.add_argument("--subset_pattern", nargs="+", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
     parser.add_argument("--nocasepunc", default=False, action="store_true", help="Remove casing and punctuations when cleaning")
     # Options for creating a tokenizer using all splits
     parser.add_argument("--create_tokenizer", default=None, help="Folder to save tokenizer (if not set, no tokenizer is created)")
@@ -83,7 +83,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "train_datasets"),
             mode="train",
-            subset_pattern=args.subset_pattern,
+            subset_patterns=args.subset_pattern,
         )
     if args.test_input_datasets:
         splits_to_process.append("test")
@@ -92,7 +92,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "test_datasets"),
             mode="test",
-            subset_pattern=args.subset_pattern,
+            subset_patterns=args.subset_pattern,
         )
     if args.dev_input_datasets:
         splits_to_process.append("dev")
@@ -101,7 +101,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "dev_datasets"),
             mode="dev",
-            subset_pattern=args.subset_pattern,
+            subset_patterns=args.subset_pattern,
         )
     if len(splits_to_process) == 0:
         raise ValueError("No splits to process")
