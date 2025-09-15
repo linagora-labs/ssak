@@ -68,6 +68,9 @@ def generate_dataset_list_files(dataset_list, dataset_folder, dest, mode, subset
         if not os.path.exists(dataset_path):
             logger.warning(f"Dataset {dataset} ({dataset_path}) not found")
             continue
+        if os.path.exists(os.path.join(dataset_path, "wav.scp")):
+            new_list[dataset_path] = dataset_processing
+            continue
         for i, subset_pattern in enumerate(subset_patterns):
             dataset_path_subset = os.path.join(dataset_folder, dataset, subset_pattern)
             if not os.path.exists(dataset_path_subset):
