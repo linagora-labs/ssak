@@ -75,7 +75,8 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
             idx -= 1
         else:
             moved = False
-    kaldi_dataset = KaldiDataset(name="_".join(splitted_path[idx:]))
+    name = "_".join(splitted_path[idx:])
+    kaldi_dataset = KaldiDataset(name=name, log_folder=os.path.join(output_dir, f"{name}_log_folder"))
     file = get_output_file(kaldi_dataset, output_dir)
     if os.path.exists(file):
         logger.warning(f"File {file} already exists. Abording conversion to NeMo...")
@@ -96,10 +97,14 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
         kaldi_dataset.check_if_segments_in_audios()
     logger.info(f"Writing to {file}")
     os.makedirs(output_dir, exist_ok=True)
-    kaldi_to_nemo(kaldi_dataset, file)
     if remove_incoherent_texts:
+        kaldi_to_nemo(kaldi_dataset, file + ".filter")
         logger.info("Check for incoherent texts (very long text with a short audio segment)")
-        filter_incoherent_segments(file, file + "_removed_lines")
+        filter_incoherent_segments(file + ".filter", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_charset.jsonl"))
+        filter_incoherent_segments(file + ".filter", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time.jsonl"), mode="length")
+        shutil.move(file + ".filter", file)
+    else:
+        kaldi_to_nemo(kaldi_dataset, file)
     logger.info(f"Conversion done (saved to {len(kaldi_dataset)} lines to {file})")
 
 

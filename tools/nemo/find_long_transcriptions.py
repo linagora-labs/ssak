@@ -1,8 +1,12 @@
 import argparse
 import json
 import logging
+import os
+import re
 import shutil
 
+import numpy as np
+from scipy.interpolate import make_interp_spline
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)
@@ -22,35 +26,59 @@ logger = logging.getLogger(__name__)
 # 20s: 528c
 # 30s: 792c
 
-INCOHERENT_THREEHOLD = {1: 50, 5: 200, 10: 350, 20: 550, 30: 700}
+french_charset = re.compile(r"^[0-9a-zA-ZàâäæçéèêëîïôœùûüÿÀÂÄÆÇÉÈÊËÎÏÔŒÙÛÜŸ'’ \-.,;:!?]+$")
+spline = None
+x = None
+y = None
 
 
-def filter_incoherent_segments(input_file, filtered_out_file):
+def incoherence_char(duration, text):
+    if not french_charset.match(text):
+        return True
+    return False
+
+
+def incoherence_curve(duration, text):
+    global spline
+    global x
+    global y
+    if spline is None:
+        INCOHERENT_THREEHOLD = {1: 50, 5: 200, 10: 350, 20: 580, 30: 750}
+        x = np.array(list(INCOHERENT_THREEHOLD.keys()))
+        y = np.array(list(INCOHERENT_THREEHOLD.values()))
+        spline = make_interp_spline(x, y, k=3)
+    value = None
+    if duration <= x[0]:
+        value = y[0]
+    elif duration >= x[-1]:
+        value = y[-1]
+    else:
+        value = spline(duration)
+    return len(text) > value
+
+
+def filter_incoherent_segments(input_file, filtered_out_file, mode="charset"):
+    if mode == "length":
+        incoherence_function = incoherence_curve
+    elif mode == "charset":
+        incoherence_function = incoherence_char
+    else:
+        raise ValueError(f"Unknown mode {mode}")
     with open(input_file, encoding="utf-8") as f:
         lines = f.readlines()
         data = [json.loads(l) for l in lines]
-    ct_dict = {i: 0 for i in list(INCOHERENT_THREEHOLD.values())}
     ct = 0
+    os.makedirs(os.path.dirname(filtered_out_file), exist_ok=True)
     with open(input_file + ".tmp", "w", encoding="utf-8") as f, open(filtered_out_file, "w", encoding="utf-8") as log:
         for i, row in enumerate(tqdm(data, desc="Checking for incoherent texts lengths")):
-            dur = float(row["duration"])
-            max_text = None
-            for k, v in INCOHERENT_THREEHOLD.items():
-                if dur < k:
-                    max_text = v
-                    break
-            if max_text is None:
-                max_text = list(INCOHERENT_THREEHOLD.values())[-1]
-            if len(row["text"]) > max_text:
+            if incoherence_function(row["duration"], row["text"]):
                 ct += 1
-                ct_dict[max_text] = ct_dict[max_text] + 1
                 json.dump(row, log, ensure_ascii=False)
                 log.write("\n")
             else:
                 json.dump(row, f, ensure_ascii=False)
                 f.write("\n")
     print(f"Find {ct} long texts in {input_file}")
-    print(f"Removed: {ct_dict}")
     shutil.move(input_file + ".tmp", input_file)
 
 
@@ -58,6 +86,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Remove incoherent lines by looking at the number of words and segment duration from nemo manifest")
     parser.add_argument("file", help="Input file", type=str)
     parser.add_argument("output", help="output file", type=str)
+    parser.add_argument("--mode", default="charset", help="length or language", type=str)
     # parser.add_argument('--max_char', help="Depends on segments max length", type=int, default=700)
     args = parser.parse_args()
-    filter_incoherent_segments(args.file, args.output)
+    filter_incoherent_segments(args.file, args.output, args.mode)

@@ -10,8 +10,6 @@ from ssak.utils.kaldi import check_kaldi_dir
 
 logger = logging.getLogger(__name__)
 
-LOG_FOLDER = "kaldi_data_processing"
-
 
 @dataclass
 class KaldiDatasetRow:
@@ -135,9 +133,10 @@ class KaldiDataset:
         normalize_audios(output_wavs_conversion_folder, target_sample_rate): Check audio files sample rate and number of channels and convert them if they don't match the target sample rate/number of channels
     """
 
-    def __init__(self, name=None, row_checking_kwargs=dict(), accept_missing_speaker=False):
+    def __init__(self, name=None, row_checking_kwargs=dict(), accept_missing_speaker=False, log_folder=None):
         if name:
             self.name = name
+        self.log_folder = log_folder if log_folder else "kaldi_data_processing"
         self.row_checking_kwargs = row_checking_kwargs
         self.accept_missing_speaker = accept_missing_speaker
         self.dataset = list()
@@ -268,8 +267,8 @@ class KaldiDataset:
                 new_data.append(row)
         self.dataset = new_data
         logger.info(f"Removed {len(removed_lines)} segments that were not in audios (start or end after audio), check removed_lines_not_in_audios file")
-        os.makedirs(LOG_FOLDER, exist_ok=True)
-        with open(os.path.join(LOG_FOLDER, "removed_lines_not_in_audios"), "w") as f:
+        os.makedirs(self.log_folder, exist_ok=True)
+        with open(os.path.join(self.log_folder, "filtered_out_not_in_audios.jsonl"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
 
@@ -389,8 +388,8 @@ class KaldiDataset:
                 else:
                     removed_lines.append(row)
             self.dataset = new_dataset
-            os.makedirs(LOG_FOLDER, exist_ok=True)
-            with open(os.path.join(LOG_FOLDER, "removed_lines_audio_empty"), "w") as f:
+            os.makedirs(self.log_folder, exist_ok=True)
+            with open(os.path.join(self.log_folder, "filtered_out_audio_empty.jsonl"), "w") as f:
                 for row in removed_lines:
                     f.write(str(row) + "\n")
 
@@ -605,8 +604,8 @@ class KaldiDataset:
                 removed_lines.append(row)
         logger.info(f"Removed (Filtered out) {len(removed_lines)}/{len(self.dataset)} ({len(removed_lines)/len(self.dataset)*100:.2f}%) lines with {filter.__name__}")
         self.dataset = new_data
-        os.makedirs(LOG_FOLDER, exist_ok=True)
-        with open(os.path.join(LOG_FOLDER, f"filtered_out_with_{filter.__name__ }"), "w") as f:
+        os.makedirs(self.log_folder, exist_ok=True)
+        with open(os.path.join(self.log_folder, f"filtered_out_with_{filter.__name__ }.jsonl"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
 

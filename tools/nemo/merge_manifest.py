@@ -10,6 +10,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def is_manifest(filename):
+    if filename.startswith("all_manifests"):
+        return False
+    if not filename.endswith(".jsonl"):
+        return False
+    if not filename.startswith("manifest"):
+        return False
+    if ".tmp" in filename or ".filter" in filename:
+        return False
+    return True
+
+
 def merge_manifests(inputs, output):
     if os.path.exists(output):
         raise FileExistsError(f"Output file {output} already exists")
@@ -20,7 +32,7 @@ def merge_manifests(inputs, output):
             logger.info("Input is a folder, looking for manifest files in it")
             input_files = []
             for root, dirs, files in os.walk(inputs[0]):
-                input_files.extend([os.path.join(root, f) for f in files if f.endswith(".jsonl") and not f.startswith("all_manifests")])
+                input_files.extend([os.path.join(root, f) for f in files if is_manifest(f)])
         else:
             logger.info("One input file, considering it as containing a list of files")
             with open(inputs[0], encoding="utf-8") as f:
@@ -30,8 +42,6 @@ def merge_manifests(inputs, output):
         for input_file in tqdm(input_files, desc="Merging manifest files"):
             if not os.path.exists(input_file):
                 raise FileNotFoundError(f"Non-existing file {input_file}")
-            elif os.path.isdir(input_file):
-                raise IsADirectoryError(f"Directory {input_file}")
             name, _ = os.path.splitext(input_file)
             name = os.path.basename(name)
             name = name.split("_")
