@@ -8,6 +8,7 @@ import shutil
 import numpy as np
 from scipy.interpolate import make_interp_spline
 from tqdm import tqdm
+from ssak.utils.nemo_dataset import NemoDataset
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -37,6 +38,23 @@ def incoherence_char(duration, text):
         return True
     return False
 
+def incoherence_curve_too_short(duration, text):
+    global spline
+    global x
+    global y
+    if spline is None:
+        INCOHERENT_THREEHOLD = {1: 0, 5: 10, 10: 20, 20: 30, 30: 40}
+        x = np.array(list(INCOHERENT_THREEHOLD.keys()))
+        y = np.array(list(INCOHERENT_THREEHOLD.values()))
+        spline = make_interp_spline(x, y, k=3)
+    value = None
+    if duration <= x[0]:
+        value = y[0]
+    elif duration >= x[-1]:
+        value = y[-1]
+    else:
+        value = spline(duration)
+    return len(text) < value
 
 def incoherence_curve(duration, text):
     global spline
@@ -62,24 +80,25 @@ def filter_incoherent_segments(input_file, filtered_out_file, mode="charset"):
         incoherence_function = incoherence_curve
     elif mode == "charset":
         incoherence_function = incoherence_char
+    elif mode == "too_short":
+        incoherence_function = incoherence_curve_too_short
     else:
         raise ValueError(f"Unknown mode {mode}")
-    with open(input_file, encoding="utf-8") as f:
-        lines = f.readlines()
-        data = [json.loads(l) for l in lines]
     ct = 0
+    data = NemoDataset()
+    type = data.load(input_file, type=None)
+    new_data = NemoDataset()
+    removed_data = NemoDataset()
     os.makedirs(os.path.dirname(filtered_out_file), exist_ok=True)
-    with open(input_file + ".tmp", "w", encoding="utf-8") as f, open(filtered_out_file, "w", encoding="utf-8") as log:
-        for i, row in enumerate(tqdm(data, desc="Checking for incoherent texts lengths")):
-            if incoherence_function(row["duration"], row["text"]):
-                ct += 1
-                json.dump(row, log, ensure_ascii=False)
-                log.write("\n")
-            else:
-                json.dump(row, f, ensure_ascii=False)
-                f.write("\n")
+    for i, row in enumerate(tqdm(data, desc="Checking for incoherent texts lengths")):
+        if incoherence_function(row.duration, row.answer):
+            ct += 1
+            removed_data.append(row)
+        else:
+            new_data.append(row)
+    new_data.save(input_file, type=type)
+    removed_data.save(filtered_out_file, type=type)
     print(f"Find {ct} long texts in {input_file}")
-    shutil.move(input_file + ".tmp", input_file)
 
 
 if __name__ == "__main__":

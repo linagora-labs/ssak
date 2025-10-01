@@ -45,7 +45,7 @@ class KaldiDatasetRow:
         self,
         show_warnings=True,
         accept_warnings=False,
-        warn_if_shorter_than=0.05,
+        warn_if_shorter_than=0.1,
         warn_if_longer_than=3600,
         check_if_segments_in_audio=False,
         accept_missing_speaker=False,
