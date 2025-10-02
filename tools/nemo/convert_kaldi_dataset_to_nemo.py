@@ -4,8 +4,8 @@ import logging
 import os
 import shutil
 
-from find_long_transcriptions import filter_incoherent_segments
 from concat_segments import concat_segments as f_concat_segments
+from find_long_transcriptions import filter_incoherent_segments
 from tqdm import tqdm
 
 from ssak.utils.kaldi_dataset import KaldiDataset
@@ -57,7 +57,9 @@ def kaldi_to_nemo(kaldi_dataset, output_file):
     shutil.move(output_file + ".tmp", output_file)
 
 
-def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False, filter=None, nemo_dataset_type="asr", output_file_func=None, concat_segments=False, concat_audios=False):
+def convert_dataset(
+    kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False, filter=None, nemo_dataset_type="asr", output_file_func=None, concat_segments=False, concat_audios=False
+):
     logger.info(f"Converting Kaldi dataset {kaldi_input_dataset} to NeMo format")
     logger.info(f"check_audio : {check_audio}, check_if_in_audio : {check_if_in_audio}, remove_incoherent_texts : {remove_incoherent_texts}")
     splitted_path = kaldi_input_dataset.split(os.sep)
@@ -80,7 +82,9 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
         else:
             moved = False
     name = "_".join(splitted_path[idx:])
-    kaldi_dataset = KaldiDataset(name=name, log_folder=os.path.join(output_dir, f"{name}_log_folder"))
+    cache_folder = os.path.join(output_dir, ".cache")
+    os.makedirs(cache_folder, exist_ok=True)
+    kaldi_dataset = KaldiDataset(name=name, log_folder=os.path.join(cache_folder, f"{name}_log_folder"), row_checking_kwargs=dict(show_warnings=False))
     if output_file_func:
         file = output_file_func(kaldi_dataset, output_dir)
     else:
@@ -103,28 +107,35 @@ def convert_dataset(kaldi_input_dataset, output_dir, new_audio_folder=None, chec
         logger.info("Check if segments are in audios")
         kaldi_dataset.check_if_segments_in_audios()
     logger.info(f"Writing to {file}")
-    os.makedirs(output_dir, exist_ok=True)
     nemo_dataset = NemoDataset()
     nemo_dataset.kaldi_to_nemo(kaldi_dataset)
     if remove_incoherent_texts:
-        nemo_dataset.save(file + ".filter", type=nemo_dataset_type)
+        file_filter_cache = os.path.join(kaldi_dataset.log_folder, os.path.basename(file) + ".tofilter")
+        nemo_dataset.save(file_filter_cache, type=nemo_dataset_type)
         logger.info("Check for incoherent texts (very long text with a short audio segment)")
-        filter_incoherent_segments(file + ".filter", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_charset.jsonl"))
-        filter_incoherent_segments(file + ".filter", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time.jsonl"), mode="length")
-        filter_incoherent_segments(file + ".filter", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time_short.jsonl"), mode="too_short")
-        shutil.move(file + ".filter", file)
+        filter_incoherent_segments(file_filter_cache, os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_charset.jsonl"), output_file=file_filter_cache + "_charset")
+        filter_incoherent_segments(file_filter_cache + "_charset", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time.jsonl"), output_file=file_filter_cache + "_time", mode="length")
+        filter_incoherent_segments(file_filter_cache + "_time", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time_short.jsonl"), output_file=file_filter_cache + "_short", mode="too_short")
+        shutil.copyfile(file_filter_cache + "_short", file)
     else:
         # kaldi_to_nemo(kaldi_dataset, file)
         nemo_dataset.save(file, type=nemo_dataset_type)
     if concat_segments:
+        os.makedirs(kaldi_dataset.log_folder, exist_ok=True)
+        file_concat_cache = os.path.join(kaldi_dataset.log_folder, os.path.basename(file) + ".toconcat")
+        shutil.move(file, file_concat_cache)
         logger.info("Concatenating segments")
-        f_concat_segments(file,
-                        output_file=file+".concatenated",
-                        max_duration=30, acceptance=1.0, acceptance_punc=0.2, 
-                        merge_audios=concat_audios, 
-                        merged_audio_folders=os.path.join(new_audio_folder, kaldi_dataset.name.replace("_casepunc", "").replace("_nocasepunc", "").replace("_recasepunc", "")),
-                        keep_audio_structure=False)
-        shutil.move(file + ".concatenated", file)
+        f_concat_segments(
+            file_concat_cache,
+            output_file=file,
+            max_duration=30,
+            acceptance=1.0,
+            acceptance_punc=0.2,
+            merge_audios=concat_audios,
+            merged_audio_folder=os.path.join(new_audio_folder, kaldi_dataset.name.replace("_casepunc", "").replace("_nocasepunc", "").replace("_recasepunc", "") + "_merged"),
+            keep_audio_structure=True,
+            num_threads=8,
+        )
     logger.info(f"Conversion done (saved to {len(kaldi_dataset)} lines to {file})")
 
 

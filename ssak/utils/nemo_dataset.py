@@ -1,12 +1,9 @@
-import logging
-import os
-import re
-import random
-import shutil
 import json
-from pathlib import Path
+import logging
+import shutil
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 
 from tqdm import tqdm
 
@@ -24,8 +21,9 @@ CONTEXTS = [
     # "Transcrivez avec précision l'audio en français, y compris tous les bruits de fond ou interjections.",
     # "Générez une transcription écrite de ce discours en français, en vous assurant qu'aucun détail n'est omis.",
     "Transcrivez le discours en français en respectant la ponctuation pour plus de clarté.",
-    "Fournissez une transcription propre de cette conversation en français."
+    "Fournissez une transcription propre de cette conversation en français.",
 ]
+
 
 @dataclass
 class NemoDatasetRow:
@@ -47,6 +45,11 @@ class NemoDatasetRow:
     language: str = None
     split: str = None
 
+    @property
+    def text(self) -> str:
+        """Alias for answer"""
+        return self.answer
+
 
 class NemoDataset:
     """
@@ -55,7 +58,7 @@ class NemoDataset:
 
     Main attributes:
         name (str): Name of the dataset
-        dataset (list): 
+        dataset (list):
 
     Main methods:
     """
@@ -101,7 +104,7 @@ class NemoDataset:
         self.dataset.append(row)
 
     def kaldi_to_nemo(self, kaldi_dataset):
-        for row in tqdm(kaldi_dataset):
+        for row in tqdm(kaldi_dataset, desc="Converting kaldi to nemo"):
             offset = row.start if row.start else 0
             if row.duration:
                 duration = row.duration
@@ -120,13 +123,13 @@ class NemoDataset:
                 split=row.split,
             )
             self.append(nemo_row)
-    
+
     def load(self, input_file, type=None, debug=False):
         if debug and isinstance(debug, bool):
             debug = 10
-        with open(input_file, "r", encoding="utf-8") as f:
+        with open(input_file, encoding="utf-8") as f:
             for i, line in enumerate(tqdm(f, desc="Loading dataset")):
-                if debug and i>=debug:
+                if debug and i >= debug:
                     break
                 json_row = json.loads(line)
                 if type is None:
@@ -134,7 +137,7 @@ class NemoDataset:
                         type = "multiturn"
                     else:
                         type = "asr"
-                if type=="asr":
+                if type == "asr":
                     row = NemoDatasetRow(
                         id=json_row["id"],
                         dataset_name=json_row.get("dataset_name", None),
@@ -146,7 +149,7 @@ class NemoDataset:
                         language=json_row.get("language", None),
                         split=json_row.get("split", None),
                     )
-                elif type=="multiturn":
+                elif type == "multiturn":
                     row = NemoDatasetRow(
                         id=json_row["id"],
                         dataset_name=json_row.get("dataset_name", None),
@@ -160,25 +163,26 @@ class NemoDataset:
                     raise ValueError(f"Unkown type {type} for saving nemo dataset. Should be 'asr' or 'multiturn")
                 self.append(row)
         return type
-    
+
     def save(self, output_file, type="multiturn"):
         if not isinstance(output_file, Path):
             output_file = Path(output_file)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file.with_suffix(output_file.suffix + ".tmp"), "w", encoding="utf-8") as f:
             for row in tqdm(self, desc="Saving dataset"):
-                if type=="asr":
+                if type == "asr":
                     row_data = vars(row)
-                    row_data['text'] = row_data.pop("answer")
-                    row_data['audio_filepath'] = str(row_data['audio_filepath'])
+                    row_data["text"] = row_data.pop("answer")
+                    row_data["audio_filepath"] = str(row_data["audio_filepath"])
                     row_data.pop("context")
-                elif type=="multiturn":
-                    row_data = {"id": row.id, "conversations":
-                        [
+                elif type == "multiturn":
+                    row_data = {
+                        "id": row.id,
+                        "conversations": [
                             {"from": "User", "value": row.context, "type": "text"},
                             {"from": "User", "value": str(row.audio_filepath), "type": "audio", "duration": row.duration, "offset": row.offset},
                             {"from": "Assistant", "value": row.answer, "type": "text"},
-                        ]
+                        ],
                     }
                     if row.dataset_name is not None:
                         row_data["dataset_name"] = row.dataset_name

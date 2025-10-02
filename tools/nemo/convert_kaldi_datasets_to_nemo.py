@@ -14,7 +14,7 @@ def duration_filder(row, min_duration):
     return row.duration >= min_duration
 
 
-def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False, output_file_func=None):
+def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False, output_file_func=None, nemo_dataset_type="multiturn"):
     input_files = inputs
     if len(input_files) == 1 and os.path.isfile(input_files[0]):
         logger.warning("One input file, considering it as containing a list of files")
@@ -39,10 +39,10 @@ def convert_datasets(inputs: list, output_file, output_wav_dir=None, check_audio
                 check_if_in_audio=input_files[input_folder].get("check_if_in_audio", check_if_in_audio),
                 remove_incoherent_texts=input_files[input_folder].get("remove_incoherent_texts", remove_incoherent_texts),
                 filter=filter,
-                nemo_dataset_type="multiturn",
+                nemo_dataset_type=nemo_dataset_type,
                 output_file_func=output_file_func,
                 concat_segments=input_files[input_folder].get("concat_segments", False),
-                concat_audios=input_files[input_folder].get("concat_audios", False)
+                concat_audios=input_files[input_folder].get("concat_audios", False),
             )
         else:
             convert_dataset(input_folder, output_file, output_wav_dir, check_audio=check_audio, check_if_in_audio=check_if_in_audio, remove_incoherent_texts=remove_incoherent_texts)
@@ -83,7 +83,7 @@ if __name__ == "__main__":
                     break
             else:
                 logger.warning(f"Input folder {new_path} does not contain a wav.scp file")
-    
+
     def get_output_file_in_folder(dataset, output_dir):
         stop_tokens = {"casepunc", "recasepunc", "nocasepunc"}
         parts = dataset.name.split("_")
@@ -95,4 +95,5 @@ if __name__ == "__main__":
         folder = "_".join(collected)
         file = f"manifest_{dataset.name}.jsonl"
         return os.path.join(output_dir, folder, file)
+
     convert_datasets(new_input_files, args.output, args.output_wav_dir, args.check_audio, output_file_func=get_output_file_in_folder)

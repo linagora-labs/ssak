@@ -58,6 +58,8 @@ def generate_dataset_list_files(dataset_list, dataset_folder, dest, mode, subset
             dataset_processing["check_audio"] = data[dataset].pop("check_audio", True) if data[dataset] else True
             dataset_processing["check_if_in_audio"] = data[dataset].pop("check_if_in_audio", False) if data[dataset] else False
             dataset_processing["remove_incoherent_texts"] = data[dataset].pop("remove_incoherent_texts", False) if data[dataset] else False
+            dataset_processing["concat_segments"] = data[dataset].pop("concat_segments", False) if data[dataset] else False
+            dataset_processing["concat_audios"] = data[dataset].pop("concat_audios", False) if data[dataset] else False
             if data[dataset]:
                 if data[dataset].get("min_duration", None):
                     dataset_processing["min_duration"] = data[dataset]["min_duration"]

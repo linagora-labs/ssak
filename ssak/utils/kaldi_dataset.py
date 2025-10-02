@@ -532,7 +532,7 @@ class KaldiDataset:
                         speaker=spks.get(seg_id, None),
                     )
                 )
-        logger.info(f"Loaded {len(self.dataset)} rows from {input_dir}")
+        logger.info(f"Loaded {len(self.dataset)} rows (removed {len(loop)-len(self.dataset)} rows) from {input_dir}")
 
     def audio_checks(self, audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
         """

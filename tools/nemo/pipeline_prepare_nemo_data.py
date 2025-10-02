@@ -8,6 +8,7 @@ from clean_manifest_text_fr import clean_text_fr
 from convert_kaldi_datasets_to_nemo import convert_datasets
 from generate_dataset_list_files import generate_dataset_list_files
 from merge_manifest import merge_manifests
+from tqdm import tqdm
 
 CHECK_AUDIO = True
 CHECK_IF_SEGMENT_IN_AUDIO = False
@@ -110,14 +111,29 @@ if __name__ == "__main__":
         try:
             convert_datasets(
                 [os.path.join(tmp_manifest_dir, "datasets_list", f"{i}_datasets")],
-                os.path.join(tmp_manifest_dir, f"{i}_manifests"),
+                os.path.join(tmp_manifest_dir, f"{i}_manifests", "uncleaned"),
                 output_wav_dir,
                 check_audio=CHECK_AUDIO,
                 check_if_in_audio=CHECK_IF_SEGMENT_IN_AUDIO,
                 remove_incoherent_texts=REMOVE_INCOHERENT_TEXTS,
+                nemo_dataset_type="asr",
             )
         except FileExistsError:
             pass
+        uncleaned_folder_path = os.path.join(tmp_manifest_dir, f"{i}_manifests", "uncleaned")
+        pbar = tqdm(os.listdir(uncleaned_folder_path), desc="Cleaning manifests")
+        for manifest in pbar:
+            pbar.set_description(f"Cleaning manifests: {os.path.basename(manifest)}")
+            manifest_path = os.path.join(uncleaned_folder_path, manifest)
+            clean_folder_path = os.path.join(f"{tmp_manifest_dir}", f"{i}_manifests")
+            clean_manifest_path = os.path.join(clean_folder_path, manifest.replace("manifest", "manifest_cleaned"))
+            if not os.path.exists(clean_manifest_path):
+                if os.path.exists(clean_manifest_path + ".tmp"):
+                    os.remove(clean_manifest_path + ".tmp")
+                clean_text_fr(input=manifest_path, output=clean_manifest_path + ".tmp", keep_punc=casepunc, keep_case=casepunc, empty_string_policy="ignore", wer_format=False, replacements=[("!", "."), (":", ","), (";", ",")])
+                shutil.move(clean_manifest_path + ".tmp", clean_manifest_path)
+            else:
+                logger.info(f"Cleaned manifest already exists: {clean_manifest_path}")
         try:
             merge_manifests(
                 [os.path.join(tmp_manifest_dir, f"{i}_manifests")],
@@ -125,16 +141,6 @@ if __name__ == "__main__":
             )
         except FileExistsError:
             logger.info(f"{i} merged manifest already exists")
-        clean_path = os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl")
-        if not os.path.exists(clean_path):
-            if os.path.exists(clean_path + ".tmp"):
-                os.remove(clean_path + ".tmp")
-            clean_text_fr(
-                input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=clean_path + ".tmp", keep_punc=casepunc, keep_case=casepunc, empty_string_policy="ignore", wer_format=False, replacements=[("!", "."), (":", ","), (";", ",")]
-            )
-            shutil.move(clean_path + ".tmp", clean_path)
-        else:
-            logger.info(f"{i} cleaned manifest already exists")
     if len(splits_to_process) > 1:
         try:
             merge_manifests(

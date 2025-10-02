@@ -1,13 +1,12 @@
 import argparse
-import json
 import logging
 import os
 import re
-import shutil
 
 import numpy as np
 from scipy.interpolate import make_interp_spline
 from tqdm import tqdm
+
 from ssak.utils.nemo_dataset import NemoDataset
 
 logging.basicConfig(level=logging.INFO)
@@ -38,12 +37,13 @@ def incoherence_char(duration, text):
         return True
     return False
 
+
 def incoherence_curve_too_short(duration, text):
     global spline
     global x
     global y
     if spline is None:
-        INCOHERENT_THREEHOLD = {1: 0, 5: 10, 10: 20, 20: 30, 30: 40}
+        INCOHERENT_THREEHOLD = {0.5: 2, 1: 4, 5: 12, 10: 25, 20: 42, 30: 60}
         x = np.array(list(INCOHERENT_THREEHOLD.keys()))
         y = np.array(list(INCOHERENT_THREEHOLD.values()))
         spline = make_interp_spline(x, y, k=3)
@@ -56,12 +56,13 @@ def incoherence_curve_too_short(duration, text):
         value = spline(duration)
     return len(text) < value
 
+
 def incoherence_curve(duration, text):
     global spline
     global x
     global y
     if spline is None:
-        INCOHERENT_THREEHOLD = {1: 50, 5: 200, 10: 350, 20: 580, 30: 750}
+        INCOHERENT_THREEHOLD = {0.5: 30, 1: 50, 5: 200, 10: 350, 20: 580, 30: 750}
         x = np.array(list(INCOHERENT_THREEHOLD.keys()))
         y = np.array(list(INCOHERENT_THREEHOLD.values()))
         spline = make_interp_spline(x, y, k=3)
@@ -75,7 +76,12 @@ def incoherence_curve(duration, text):
     return len(text) > value
 
 
-def filter_incoherent_segments(input_file, filtered_out_file, mode="charset"):
+def filter_incoherent_segments(input_file, filtered_out_file, output_file=None, mode="charset"):
+    if output_file and os.path.exists(output_file):
+        logger.info(f"Output file {output_file} already exists, skipping")
+        return
+    elif output_file is None:
+        output_file = input_file
     if mode == "length":
         incoherence_function = incoherence_curve
     elif mode == "charset":
@@ -96,9 +102,9 @@ def filter_incoherent_segments(input_file, filtered_out_file, mode="charset"):
             removed_data.append(row)
         else:
             new_data.append(row)
-    new_data.save(input_file, type=type)
+    new_data.save(output_file, type=type)
     removed_data.save(filtered_out_file, type=type)
-    print(f"Find {ct} long texts in {input_file}")
+    logger.info(f"Find {ct} incoherence segments in {input_file} using {incoherence_function.__name__}")
 
 
 if __name__ == "__main__":
