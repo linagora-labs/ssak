@@ -124,11 +124,15 @@ class NemoDataset:
             )
             self.append(nemo_row)
 
-    def load(self, input_file, type=None, debug=False):
+    def load(self, input_file, type=None, debug=False, split=None, language=None, dataset_name=None, show_progress_bar=True):
         if debug and isinstance(debug, bool):
             debug = 10
         with open(input_file, encoding="utf-8") as f:
-            for i, line in enumerate(tqdm(f, desc="Loading dataset")):
+            if show_progress_bar:
+                pbar = tqdm(f, desc="Loading dataset")
+            else:
+                pbar = f
+            for i, line in enumerate(pbar):
                 if debug and i >= debug:
                     break
                 json_row = json.loads(line)
@@ -140,19 +144,19 @@ class NemoDataset:
                 if type == "asr":
                     row = NemoDatasetRow(
                         id=json_row["id"],
-                        dataset_name=json_row.get("dataset_name", None),
+                        dataset_name=json_row.get("dataset_name", dataset_name),
                         audio_filepath=json_row["audio_filepath"],
                         offset=json_row["offset"],
                         duration=json_row["duration"],
                         answer=json_row["text"],
                         speaker=json_row.get("speaker", None),
-                        language=json_row.get("language", None),
-                        split=json_row.get("split", None),
+                        language=json_row.get("language", language),
+                        split=json_row.get("split", split),
                     )
                 elif type == "multiturn":
                     row = NemoDatasetRow(
                         id=json_row["id"],
-                        dataset_name=json_row.get("dataset_name", None),
+                        dataset_name=json_row.get("dataset_name", dataset_name),
                         audio_filepath=json_row["conversations"][1]["value"],
                         offset=json_row["conversations"][1]["offset"],
                         duration=json_row["conversations"][1]["duration"],

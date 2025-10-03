@@ -139,7 +139,7 @@ if __name__ == "__main__":
         try:
             merge_manifests(
                 [os.path.join(tmp_manifest_dir, f"{i}_manifests")],
-                os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"),
+                os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"),
             )
         except FileExistsError:
             logger.info(f"{i} merged manifest already exists")
