@@ -2,6 +2,7 @@ import argparse
 import logging
 import os
 import re
+from functools import partial
 
 import numpy as np
 from scipy.interpolate import make_interp_spline
@@ -26,27 +27,35 @@ logger = logging.getLogger(__name__)
 # 20s: 528c
 # 30s: 792c
 
-french_charset = re.compile(r"^[0-9a-zA-ZàâäæçéèêëîïôœùûüÿÀÂÄÆÇÉÈÊËÎÏÔŒÙÛÜŸ'’ \-.,;:!?]+$")
-spline = None
-x = None
-y = None
+
+def get_charset():
+    french_charset = re.compile(r"^[0-9a-zA-ZàâäæçéèêëîïôœùûüÿÀÂÄÆÇÉÈÊËÎÏÔŒÙÛÜŸ'’ \-.,;:!?]+$")
+    return french_charset
 
 
-def incoherence_char(duration, text):
-    if not french_charset.match(text):
+def incoherence_char(duration, text, charset=None):
+    if not charset.match(text):
         return True
     return False
 
 
-def incoherence_curve_too_short(duration, text):
-    global spline
-    global x
-    global y
-    if spline is None:
-        INCOHERENT_THREEHOLD = {0.5: 2, 1: 4, 5: 12, 10: 25, 20: 42, 30: 60}
-        x = np.array(list(INCOHERENT_THREEHOLD.keys()))
-        y = np.array(list(INCOHERENT_THREEHOLD.values()))
-        spline = make_interp_spline(x, y, k=3)
+def get_too_short_args():
+    INCOHERENT_THREEHOLD = {0.5: 2, 1: 4, 5: 12, 10: 25, 20: 42, 30: 60}
+    x = np.array(list(INCOHERENT_THREEHOLD.keys()))
+    y = np.array(list(INCOHERENT_THREEHOLD.values()))
+    spline_short = make_interp_spline(x, y, k=3)
+    return x, y, spline_short
+
+
+def get_too_long_args():
+    INCOHERENT_THREEHOLD = {0.5: 30, 1: 50, 5: 200, 10: 350, 20: 580, 30: 750}
+    x = np.array(list(INCOHERENT_THREEHOLD.keys()))
+    y = np.array(list(INCOHERENT_THREEHOLD.values()))
+    spline_long = make_interp_spline(x, y, k=3)
+    return x, y, spline_long
+
+
+def incoherence_curve(duration, text, long_mode=True, x=None, y=None, spline=None):
     value = None
     if duration <= x[0]:
         value = y[0]
@@ -54,26 +63,9 @@ def incoherence_curve_too_short(duration, text):
         value = y[-1]
     else:
         value = spline(duration)
+    if long_mode:
+        return len(text) > value
     return len(text) < value
-
-
-def incoherence_curve(duration, text):
-    global spline
-    global x
-    global y
-    if spline is None:
-        INCOHERENT_THREEHOLD = {0.5: 30, 1: 50, 5: 200, 10: 350, 20: 580, 30: 750}
-        x = np.array(list(INCOHERENT_THREEHOLD.keys()))
-        y = np.array(list(INCOHERENT_THREEHOLD.values()))
-        spline = make_interp_spline(x, y, k=3)
-    value = None
-    if duration <= x[0]:
-        value = y[0]
-    elif duration >= x[-1]:
-        value = y[-1]
-    else:
-        value = spline(duration)
-    return len(text) > value
 
 
 def filter_incoherent_segments(input_file, filtered_out_file, output_file=None, mode="charset"):
@@ -82,29 +74,31 @@ def filter_incoherent_segments(input_file, filtered_out_file, output_file=None, 
         return
     elif output_file is None:
         output_file = input_file
-    if mode == "length":
-        incoherence_function = incoherence_curve
+    if mode == "too_long":
+        x, y, spline_long = get_too_long_args()
+        incoherence_function = partial(incoherence_curve, long_mode=True, x=x, y=y, spline=spline_long)
     elif mode == "charset":
-        incoherence_function = incoherence_char
+        charset = get_charset()
+        incoherence_function = partial(incoherence_char, charset=charset)
     elif mode == "too_short":
-        incoherence_function = incoherence_curve_too_short
+        x, y, spline_short = get_too_short_args()
+        incoherence_function = partial(incoherence_curve, long_mode=False, x=x, y=y, spline=spline_short)
     else:
         raise ValueError(f"Unknown mode {mode}")
-    ct = 0
     data = NemoDataset()
     type = data.load(input_file, type=None)
     new_data = NemoDataset()
     removed_data = NemoDataset()
     os.makedirs(os.path.dirname(filtered_out_file), exist_ok=True)
     for i, row in enumerate(tqdm(data, desc="Checking for incoherent texts lengths")):
-        if incoherence_function(row.duration, row.answer):
-            ct += 1
+        is_incoherent = incoherence_function(row.duration, row.answer)
+        if is_incoherent:
             removed_data.append(row)
         else:
             new_data.append(row)
     new_data.save(output_file, type=type)
     removed_data.save(filtered_out_file, type=type)
-    logger.info(f"Find {ct} incoherence segments in {input_file} using {incoherence_function.__name__}")
+    logger.info(f"Find {len(removed_data)} incoherence segments in {input_file} using {incoherence_function.func.__name__}")
 
 
 if __name__ == "__main__":

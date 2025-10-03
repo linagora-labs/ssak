@@ -125,6 +125,8 @@ if __name__ == "__main__":
         for manifest in pbar:
             pbar.set_description(f"Cleaning manifests: {os.path.basename(manifest)}")
             manifest_path = os.path.join(uncleaned_folder_path, manifest)
+            if not (os.path.isfile(manifest_path) and manifest.endswith(".jsonl")):
+                continue
             clean_folder_path = os.path.join(f"{tmp_manifest_dir}", f"{i}_manifests")
             clean_manifest_path = os.path.join(clean_folder_path, manifest.replace("manifest", "manifest_cleaned"))
             if not os.path.exists(clean_manifest_path):

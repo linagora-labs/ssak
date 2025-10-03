@@ -110,13 +110,13 @@ def convert_dataset(
     nemo_dataset = NemoDataset()
     nemo_dataset.kaldi_to_nemo(kaldi_dataset)
     if remove_incoherent_texts:
-        file_filter_cache = os.path.join(kaldi_dataset.log_folder, os.path.basename(file) + ".tofilter")
-        nemo_dataset.save(file_filter_cache, type=nemo_dataset_type)
+        file_filter_cache = os.path.join(kaldi_dataset.log_folder, os.path.basename(file))
+        nemo_dataset.save(file_filter_cache + ".tofilter", type=nemo_dataset_type)
         logger.info("Check for incoherent texts (very long text with a short audio segment)")
-        filter_incoherent_segments(file_filter_cache, os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_charset.jsonl"), output_file=file_filter_cache + "_charset")
-        filter_incoherent_segments(file_filter_cache + "_charset", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time.jsonl"), output_file=file_filter_cache + "_time", mode="length")
-        filter_incoherent_segments(file_filter_cache + "_time", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time_short.jsonl"), output_file=file_filter_cache + "_short", mode="too_short")
-        shutil.copyfile(file_filter_cache + "_short", file)
+        filter_incoherent_segments(file_filter_cache + ".tofilter", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_charset.jsonl"), output_file=file_filter_cache + ".charset")
+        filter_incoherent_segments(file_filter_cache + ".charset", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time_long.jsonl"), output_file=file_filter_cache + ".long", mode="too_long")
+        filter_incoherent_segments(file_filter_cache + ".long", os.path.join(kaldi_dataset.log_folder, "filtered_out_incoherent_segments_time_short.jsonl"), output_file=file_filter_cache + ".short", mode="too_short")
+        shutil.copyfile(file_filter_cache + ".short", file)
     else:
         # kaldi_to_nemo(kaldi_dataset, file)
         nemo_dataset.save(file, type=nemo_dataset_type)
@@ -136,7 +136,7 @@ def convert_dataset(
             keep_audio_structure=True,
             num_threads=8,
         )
-    logger.info(f"Conversion done (saved to {len(kaldi_dataset)} lines to {file})")
+    logger.info(f"Conversion done (saved to {len(nemo_dataset)} lines to {file})")
 
 
 if __name__ == "__main__":
