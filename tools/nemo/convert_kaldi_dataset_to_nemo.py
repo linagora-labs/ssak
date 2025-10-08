@@ -2,6 +2,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import shutil
 
 from concat_segments import concat_segments as f_concat_segments
@@ -57,11 +58,7 @@ def kaldi_to_nemo(kaldi_dataset, output_file):
     shutil.move(output_file + ".tmp", output_file)
 
 
-def convert_dataset(
-    kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False, filter=None, nemo_dataset_type="asr", output_file_func=None, concat_segments=False, concat_audios=False
-):
-    logger.info(f"Converting Kaldi dataset {kaldi_input_dataset} to NeMo format")
-    logger.info(f"check_audio : {check_audio}, check_if_in_audio : {check_if_in_audio}, remove_incoherent_texts : {remove_incoherent_texts}")
+def get_dataset_name(kaldi_input_dataset, remove_casing=True, remove_max_duration=True, remove_split=True):
     splitted_path = kaldi_input_dataset.split(os.sep)
     if splitted_path[-1] == "":
         splitted_path = splitted_path[:-1]
@@ -82,8 +79,23 @@ def convert_dataset(
         else:
             moved = False
     name = "_".join(splitted_path[idx:])
+    if remove_casing:
+        name = name.replace("_casepunc", "").replace("_nocasepunc", "").replace("_recasepunc", "")
+    if remove_max_duration:
+        name = re.sub(r"_max\d+", "", name)
+    if remove_split:
+        name = name.replace("_train", "").replace("_dev", "").replace("_test", "").replace("_valid", "").replace("_all", "")
+    return name
+
+def convert_dataset(
+    kaldi_input_dataset, output_dir, new_audio_folder=None, check_audio=False, check_if_in_audio=False, remove_incoherent_texts=False, filter=None, nemo_dataset_type="asr", output_file_func=None, concat_segments=False, concat_audios=False
+):
+    logger.info(f"Converting Kaldi dataset {kaldi_input_dataset} to NeMo format")
+    logger.info(f"check_audio : {check_audio}, check_if_in_audio : {check_if_in_audio}, remove_incoherent_texts : {remove_incoherent_texts}")
+
     cache_folder = os.path.join(output_dir, ".cache")
     os.makedirs(cache_folder, exist_ok=True)
+    name = get_dataset_name(kaldi_input_dataset=kaldi_input_dataset)
     kaldi_dataset = KaldiDataset(name=name, log_folder=os.path.join(cache_folder, f"{name}_log_folder"), row_checking_kwargs=dict(show_warnings=False))
     if output_file_func:
         file = output_file_func(kaldi_dataset, output_dir)
@@ -95,7 +107,7 @@ def convert_dataset(
     kaldi_dataset.load(kaldi_input_dataset)
     if filter:
         kaldi_dataset.apply_filter(filter, filter_out=False)
-    if check_audio:
+    if check_audio and new_audio_folder:
         logger.info("Checking (and transforming if needed) audio files")
         kaldi_dataset.normalize_audios(
             os.path.join(new_audio_folder, kaldi_dataset.name.replace("_casepunc", "").replace("_nocasepunc", "").replace("_recasepunc", "")),

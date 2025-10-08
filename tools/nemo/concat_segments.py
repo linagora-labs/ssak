@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 def merge_audio_files(audios_paths, output_dir, dataset_name="YODAS", keep_structure=True):
-    if not isinstance(output_dir, Path):
-        output_dir = Path(output_dir)
+    output_dir = Path(output_dir)
     if not isinstance(audios_paths, str):
         first = Path(audios_paths[0])
         audio_id = "-".join(first.stem.split("-")[:-3])
@@ -41,7 +40,8 @@ def merge_audio_files(audios_paths, output_dir, dataset_name="YODAS", keep_struc
             new_path.parent.mkdir(parents=True, exist_ok=True)
         else:
             new_path = output_dir / file_path.name
-        shutil.copy(audios_paths, new_path)
+        if not new_path.exists():
+            shutil.copy(audios_paths, new_path)
     return new_path
 
 
@@ -102,7 +102,7 @@ def merge_segments(prev, row, max_duration, acceptance, acceptance_punc):
     return False, None
 
 
-def concat_segments(input_file, output_file=None, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
+def concat_segments_files(input_file, output_file=None, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
     if not isinstance(input_file, Path):
         input_file = Path(input_file)
     if not output_file:
@@ -117,8 +117,11 @@ def concat_segments(input_file, output_file=None, max_duration=30, acceptance=1.
     else:
         merged_audio_folder = Path(merged_audio_folder)
         merged_audio_folder.mkdir(parents=True, exist_ok=True)
-    new_data = NemoDataset()
+    new_data = concat_segments(input_data, max_duration, acceptance, acceptance_punc, merge_audios, merged_audio_folder, keep_audio_structure, num_threads)
+    new_data.save(output_file, type=nemo_dataset_type)
 
+def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
+    new_data = NemoDataset()
     logger.info("Sorting dataset")
     rows = sorted(input_data, key=lambda r: (r.audio_filepath, r.offset))
     logger.info("Finished sorting dataset")
@@ -156,7 +159,7 @@ def concat_segments(input_file, output_file=None, max_duration=30, acceptance=1.
     logger.info(f"Old number of segments: {len(input_data)}")
     logger.info(f"New number of segments: {len(new_data)}")
     logger.info(f"Made {number_of_merge} merges")
-    new_data.save(output_file, type=nemo_dataset_type)
+    return new_data
 
 
 if __name__ == "__main__":
@@ -166,6 +169,7 @@ if __name__ == "__main__":
     parser.add_argument("--acceptance", help="", type=float, default=1.0)
     parser.add_argument("--merge_audios", help="", default=False, action="store_true")
     parser.add_argument("--merged_audio_folder", help="", default="audio")
+    parser.add_argument("--num_threads", type=int, default=4)
     args = parser.parse_args()
 
-    concat_segments(args.file, max_duration=args.max_duration, acceptance=args.acceptance, merge_audios=args.merge_audios, merged_audio_folder=args.merged_audio_folder)
+    concat_segments(args.file, max_duration=args.max_duration, acceptance=args.acceptance, merge_audios=args.merge_audios, merged_audio_folder=args.merged_audio_folder, num_threads=args.num_threads)

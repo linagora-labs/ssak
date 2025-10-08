@@ -349,7 +349,7 @@ class KaldiDataset:
         errors = False
         if num_workers == 1:
             for audio_path in tqdm(audio_paths, total=len(audio_paths), desc="Checking audio files"):
-                new_path = self.audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension)
+                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension)
                 if new_path != audio_path:
                     updated_audio_paths[audio_path] = new_path
                     if new_path == "error":
@@ -358,7 +358,7 @@ class KaldiDataset:
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = {
                     executor.submit(
-                        self.audio_checks,
+                        audio_checks,
                         audio_path,
                         output_wavs_conversion_folder,
                         target_sample_rate,
@@ -534,62 +534,6 @@ class KaldiDataset:
                 )
         logger.info(f"Loaded {len(self.dataset)} rows (removed {len(loop)-len(self.dataset)} rows) from {input_dir}")
 
-    def audio_checks(self, audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
-        """
-        Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
-
-        Args:
-            audio_path (str): Path to the audio file
-            new_folder (str): Folder where to save the transformed audio file
-            target_sample_rate (int): Target sample rate for the audio file
-            target_extension (str): Optional. Target extension for the audio file. If set to None, it will keep the original extension
-            max_channel (int): Maximum number of channels for the audio file. If the audio file has more channels, it will keep only the first channel. TODO: Add option to keep all channels in different files
-        """
-        from pydub import AudioSegment
-        from pydub.utils import mediainfo
-
-        if new_folder:
-            if target_extension:
-                if not target_extension.startswith("."):
-                    target_extension = "." + target_extension
-                new_path = os.path.join(new_folder, os.path.basename(audio_path).replace(os.path.splitext(audio_path)[1], target_extension))
-            else:
-                new_path = os.path.join(new_folder, os.path.basename(audio_path))
-        else:
-            raise ValueError("New folder must be specified for audio conversion")
-        if not os.path.exists(new_path):
-            if not os.path.exists(audio_path):
-                raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
-            infos = mediainfo(audio_path)
-            src_sample_rate = int(infos["sample_rate"])
-            src_n_channels = int(infos["channels"])
-            try:
-                if infos["duration"] == "N/A":  # or float(infos['duration'])<0.01:
-                    logger.error(f"Audio file {audio_path} has no duration: {infos['duration']}. It is probably corrupted!")
-                    return "error"
-                elif src_n_channels > max_channel or src_sample_rate != target_sample_rate or (target_extension is not None and not audio_path.endswith(target_extension)):
-                    waveform = AudioSegment.from_file(audio_path)
-                    if src_n_channels > max_channel:
-                        logger.debug(f"Audio file {audio_path} has {src_n_channels} channels. Converting to 1 channel...")
-                        waveform = waveform.set_channels(1)
-                    if src_sample_rate != target_sample_rate:
-                        logger.debug(f"Audio file {audio_path} has sample rate of {src_sample_rate}. Converting to {target_sample_rate}Hz...")
-                        waveform = waveform.set_frame_rate(target_sample_rate)
-                    if not os.path.exists(new_folder):
-                        os.makedirs(new_folder, exist_ok=True)
-                    waveform.export(new_path, format="wav")
-                    return new_path
-                elif not audio_path.endswith(target_extension):
-                    logger.debug(f"Audio file has the wrong extension {audio_path}. Converting to {target_extension}...")
-                    waveform = AudioSegment.from_file(audio_path)
-                    waveform.export(new_path, format="wav")
-                    return new_path
-                else:
-                    return audio_path
-            except Exception as e:
-                raise Exception(f"Error with {audio_path} with infos: {infos}") from e
-        return new_path
-
     def apply_filter(self, filter, filter_out=True):
         new_data = []
         removed_lines = []
@@ -608,7 +552,62 @@ class KaldiDataset:
         with open(os.path.join(self.log_folder, f"filtered_out_with_{filter.__name__ }.jsonl"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
+                
+def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
+    """
+    Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
 
+    Args:
+        audio_path (str): Path to the audio file
+        new_folder (str): Folder where to save the transformed audio file
+        target_sample_rate (int): Target sample rate for the audio file
+        target_extension (str): Optional. Target extension for the audio file. If set to None, it will keep the original extension
+        max_channel (int): Maximum number of channels for the audio file. If the audio file has more channels, it will keep only the first channel. TODO: Add option to keep all channels in different files
+    """
+    from pydub import AudioSegment
+    from pydub.utils import mediainfo
+
+    if new_folder:
+        if target_extension:
+            if not target_extension.startswith("."):
+                target_extension = "." + target_extension
+            new_path = os.path.join(new_folder, os.path.basename(audio_path).replace(os.path.splitext(audio_path)[1], target_extension))
+        else:
+            new_path = os.path.join(new_folder, os.path.basename(audio_path))
+    else:
+        raise ValueError("New folder must be specified for audio conversion")
+    if not os.path.exists(new_path):
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
+        infos = mediainfo(audio_path)
+        src_sample_rate = int(infos["sample_rate"])
+        src_n_channels = int(infos["channels"])
+        try:
+            if infos["duration"] == "N/A":  # or float(infos['duration'])<0.01:
+                logger.error(f"Audio file {audio_path} has no duration: {infos['duration']}. It is probably corrupted!")
+                return "error"
+            elif src_n_channels > max_channel or src_sample_rate != target_sample_rate or (target_extension is not None and not audio_path.endswith(target_extension)):
+                waveform = AudioSegment.from_file(audio_path)
+                if src_n_channels > max_channel:
+                    logger.debug(f"Audio file {audio_path} has {src_n_channels} channels. Converting to 1 channel...")
+                    waveform = waveform.set_channels(1)
+                if src_sample_rate != target_sample_rate:
+                    logger.debug(f"Audio file {audio_path} has sample rate of {src_sample_rate}. Converting to {target_sample_rate}Hz...")
+                    waveform = waveform.set_frame_rate(target_sample_rate)
+                if not os.path.exists(new_folder):
+                    os.makedirs(new_folder, exist_ok=True)
+                waveform.export(new_path, format="wav")
+                return new_path
+            elif not audio_path.endswith(target_extension):
+                logger.debug(f"Audio file has the wrong extension {audio_path}. Converting to {target_extension}...")
+                waveform = AudioSegment.from_file(audio_path)
+                waveform.export(new_path, format="wav")
+                return new_path
+            else:
+                return audio_path
+        except Exception as e:
+            raise Exception(f"Error with {audio_path} with infos: {infos}") from e
+    return new_path
 
 def get_audio_from_wav_scp_line(line):
     line = line[1:]

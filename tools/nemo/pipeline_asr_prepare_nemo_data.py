@@ -2,9 +2,11 @@ import argparse
 import logging
 import os
 import shutil
+import json
 from functools import partial
 
 from clean_manifest_text_fr import clean_text_fr
+from convert_kaldi_dataset_to_nemo import convert_dataset
 from convert_kaldi_datasets_to_nemo import convert_datasets
 from generate_dataset_list_files import generate_dataset_list_files
 from merge_manifest import merge_manifests
@@ -20,7 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--test_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--dev_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--datasets_folder", help="Dataset folder", type=str, default=None)
-    parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default="processed_dataset")
+    parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default=None)
     parser.add_argument("--manifest_dir", default="input_manifests", help="Place to store/load manifests")
     parser.add_argument("--subset_pattern", nargs="+", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
     parser.add_argument("--nocasepunc", default=False, action="store_true", help="Remove casing and punctuations when cleaning")
@@ -74,7 +76,11 @@ if __name__ == "__main__":
     datasets_folder = args.datasets_folder
     if datasets_folder is None:
         datasets_folder = ""
+        
+    make_train_dev_test_manifests = False
 
+
+    # STEP 0 - Generate json files with the list of datasets to process and their options
     splits_to_process = []
     os.makedirs(os.path.join(tmp_manifest_dir, "datasets_list"), exist_ok=True)
     if args.train_input_datasets:
@@ -108,34 +114,13 @@ if __name__ == "__main__":
         raise ValueError("No splits to process")
 
     for i in splits_to_process:
-        try:
-            convert_datasets(
-                [os.path.join(tmp_manifest_dir, "datasets_list", f"{i}_datasets")],
-                os.path.join(tmp_manifest_dir, f"{i}_manifests", "uncleaned"),
-                output_wav_dir,
-                check_audio=CHECK_AUDIO,
-                check_if_in_audio=CHECK_IF_SEGMENT_IN_AUDIO,
-                remove_incoherent_texts=REMOVE_INCOHERENT_TEXTS,
-                nemo_dataset_type="asr",
-            )
-        except FileExistsError:
-            pass
-        uncleaned_folder_path = os.path.join(tmp_manifest_dir, f"{i}_manifests", "uncleaned")
-        pbar = tqdm(os.listdir(uncleaned_folder_path), desc="Cleaning manifests")
-        for manifest in pbar:
-            pbar.set_description(f"Cleaning manifests: {os.path.basename(manifest)}")
-            manifest_path = os.path.join(uncleaned_folder_path, manifest)
-            if not (os.path.isfile(manifest_path) and manifest.endswith(".jsonl")):
-                continue
-            clean_folder_path = os.path.join(f"{tmp_manifest_dir}", f"{i}_manifests")
-            clean_manifest_path = os.path.join(clean_folder_path, manifest.replace("manifest", "manifest_cleaned"))
-            if not os.path.exists(clean_manifest_path):
-                if os.path.exists(clean_manifest_path + ".tmp"):
-                    os.remove(clean_manifest_path + ".tmp")
-                clean_text_fr(input=manifest_path, output=clean_manifest_path + ".tmp", keep_punc=casepunc, keep_case=casepunc, empty_string_policy="ignore", wer_format=False, replacements=[("!", "."), (":", ","), (";", ",")])
-                shutil.move(clean_manifest_path + ".tmp", clean_manifest_path)
-            else:
-                logger.info(f"Cleaned manifest already exists: {clean_manifest_path}")
+        converted_folder_path = os.path.join(tmp_manifest_dir, f"{i}_manifests", "converted")
+        # READ Step 0
+        with open(os.path.join(tmp_manifest_dir, "datasets_list", f"{i}_datasets")) as f:
+            input_datasets = json.load(f)
+
+
+        # STEP 5 - Merge manifests
         try:
             merge_manifests(
                 [os.path.join(tmp_manifest_dir, f"{i}_manifests")],
@@ -143,6 +128,7 @@ if __name__ == "__main__":
             )
         except FileExistsError:
             logger.info(f"{i} merged manifest already exists")
+    # STEP 6 - Merge train/dev/test
     if len(splits_to_process) > 1:
         try:
             merge_manifests(
@@ -160,6 +146,7 @@ if __name__ == "__main__":
                 os.path.join(f"{tmp_manifest_dir}", f"{splits_to_process[0]}_manifest_clean.jsonl"),
                 os.path.join(f"{tmp_manifest_dir}", "all_manifest_clean.jsonl"),
             )
+    # STEP 7 (Optional) - Create tokenizer
     if args.create_tokenizer:
         from process_asr_text_tokenizer import process_asr_text_tokenizer
 
@@ -176,6 +163,7 @@ if __name__ == "__main__":
             logging.info("Tokenizer created")
         else:
             logging.info(f"Tokenizer already exists in {path_to_tokenizer}")
+    # STEP 8 (Optional) - Create tarred dataset
     if args.create_tarred:
         from convert_to_tarred_audio_dataset import convert_to_tarred_audio_dataset, hybrid_bucketing_times
 

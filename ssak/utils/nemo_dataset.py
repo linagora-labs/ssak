@@ -7,7 +7,7 @@ from pathlib import Path
 
 from tqdm import tqdm
 
-# from ssak.utils.kaldi import check_kaldi_dir
+from ssak.utils.kaldi_dataset import audio_checks
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,18 @@ class NemoDatasetRow:
     def text(self) -> str:
         """Alias for answer"""
         return self.answer
-
+    
+    @text.setter
+    def text(self, value: str):
+        self.answer = value
+    
+    def to_json(self) -> dict:
+        """Convert to json"""
+        row_data = vars(self)
+        row_data["text"] = row_data.pop("answer")
+        row_data["audio_filepath"] = str(row_data["audio_filepath"])
+        row_data.pop("context")
+        return row_data
 
 class NemoDataset:
     """
@@ -64,11 +75,27 @@ class NemoDataset:
     """
 
     def __init__(self, name=None, log_folder=None):
-        if name:
-            self.name = name
-        self.log_folder = log_folder if log_folder else "nemo_data_processing"
+        self.name = name
+        self.log_folder = Path(log_folder) if log_folder else "nemo_data_processing"
         self.dataset = list()
         self.splits = set()
+    
+    def __repr__(self):
+        # If dataset is a list of lists:
+        default_repr = object.__repr__(self)
+        first_row = self.dataset[0] if self.dataset else "No data"
+        if self.name:
+            return f"{self.name} ({default_repr}, len={len(self.dataset)}): {first_row}"
+        else:
+            return f"{default_repr} (len={len(self.dataset)}): {first_row}"
+
+    def __str__(self):
+        # If dataset is a list of lists:
+        default_repr = object.__repr__(self)
+        if self.name:
+            return f"{self.name}"
+        else:
+            return f"{default_repr}"
 
     def __len__(self) -> int:
         return len(self.dataset)
@@ -175,10 +202,7 @@ class NemoDataset:
         with open(output_file.with_suffix(output_file.suffix + ".tmp"), "w", encoding="utf-8") as f:
             for row in tqdm(self, desc="Saving dataset"):
                 if type == "asr":
-                    row_data = vars(row)
-                    row_data["text"] = row_data.pop("answer")
-                    row_data["audio_filepath"] = str(row_data["audio_filepath"])
-                    row_data.pop("context")
+                    row_data = row.to_json()
                 elif type == "multiturn":
                     row_data = {
                         "id": row.id,
@@ -195,3 +219,91 @@ class NemoDataset:
                 json.dump(row_data, f, ensure_ascii=False, indent=None)
                 f.write("\n")
         shutil.move(output_file.with_suffix(output_file.suffix + ".tmp"), output_file)
+
+    def check_if_segments_in_audios(self, acceptance_end_s=0.25):
+        from pydub.utils import mediainfo
+
+        new_data = []
+        removed_lines = []
+        files_duration = dict()
+        for row in tqdm(self, desc="Check if segments are in audios"):
+            if row.audio_filepath not in files_duration:
+                dur = round(float(mediainfo(row.audio_filepath)["duration"]), 3)
+                files_duration[row.audio_filepath] = dur
+            dur = files_duration[row.audio_filepath]
+            if row.offset >= dur:
+                removed_lines.append(row)
+            elif row.offset + row.duration > dur + acceptance_end_s:
+                removed_lines.append(row)
+            else:
+                new_data.append(row)
+        self.dataset = new_data
+        logger.info(f"Removed {len(removed_lines)} segments that were not in audios (start or end after audio), check removed_lines_not_in_audios file")
+        self.log_folder.mkdir(exist_ok=True, parents=True)
+        with open(self.log_folder / "filtered_out_not_in_audios.jsonl", "w") as f:
+            for row in removed_lines:
+                json.dump(row.to_json(), f, ensure_ascii=False, indent=None)
+                f.write("\n")
+    
+    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
+        """
+        Check audio files sample rate and number of channels and convert them if they don't match the target sample rate/number of channels.
+
+        Updates the audio_path in the dataset with the new path if the audio file was converted.
+
+        Args:
+            output_wavs_conversion_folder (str): Folder where to save the transformed audio files
+            target_sample_rate (int): Target sample rate for the audio files
+            target_extension (str): Optional. Target extension for the audio files (wav, mp3...). If set to None, it will keep the original extension
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        updated_audio_paths = dict()
+        audio_paths = list(self.get_audio_paths(unique=True))
+        errors = False
+        if num_workers == 1:
+            for audio_path in tqdm(audio_paths, total=len(audio_paths), desc="Checking audio files"):
+                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension)
+                if new_path != audio_path:
+                    updated_audio_paths[audio_path] = new_path
+                    if new_path == "error":
+                        errors = True
+        else:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                futures = {
+                    executor.submit(
+                        audio_checks,
+                        audio_path,
+                        output_wavs_conversion_folder,
+                        target_sample_rate,
+                        target_extension,
+                    ): audio_path
+                    for audio_path in audio_paths
+                }
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Checking audio files"):
+                    audio_path = futures[future]
+                    try:
+                        new_path = future.result()  # Get the result of audio_checks for each audio file
+                        if new_path != audio_path:
+                            updated_audio_paths[audio_path] = new_path
+                            if new_path == "error":
+                                errors = True
+                    except Exception as e:
+                        raise RuntimeError(f"Error processing {audio_path}: {e}")
+        if len(updated_audio_paths) > 0:
+            for row in self.dataset:
+                row.audio_filepath = updated_audio_paths.get(row.audio_filepath, row.audio_filepath)
+        if errors:
+            new_dataset = []
+            removed_lines = []
+            for row in self.dataset:
+                if row.audio_filepath != "error":
+                    new_dataset.append(row)
+                else:
+                    removed_lines.append(row)
+            self.dataset = new_dataset
+            self.log_folder.mkdir(exist_ok=True, parents=True)
+            with open(self.log_folder / "filtered_out_audio_empty.jsonl", "w") as f:
+                for row in removed_lines:
+                    json.dump(row.to_json(), f, ensure_ascii=False, indent=None)
+                    f.write("\n")
