@@ -85,6 +85,8 @@ def get_dataset_name(kaldi_input_dataset, remove_casing=True, remove_max_duratio
         name = re.sub(r"_max\d+", "", name)
     if remove_split:
         name = name.replace("_train", "").replace("_dev", "").replace("_test", "").replace("_valid", "").replace("_all", "")
+        name = re.sub(r"_split\d+", "", name)
+        name = re.sub(r"_fr\d+", "", name)
     return name
 
 def convert_dataset(

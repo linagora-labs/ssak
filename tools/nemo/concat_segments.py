@@ -121,7 +121,7 @@ def concat_segments_files(input_file, output_file=None, max_duration=30, accepta
     new_data.save(output_file, type=nemo_dataset_type)
 
 def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
-    new_data = NemoDataset()
+    new_data = NemoDataset(name=input_data.name, log_folder=input_data.log_folder)
     logger.info("Sorting dataset")
     rows = sorted(input_data, key=lambda r: (r.audio_filepath, r.offset))
     logger.info("Finished sorting dataset")
@@ -142,6 +142,9 @@ def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc
             new_data.append(prev)
             prev = row
     new_data.append(prev)
+    logger.info(f"Old number of segments: {len(input_data)}")
+    logger.info(f"New number of segments: {len(new_data)}")
+    logger.info(f"Made {number_of_merge} merges")
     if merge_audios:
         logger.info(f"Merging audios with {num_threads} threads")
 
@@ -149,16 +152,17 @@ def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc
             row.audio_filepath = merge_audio_files(row.audio_filepath, merged_audio_folder, keep_structure=keep_audio_structure)
             row.id = Path(row.audio_filepath).stem
             return row
-
-        with ThreadPoolExecutor(max_workers=num_threads) as executor:
-            futures = {executor.submit(process_row, row): row for row in new_data}
+        if num_threads>1:
+            with ThreadPoolExecutor(max_workers=num_threads) as executor:
+                futures = {executor.submit(process_row, row): row for row in new_data}
+                merged_data = NemoDataset()
+                for future in tqdm(as_completed(futures), total=len(futures), desc="Merging audios"):
+                    merged_data.append(future.result())
+        else:
             merged_data = NemoDataset()
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Merging audios"):
-                merged_data.append(future.result())
+            for row in tqdm(new_data, desc="Merging audios"):
+                merged_data.append(process_row(row))
         new_data = merged_data
-    logger.info(f"Old number of segments: {len(input_data)}")
-    logger.info(f"New number of segments: {len(new_data)}")
-    logger.info(f"Made {number_of_merge} merges")
     return new_data
 
 

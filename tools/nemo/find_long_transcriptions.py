@@ -89,7 +89,7 @@ def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset")
         incoherence_function = partial(incoherence_curve, long_mode=False, x=x, y=y, spline=spline_short)
     else:
         raise ValueError(f"Unknown mode {mode}")
-    new_data = NemoDataset()
+    new_data = NemoDataset(name=input_dataset.name, log_folder=input_dataset.log_folder)
     removed_data = NemoDataset()
     os.makedirs(os.path.dirname(filtered_out_file), exist_ok=True)
     for i, row in enumerate(tqdm(input_dataset, desc="Checking for incoherent texts lengths")):
@@ -98,8 +98,8 @@ def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset")
             removed_data.append(row)
         else:
             new_data.append(row)
-    removed_data.save(filtered_out_file, type=type)
-    logger.info(f"Find {len(removed_data)} incoherence segments in {input_dataset} using {incoherence_function.func.__name__}")
+    removed_data.save(filtered_out_file, type="asr")
+    logger.info(f"Find {len(removed_data)} incoherence segments in {input_dataset} using mode {mode} and {incoherence_function.func.__name__}")
     return new_data
 
 if __name__ == "__main__":

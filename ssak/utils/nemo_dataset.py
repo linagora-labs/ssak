@@ -1,6 +1,7 @@
 import json
 import logging
 import shutil
+import random
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,19 +11,6 @@ from tqdm import tqdm
 from ssak.utils.kaldi_dataset import audio_checks
 
 logger = logging.getLogger(__name__)
-
-CONTEXTS = [
-    "Transcrivez l'audio en français suivant de la manière la plus précise possible.",
-    "Écrivez exactement ce qui est dit dans cet audio en français.",
-    "Fournissez une transcription complète du discours en français dans ce clip audio.",
-    "Écoutez l'audio en français et transcrivez-le mot pour mot.",
-    "Écrivez la transcription complète de ce texte parlé en français.",
-    # "Transcrivez cet audio en français en incluant toutes les pauses et hésitations.",
-    # "Transcrivez avec précision l'audio en français, y compris tous les bruits de fond ou interjections.",
-    # "Générez une transcription écrite de ce discours en français, en vous assurant qu'aucun détail n'est omis.",
-    "Transcrivez le discours en français en respectant la ponctuation pour plus de clarté.",
-    "Fournissez une transcription propre de cette conversation en français.",
-]
 
 
 @dataclass
@@ -244,6 +232,13 @@ class NemoDataset:
             for row in removed_lines:
                 json.dump(row.to_json(), f, ensure_ascii=False, indent=None)
                 f.write("\n")
+    
+    def set_context_if_none(self, context_category):
+        from ssak.utils.contexts import get_contexts
+        contexts = get_contexts(context_category)
+        for row in tqdm(self, desc="Set context if none"):
+            if row.context is None:
+                row.context = random.choice(contexts)
     
     def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
         """
