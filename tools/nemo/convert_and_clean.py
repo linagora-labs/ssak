@@ -133,7 +133,7 @@ def process_datasets(input_datasets, output_folder, output_wav_folder=None, nemo
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert a list of Kaldi datasets to Nemo format")
     parser.add_argument("datasets", help="Input datasets", type=str, nargs="+")
-    parser.add_argument("--output", help="Output file", type=str, default="/data-server/datasets/audio/nemo/multi-turn/asr")
+    parser.add_argument("--output", help="Output file", type=str, default="/data-server/datasets/audio/nemo/multi-turn/asr/nocontext")
     # parser.add_argument("--output_wav_dir", type=str, default=None)
     # parser.add_argument("--check_audio", action="store_true", default=False)
     parser.add_argument("--input_data_path", default="/data-server/datasets/audio/kaldi/fr")

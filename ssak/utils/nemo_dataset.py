@@ -233,9 +233,9 @@ class NemoDataset:
                 json.dump(row.to_json(), f, ensure_ascii=False, indent=None)
                 f.write("\n")
     
-    def set_context_if_none(self, context_category):
+    def set_context_if_none(self, context_category, task="asr", language="fr"):
         from ssak.utils.contexts import get_contexts
-        contexts = get_contexts(context_category)
+        contexts = get_contexts(context_category, task=task, lang=language)
         for row in tqdm(self, desc="Set context if none"):
             if row.context is None:
                 row.context = random.choice(contexts)
