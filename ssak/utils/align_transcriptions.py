@@ -14,7 +14,11 @@ from ssak.infer.general import (
 )
 from ssak.utils.misc import hashmd5
 from ssak.utils.text_basic import _punctuation, transliterate
-from ssak.utils.viewer import PlayWav
+try:
+    from ssak.utils.viewer import PlayWav
+except ImportError:
+    PlayWav = None
+    print("WARNING: ssak.utils.viewer.PlayWav cannot be imported, plotting the waveform will not be possible")
 
 imshow_opts = dict(origin="upper", aspect="auto", vmax=0)  # vmin = -25,
 
