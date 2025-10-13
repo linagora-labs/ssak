@@ -13,13 +13,15 @@ from ssak.utils.nemo_dataset import NemoDataset
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def set_context(input_file, output_file, context_category, task="asr", language="fr", dataset_name=None):
+def set_context(input_file, output_file, context_category, task="asr", language="fr", dataset_name=None, force_context=False):
     dataset = NemoDataset(name=dataset_name)
-    dataset.load(input_file)
-    dataset.set_context_if_none(context_category, task=task, language=language)
-    dataset.save(output_file)
+    data_type = dataset.load(input_file)
+    if data_type=="asr":
+        logger.info(f"Input manifest is in asr format, output will be in multiturn format!")
+    dataset.set_context_if_none(context_category, task=task, language=language, force_set_context=force_context)
+    dataset.save(output_file, type="multiturn")
 
-def set_context_on_folder(folder, context_file=None, output_folder=None, task="asr", language="fr"):
+def set_context_on_folder(folder, context_file=None, output_folder=None, task="asr", language="fr", force_context=False):
     if context_file:
         with open(context_file, "r") as f:
             contexts_dict = json.load(f)
@@ -62,5 +64,6 @@ if __name__ == "__main__":
     parser.add_argument("--output_folder", help="", type=str, default=None)
     parser.add_argument("--task", help="", choices=["asr"], default="asr")
     parser.add_argument("--language", help="", choices=["fr", "en"], default="fr")
+    parser.add_argument("--force_set_context", help="Set context even if not none", default=False, action="store_true")
     args = parser.parse_args()
-    set_context_on_folder(args.input_folder, context_file=args.context_file, output_folder=args.output_folder, task=args.task, language=args.language)
+    set_context_on_folder(args.input_folder, context_file=args.context_file, output_folder=args.output_folder, task=args.task, language=args.language, force_context=args.force_set_context)

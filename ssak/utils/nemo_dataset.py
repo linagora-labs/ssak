@@ -233,11 +233,11 @@ class NemoDataset:
                 json.dump(row.to_json(), f, ensure_ascii=False, indent=None)
                 f.write("\n")
     
-    def set_context_if_none(self, context_category, task="asr", language="fr"):
+    def set_context_if_none(self, context_category, task="asr", language="fr", force_set_context=False):
         from ssak.utils.contexts import get_contexts
         contexts = get_contexts(context_category, task=task, lang=language)
         for row in tqdm(self, desc="Set context if none"):
-            if row.context is None:
+            if row.context is None or force_set_context:
                 row.context = random.choice(contexts)
     
     def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
