@@ -158,7 +158,7 @@ class NemoDataset:
                         type = "asr"
                 if type == "asr":
                     row = NemoDatasetRow(
-                        id=json_row["id"],
+                        id=json_row.get("id", json_row.get("utt_id", None)),
                         dataset_name=json_row.get("dataset_name", dataset_name),
                         audio_filepath=json_row["audio_filepath"],
                         offset=json_row["offset"],
@@ -170,7 +170,7 @@ class NemoDataset:
                     )
                 elif type == "multiturn":
                     row = NemoDatasetRow(
-                        id=json_row["id"],
+                        id=json_row.get("id", json_row.get("utt_id", None)),
                         dataset_name=json_row.get("dataset_name", dataset_name),
                         audio_filepath=json_row["conversations"][1]["value"],
                         offset=json_row["conversations"][1]["offset"],
