@@ -133,11 +133,11 @@ def process_datasets(input_datasets, output_folder, output_wav_folder=None, nemo
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert a list of Kaldi datasets to Nemo format")
     parser.add_argument("datasets", help="Input datasets", type=str, nargs="+")
-    parser.add_argument("--output", help="Output file", type=str, default="/data-server/datasets/audio/nemo/multi-turn/asr/nocontext")
+    parser.add_argument("--output", help="Output file", type=str, default="/data-server/datasets/audio/nemo/multi-turn/asr/fr/nocontext")
     # parser.add_argument("--output_wav_dir", type=str, default=None)
     # parser.add_argument("--check_audio", action="store_true", default=False)
     parser.add_argument("--input_data_path", default="/data-server/datasets/audio/kaldi/fr")
-    parser.add_argument("--patterns", type=str, nargs="+", default=["casepunc_max30", "recasepunc_max30", "casepunc"])
+    parser.add_argument("--patterns", type=str, nargs="+", default=["casepunc", "recasepunc"])
     parser.add_argument("--nemo_format", type=str, default="multiturn")
     parser.add_argument("--nocasepunc", action="store_true", default=False)
     args = parser.parse_args()
@@ -146,6 +146,8 @@ if __name__ == "__main__":
         logger.warning("One input file, considering it as containing a list of files")
         with open(input_files[0]) as f:
             input_files = json.load(f)
+    else:
+        input_files = {input_file: None for input_file in input_files}
     new_input_files = dict()
     for input_folder in input_files:
         if input_files[input_folder] is not None and "kaldi_subpath" in input_files[input_folder]:
