@@ -71,6 +71,7 @@ def set_context_on_folder(folder, context_file=None, output_folder=None, task="a
                         context_category=contexts_dict.get(dataset_name, "default_contexts"),
                         task=task,
                         language=language,
+                        force_context=force_context,
                         dataset_name=dataset_name
                     )
                 except Exception as e:
@@ -79,12 +80,35 @@ def set_context_on_folder(folder, context_file=None, output_folder=None, task="a
                 logger.info(f"Skipping {output_file} as it already exists")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="")
-    parser.add_argument("input_folder", help="Input folder", type=str)
-    parser.add_argument("--context_file", help="context_file", type=str, default=None)
-    parser.add_argument("--output_folder", help="", type=str, default=None)
-    parser.add_argument("--task", help="", choices=["asr"], default="asr")
-    parser.add_argument("--language", help="", choices=["fr", "en"], default="fr")
-    parser.add_argument("--force_set_context", help="Set context even if not none", default=False, action="store_true")
+    parser = argparse.ArgumentParser(description="Process audio or manifest files with ASR and optional context.")
+
+    parser.add_argument("input", help="Input folder or manifest file.", type=str)
+
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument("--output_folder", help="Output folder to save results. If not specified, results will be saved in the same folder as input.", type=str, default=None)
+    output_group.add_argument("--output_file", help="Output file path (used when input is a single file). Cannot be used together with --output_folder.", type=str, default=None)
+
+    parser.add_argument("--context_file", help="DEPRECATED", type=str, default=None)    
+    parser.add_argument("--force_set_context", help="Force setting context even if one is already defined.", default=False, action="store_true")
+    parser.add_argument("--task", help="Task for selecting contexts.", choices=["asr"], default="asr")
+    parser.add_argument("--language", help="Language for selecting contexts.", choices=["fr", "en"], default="fr")
     args = parser.parse_args()
-    set_context_on_folder(args.input_folder, context_file=args.context_file, output_folder=args.output_folder, task=args.task, language=args.language, force_context=args.force_set_context)
+    
+    if args.context_file and not args.output_folder:
+        parser.error("--context_file can only be used when --output_folder is specified.")
+    if args.output_file and not args.input.lower().endswith(".jsonl"):
+        parser.error("When --output_file is specified, the input must be a .jsonl file.")
+    if args.output_folder and args.input.lower().endswith(".jsonl"):
+        parser.error(f"When --output_folder is specified, the input must be a folder.")
+    if args.output_file:
+        set_context(
+            input_file=args.input,
+            output_file=args.output_file, 
+            context_category="default_contexts",
+            task=args.task,
+            language=args.language,
+            force_context=args.force_set_context,
+            dataset_name=args.input.replace(".jsonl", "").replace("manifest_", "")
+        )
+    else:
+        set_context_on_folder(args.input, context_file=args.context_file, output_folder=args.output_folder, task=args.task, language=args.language, force_context=args.force_set_context)
