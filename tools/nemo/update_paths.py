@@ -1,8 +1,9 @@
 import argparse
 from tqdm import tqdm
+from pathlib import Path
 from ssak.utils.nemo_dataset import NemoDataset
 
-def update_path(input_manifest, str_in, str_out):
+def update_path_in_manifest(input_manifest, str_in, str_out):
     nemo_datset = NemoDataset()
     data_type = nemo_datset.load(input_manifest)
     for row in tqdm(nemo_datset):
@@ -14,7 +15,7 @@ if __name__=="__main__":
         description="Update audio file paths in a NeMo manifest."
     )
     parser.add_argument(
-        "input_manifest",
+        "input_path",
         type=str,
         help="Path to the input NeMo manifest file."
     )
@@ -31,4 +32,8 @@ if __name__=="__main__":
 
     args = parser.parse_args()
 
-    update_path(args.input_manifest, args.str_in, args.str_out)
+    if Path(args.input_path).is_dir():
+        for manifest in Path(args.input_path).glob("*.jsonl"):
+            update_path_in_manifest(manifest, args.str_in, args.str_out)
+    else:
+        update_path_in_manifest(args.input_path, args.str_in, args.str_out)
