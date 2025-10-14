@@ -161,7 +161,7 @@ class NemoDataset:
                         id=json_row.get("id", json_row.get("utt_id", None)),
                         dataset_name=json_row.get("dataset_name", dataset_name),
                         audio_filepath=json_row["audio_filepath"],
-                        offset=json_row["offset"],
+                        offset=json_row.get("offset", 0),
                         duration=json_row["duration"],
                         answer=json_row["text"],
                         speaker=json_row.get("speaker", None),
