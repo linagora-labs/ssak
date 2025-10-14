@@ -102,7 +102,7 @@ def merge_segments(prev, row, max_duration, acceptance, acceptance_punc):
     return False, None
 
 
-def concat_segments_files(input_file, output_file=None, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
+def concat_segments_input_file(input_file, output_file=None, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
     if not isinstance(input_file, Path):
         input_file = Path(input_file)
     if not output_file:
@@ -111,14 +111,15 @@ def concat_segments_files(input_file, output_file=None, max_duration=30, accepta
     nemo_data = NemoDataset()
     nemo_dataset_type = nemo_data.load(input_file)
     input_data = nemo_data
-    if not merged_audio_folder.startswith("/"):
+    if not merged_audio_folder.startswith("/") and merge_audios:
         merged_audio_folder = output_folder / Path(merged_audio_folder)
-        merged_audio_folder.mkdir(parents=True, exist_ok=True)
-    else:
+    elif merge_audios:
         merged_audio_folder = Path(merged_audio_folder)
+    if merge_audios:
         merged_audio_folder.mkdir(parents=True, exist_ok=True)
     new_data = concat_segments(input_data, max_duration, acceptance, acceptance_punc, merge_audios, merged_audio_folder, keep_audio_structure, num_threads)
     new_data.save(output_file, type=nemo_dataset_type)
+    logger.info(f"New dataset saved to {output_file}")
 
 def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
     new_data = NemoDataset(name=input_data.name, log_folder=input_data.log_folder)
@@ -169,6 +170,7 @@ def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Remove incoherent lines by looking at the number of words and segment duration from nemo manifest")
     parser.add_argument("file", help="Input manifest", type=str)
+    parser.add_argument("--output_file", help="", type=str, default=None)
     parser.add_argument("--max_duration", help="", type=float, default=30.0)
     parser.add_argument("--acceptance", help="", type=float, default=1.0)
     parser.add_argument("--merge_audios", help="", default=False, action="store_true")
@@ -176,4 +178,4 @@ if __name__ == "__main__":
     parser.add_argument("--num_threads", type=int, default=4)
     args = parser.parse_args()
 
-    concat_segments(args.file, max_duration=args.max_duration, acceptance=args.acceptance, merge_audios=args.merge_audios, merged_audio_folder=args.merged_audio_folder, num_threads=args.num_threads)
+    concat_segments_input_file(args.file, output_file=args.output_file, max_duration=args.max_duration, acceptance=args.acceptance, merge_audios=args.merge_audios, merged_audio_folder=args.merged_audio_folder, num_threads=args.num_threads)
