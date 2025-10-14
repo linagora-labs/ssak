@@ -20,7 +20,7 @@ with open(os.path.join(os.path.dirname(__file__), "ssak", "version.py")) as f:
                 break
 assert version and license
 
-description = "Multi-lingual Automatic Speech Recognition (ASR) based on Whisper models, with accurate word timestamps, access to language detection confidence, several options for Voice Activity Detection (VAD), and more."
+description = "Toolbox for Speech Processing."
 
 setup(
     name="ssak",
