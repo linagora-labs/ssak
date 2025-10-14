@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# This script was modified by LINAGORA to skip shards that were finished when restarting the conversion to tarred dataset
+# This script was modified by LINAGORA to skip shards that were finished when restarting the conversion to tarred dataset and to make log buckets
 
 """
 # This script converts an existing audio dataset with a manifest to
@@ -81,6 +81,7 @@ python convert_to_tarred_audio_dataset.py \
 import argparse
 import copy
 import json
+import math
 import os
 import random
 import tarfile
@@ -757,6 +758,47 @@ def create_tar_datasets(
         dali_index.main(index_config)
 
 
+def hybrid_bucketing_times(index_bucket, min_duration, max_duration, number_of_buckets, threshold=10, num_buckets_linear=4, num_buckets_log=2):
+    if number_of_buckets != num_buckets_linear + num_buckets_log:
+        raise ValueError(f"number_of_buckets must be equal to num_buckets_linear + num_buckets_log got {number_of_buckets} instead of {num_buckets_linear+num_buckets_log}")
+    if index_bucket < num_buckets_linear:
+        linear_range = threshold - min_duration
+        linear_step = linear_range / num_buckets_linear
+        bucket_min = min_duration + index_bucket * linear_step
+        bucket_max = min_duration + (index_bucket + 1) * linear_step
+    else:
+        log_min = math.log(threshold)
+        log_max = math.log(max_duration)
+        log_step = (log_max - log_min) / num_buckets_log
+        log_index = index_bucket - num_buckets_linear
+        bucket_min = math.exp(log_min + log_index * log_step)
+        bucket_max = math.exp(log_min + (log_index + 1) * log_step)
+
+    return bucket_min, bucket_max
+
+
+def compute_bucket_times(index_bucket, min_duration, max_duration, number_of_buckets, method="linear"):
+    if method == "log":
+        if min_duration <= 0:
+            print(f"min_duration must be > 0 for log method, got {min_duration}, setting to 1e-6")
+            min_duration = 1e-6
+        log_min = math.log(min_duration)
+        log_max = math.log(max_duration)
+        step = (log_max - log_min) / number_of_buckets
+        bucket_min = math.exp(log_min + step * index_bucket)
+        bucket_max = math.exp(log_min + step * (index_bucket + 1))
+    elif method == "linear":
+        step = (max_duration - min_duration) / number_of_buckets
+        bucket_min = min_duration + step * index_bucket
+        bucket_max = bucket_min + step
+    elif callable(method):
+        return method(index_bucket, min_duration, max_duration, number_of_buckets)
+    else:
+        raise ValueError("method must be either 'log' or 'linear'")
+
+    return bucket_min, bucket_max
+
+
 def convert_to_tarred_audio_dataset(
     manifest_path=None,
     concat_manifest_paths=None,
@@ -765,6 +807,7 @@ def convert_to_tarred_audio_dataset(
     num_shards=-1,
     max_duration=None,
     min_duration=None,
+    method="linear",
     shuffle=False,
     shuffle_seed=None,
     sort_in_shards=False,
@@ -777,10 +820,8 @@ def convert_to_tarred_audio_dataset(
     no_shard_manifests=False,
 ):
     if buckets_num > 1:
-        bucket_length = (max_duration - min_duration) / float(buckets_num)
         for i in range(buckets_num):
-            bucket_min_duration = min_duration + i * bucket_length
-            bucket_max_duration = bucket_min_duration + bucket_length
+            bucket_min_duration, bucket_max_duration = compute_bucket_times(i, min_duration, max_duration, float(buckets_num), method=method)
             if i == buckets_num - 1:
                 # add a small number to cover the samples with exactly duration of max_duration in the last bucket.
                 max_duration += 1e-5

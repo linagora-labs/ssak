@@ -9,8 +9,13 @@ from ssak.utils.kaldi_dataset import KaldiDataset
 
 logger = logging.getLogger(__name__)
 
+LOG_FOLDER = "kaldi_data_conversion"
 
 class Reader2Kaldi:
+    """
+    Convert a dataset to Kaldi format using a list of processors.
+    The processors are executed in the order of the execute_order attribute of processors
+    """
     def __init__(self, root, processors) -> None:
         for i in processors:
             if not isinstance(i, Row2KaldiInfo):
@@ -36,6 +41,8 @@ class Reader2Kaldi:
         for processor in pbar:
             pbar.set_description(f"Processing {processor.__class__.__name__}")
             dataset = processor.process(dataset, debug=debug)
+            if debug:
+                logger.info(f"Step {processor.__class__.__name__}: {dataset}")
         logger.info(f"Dataset processed with {len(dataset)} rows")
         logger.info(f"First row: {dataset[0]}")
         kaldi_dataset = KaldiDataset(
@@ -65,7 +72,7 @@ class Reader2Kaldi:
             logger.info(f"Found filters: {filters}")
             filter_files = dict()
             for f in filters:
-                filter_files[f] = open(f"{f}.txt", "w")
+                filter_files[f] = open(os.path.join(LOG_FOLDER, f"{f}.txt"), "w")
         for row in tqdm(dataset, desc="Creating Kaldi dataset"):
             if all(row[f] for f in filters):
                 row = {k: row[k] for k in keys_to_keep if k in row}
@@ -79,7 +86,13 @@ class Reader2Kaldi:
 
 
 class ToKaldi:
+    """
+    Parent class for all Kaldi converters (/processors). It contains the basic parameters, merge_data and interface methods.
+    
+    """
     def __init__(self, input, return_columns, execute_order=0, merge_on="id", sort_merging=True, force_merge_new_into_old=False) -> None:
+        if not isinstance(return_columns, list):
+            return_columns = [return_columns]
         self.execute_order = execute_order
         self.input = input
         self.return_columns = return_columns
@@ -115,16 +128,17 @@ class ToKaldi:
                 logger.warning(f"The data you are trying to merge have different lengths at step {self.__class__.__name__} (execute_order={self.execute_order})!")
                 logger.warning(f"Dataset ({len(dataset)} rows) has {len(diff_a_b)} rows not present in new data")
                 logger.warning(f"New data ({len(new_data)} rows) has {len(diff_b_a)} rows not present in dataset")
-                logger.warning("Writing ids to log2kaldi/missing_ids.txt")
-                os.makedirs("kaldi_data_processing", exist_ok=True)
+                os.makedirs(LOG_FOLDER, exist_ok=True)
                 if len(diff_a_b) > 0:
-                    with open(os.path.join("kaldi_data_processing",f"merge_new_data_missing_{self.execute_order}_{self.__class__.__name__}.txt"), "w") as f:
-                            f.write("In dataset but not in new data:\n")
+                    path = os.path.join(LOG_FOLDER,f"merge_new_data_missing_{self.execute_order}_{self.__class__.__name__}.txt")
+                    logger.warning(f"Writing ids to {path}")
+                    with open(path, "w") as f:
                             for i in diff_a_b:
                                 f.write(f"{i}\n")
                 if len(diff_b_a) > 0:
-                    with open(os.path.join("kaldi_data_processing",f"merge_dataset_missing_{self.execute_order}_{self.__class__.__name__}.txt"), "w") as f:
-                        f.write("In new data but not in dataset:\n")
+                    path = os.path.join(LOG_FOLDER,f"merge_dataset_missing_{self.execute_order}_{self.__class__.__name__}.txt")
+                    logger.warning(f"Writing ids to {path}")
+                    with open(path, "w") as f:
                         for i in diff_b_a:
                             f.write(f"{i}\n")
             merged_dict = {}
@@ -333,7 +347,15 @@ class Row2Duration(Row2KaldiInfo):
         from ssak.utils.audio import get_audio_duration
 
         return {self.return_columns[0]: round(get_audio_duration(row[self.input]), 2)}
-
+class RowApplyFunction(Row2KaldiInfo):
+    def __init__(self, function, return_columns, execute_order, sort_merging=True, input=None) -> None:
+        super().__init__(input, return_columns, execute_order=execute_order, sort_merging=sort_merging)
+        if not function:
+            raise ValueError(f"Function should be passed")
+        self.function = function
+    
+    def __call__(self, row):
+        return {self.return_columns[0]: self.function(row)}
 
 class CsvFile2Kaldi(ToKaldi):
     def __init__(self, input, return_columns, execute_order, separator: str, header=False, **kwargs) -> None:
@@ -354,8 +376,7 @@ class CsvFile2Kaldi(ToKaldi):
                 if debug:
                     break
         return self.merge_data(dataset, new_data=data)
-
-
+    
 class TextFile2Kaldi(ToKaldi):
     def __init__(self, input, return_columns, execute_order, separator: str, merge_on="id", max_split=1, sort_merging=True) -> None:
         if return_columns is None:

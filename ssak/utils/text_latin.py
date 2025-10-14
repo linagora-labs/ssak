@@ -40,7 +40,19 @@ _ALL_ACRONYMS = []
 
 
 def format_text_latin(
-    text, lang="fr", lower_case=True, keep_punc=False, remove_ligatures=True, convert_numbers=True, extract_parenthesis=False, fid_acronyms=None, fid_special_chars=None, safety_checks=True, remove_suspicious_entry=False, wer_format=True
+    text,
+    lang="fr",
+    lower_case=True,
+    keep_punc=False,
+    remove_ligatures=True,
+    convert_numbers=True,
+    extract_parenthesis=False,
+    fid_acronyms=None,
+    fid_special_chars=None,
+    safety_checks=True,
+    remove_suspicious_entry=False,
+    wer_format=True,
+    replacements=None,
 ):
     opts = _rm_key(locals(), "text")
 
@@ -116,13 +128,18 @@ def format_text_latin(
 
         # Special Symbols
         text = format_special_characters(text, remove_ligatures=remove_ligatures)
-
+        if replacements:
+            for replacement in replacements:
+                text = re.sub(replacement[0], replacement[1], text)
         # text = re.sub('"',' " ', text)
         # text = re.sub("' '", "''", text)
         # text = re.sub(',|¸',',', text)
         # text = re.sub(", ", " , ", text)
         # text = re.sub("\!", " ! ", text)
         if lang == "fr":
+            text = re.sub(r"\.*!\.*", "!", text)
+            text = re.sub(r"\.*\?\.*", "?", text)
+            text = re.sub(r"\!", " ! ", text)
             text = re.sub(r"\?", " ? ", text)
             text = re.sub(":", " : ", text)
             text = re.sub(";", " ; ", text)
@@ -134,6 +151,8 @@ def format_text_latin(
         text = re.sub(r"\^+", "", text)
         text = re.sub(" +(- +)+", " ", text)
         text = re.sub("- ", " ", text)
+
+        text = re.sub(r"\([^)]*\)", "", text)
         # text = re.sub("([a-zàâäçèéêëîïôùûü]+)- +", r"\1-", text)
         # text = re.sub(" -([a-zàâäçèéêëîïôùûü]+)", r"-\1", text)
         # text = re.sub("([,;:\!\?\.]) -([a-zàâäçèéêëîïôùûü]+)", r"\1 \2", text)
@@ -251,7 +270,10 @@ def format_text_latin(
 
         if not keep_punc:
             text = remove_punctuations(text, " ")
-
+        else:
+            if lang == "fr":
+                text = re.sub(r"\s+([,\.!?])", r"\1", text)  # in french ,.!? must not have space before them
+            text = re.sub(r"^\s*[-,\.!?\s]*", "", text)  # remove punct if begining of string
         if lower_case:
             text = text.lower()
 
@@ -522,7 +544,7 @@ _corrections_abbreviations_fr = [
         # ("L", "litres"), # Caution with "L'"
         ("ml", "millilitres"),
         ("cm2", "centimètres carrés"),
-        (r"[Mm]\.?", "monsieur"),
+        (r"[Mm]\.", "monsieur"),
         (r"[Mm]me\.?", "madame"),
         (r"[Mm]lle\.?", "mademoiselle"),
     ]
@@ -625,10 +647,18 @@ _corrections_caracteres_speciaux = {
                 "þ",
                 "z",
             ),  # utilisée pour transcrire le son d'une consonne fricative dentale sourde (comme le « th » de « thick » en anglais moderne)
-            ("Ã", "a"),
+            ("Ã", "A"),
             ("Å", "A"),
             ("Ö", "O"),
             ("Ø", "O"),
+            ("Þ", "Z"),
+            ("Ñ", "N"),
+            ("Í", "I"),
+            ("Ó", "O"),
+            ("Ú", "U"),
+            ("Á", "A"),
+            ("Ä", "A"),
+            ("Ü", "U"),
             # ('À','À'),
             # ('É','É'),
             # ('È','È'),

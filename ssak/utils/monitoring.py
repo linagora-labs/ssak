@@ -125,7 +125,7 @@ def get_num_gpus(ignore_errors=False):
         return len(ALL_GPU_INDICES)
     try:
         pynvml.nvmlInit()  # Can throw pynvml.NVMLError_DriverNotLoaded if driver problem
-    except pynvml.NVMLError_DriverNotLoaded:
+    except (pynvml.NVMLError_DriverNotLoaded, pynvml.NVMLError_LibraryNotFound):
         import torch
 
         if torch.cuda.is_available():

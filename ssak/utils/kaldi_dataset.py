@@ -10,7 +10,6 @@ from ssak.utils.kaldi import check_kaldi_dir
 
 logger = logging.getLogger(__name__)
 
-LOG_FOLDER = "kaldi_data_processing"
 
 @dataclass
 class KaldiDatasetRow:
@@ -46,7 +45,7 @@ class KaldiDatasetRow:
         self,
         show_warnings=True,
         accept_warnings=False,
-        warn_if_shorter_than=0.05,
+        warn_if_shorter_than=0.1,
         warn_if_longer_than=3600,
         check_if_segments_in_audio=False,
         accept_missing_speaker=False,
@@ -134,9 +133,10 @@ class KaldiDataset:
         normalize_audios(output_wavs_conversion_folder, target_sample_rate): Check audio files sample rate and number of channels and convert them if they don't match the target sample rate/number of channels
     """
 
-    def __init__(self, name=None, row_checking_kwargs=dict(), accept_missing_speaker=False):
+    def __init__(self, name=None, row_checking_kwargs=dict(), accept_missing_speaker=False, log_folder=None):
         if name:
             self.name = name
+        self.log_folder = log_folder if log_folder else "kaldi_data_processing"
         self.row_checking_kwargs = row_checking_kwargs
         self.accept_missing_speaker = accept_missing_speaker
         self.dataset = list()
@@ -267,8 +267,8 @@ class KaldiDataset:
                 new_data.append(row)
         self.dataset = new_data
         logger.info(f"Removed {len(removed_lines)} segments that were not in audios (start or end after audio), check removed_lines_not_in_audios file")
-        os.makedirs(LOG_FOLDER, exist_ok=True)
-        with open(os.path.join(LOG_FOLDER, "removed_lines_not_in_audios"), "w") as f:
+        os.makedirs(self.log_folder, exist_ok=True)
+        with open(os.path.join(self.log_folder, "filtered_out_not_in_audios.jsonl"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
 
@@ -306,7 +306,7 @@ class KaldiDataset:
                 new_dataset.append(row)
         return new_dataset
 
-    def normalize_dataset(self, apply_text_normalization=True, wer_format=False):
+    def normalize_dataset(self, apply_text_normalization=True, wer_format=False, keep_punc=False, keep_case=False):
         """
         Normalize the texts in the dataset using the format_text_latin function from ssak.utils.text_latin
 
@@ -318,12 +318,18 @@ class KaldiDataset:
         if self.dataset[0].normalized_text is not None:
             logger.warning("Dataset is already normalized (or at least first segment), skipping normalization")
             return
-        for row in tqdm(self.dataset, total=len(self.dataset), desc="Normalizing texts"):
-            from ssak.utils.text_latin import format_text_latin
 
-            row.normalized_text = format_text_latin(row.text, wer_format=wer_format)
+        from ssak.utils.text_latin import format_text_latin
+
+        new_dataset = []
+        for row in tqdm(self.dataset, total=len(self.dataset), desc="Normalizing texts"):
+            row.normalized_text = format_text_latin(row.text, wer_format=wer_format, keep_punc=keep_punc, lower_case=not keep_case)
             if apply_text_normalization:
                 row.text = row.normalized_text
+                if len(row.text) > 0:
+                    new_dataset.append(row)
+        if len(new_dataset) > 0:
+            self.dataset = new_dataset
 
     def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
         """
@@ -343,7 +349,7 @@ class KaldiDataset:
         errors = False
         if num_workers == 1:
             for audio_path in tqdm(audio_paths, total=len(audio_paths), desc="Checking audio files"):
-                new_path = self.audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension)
+                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension)
                 if new_path != audio_path:
                     updated_audio_paths[audio_path] = new_path
                     if new_path == "error":
@@ -352,7 +358,7 @@ class KaldiDataset:
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = {
                     executor.submit(
-                        self.audio_checks,
+                        audio_checks,
                         audio_path,
                         output_wavs_conversion_folder,
                         target_sample_rate,
@@ -382,8 +388,8 @@ class KaldiDataset:
                 else:
                     removed_lines.append(row)
             self.dataset = new_dataset
-            os.makedirs(LOG_FOLDER, exist_ok=True)
-            with open(os.path.join(LOG_FOLDER, "removed_lines_audio_empty"), "w") as f:
+            os.makedirs(self.log_folder, exist_ok=True)
+            with open(os.path.join(self.log_folder, "filtered_out_audio_empty.jsonl"), "w") as f:
                 for row in removed_lines:
                     f.write(str(row) + "\n")
 
@@ -526,63 +532,7 @@ class KaldiDataset:
                         speaker=spks.get(seg_id, None),
                     )
                 )
-        logger.info(f"Loaded {len(self.dataset)} rows from {input_dir}")
-
-    def audio_checks(self, audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
-        """
-        Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
-
-        Args:
-            audio_path (str): Path to the audio file
-            new_folder (str): Folder where to save the transformed audio file
-            target_sample_rate (int): Target sample rate for the audio file
-            target_extension (str): Optional. Target extension for the audio file. If set to None, it will keep the original extension
-            max_channel (int): Maximum number of channels for the audio file. If the audio file has more channels, it will keep only the first channel. TODO: Add option to keep all channels in different files
-        """
-        from pydub import AudioSegment
-        from pydub.utils import mediainfo
-
-        if new_folder:
-            if target_extension:
-                if not target_extension.startswith("."):
-                    target_extension = "." + target_extension
-                new_path = os.path.join(new_folder, os.path.basename(audio_path).replace(os.path.splitext(audio_path)[1], target_extension))
-            else:
-                new_path = os.path.join(new_folder, os.path.basename(audio_path))
-        else:
-            raise ValueError("New folder must be specified for audio conversion")
-        if not os.path.exists(new_path):
-            if not os.path.exists(audio_path):
-                raise FileNotFoundError(f"Audio file {audio_path} does not exist")
-            infos = mediainfo(audio_path)
-            src_sample_rate = int(infos["sample_rate"])
-            src_n_channels = int(infos["channels"])
-            try:
-                if infos["duration"] == "N/A":  # or float(infos['duration'])<0.01:
-                    logger.error(f"Audio file {audio_path} has no duration: {infos['duration']}. It is probably corrupted!")
-                    return "error"
-                elif src_n_channels > max_channel or src_sample_rate != target_sample_rate or (target_extension is not None and not audio_path.endswith(target_extension)):
-                    waveform = AudioSegment.from_file(audio_path)
-                    if src_n_channels > max_channel:
-                        logger.debug(f"Audio file {audio_path} has {src_n_channels} channels. Converting to 1 channel...")
-                        waveform = waveform.set_channels(1)
-                    if src_sample_rate != target_sample_rate:
-                        logger.debug(f"Audio file {audio_path} has sample rate of {src_sample_rate}. Converting to {target_sample_rate}Hz...")
-                        waveform = waveform.set_frame_rate(target_sample_rate)
-                    if not os.path.exists(new_folder):
-                        os.makedirs(new_folder, exist_ok=True)
-                    waveform.export(new_path, format="wav")
-                    return new_path
-                elif not audio_path.endswith(target_extension):
-                    logger.debug(f"Audio file has the wrong extension {audio_path}. Converting to {target_extension}...")
-                    waveform = AudioSegment.from_file(audio_path)
-                    waveform.export(new_path, format="wav")
-                    return new_path
-                else:
-                    return audio_path
-            except Exception as e:
-                raise Exception(f"Error with {audio_path} with infos: {infos}") from e
-        return new_path
+        logger.info(f"Loaded {len(self.dataset)} rows (removed {len(loop)-len(self.dataset)} rows) from {input_dir}")
 
     def apply_filter(self, filter, filter_out=True):
         new_data = []
@@ -596,12 +546,68 @@ class KaldiDataset:
                 new_data.append(row)
             else:
                 removed_lines.append(row)
+        logger.info(f"Removed (Filtered out) {len(removed_lines)}/{len(self.dataset)} ({len(removed_lines)/len(self.dataset)*100:.2f}%) lines with {filter.__name__}")
         self.dataset = new_data
-        os.makedirs(LOG_FOLDER, exist_ok=True)
-        with open(os.path.join(LOG_FOLDER, f"filtered_out_with_{filter.__name__ }"), "w") as f:
+        os.makedirs(self.log_folder, exist_ok=True)
+        with open(os.path.join(self.log_folder, f"filtered_out_with_{filter.__name__ }.jsonl"), "w") as f:
             for row in removed_lines:
                 f.write(str(row) + "\n")
+                
+def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
+    """
+    Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
 
+    Args:
+        audio_path (str): Path to the audio file
+        new_folder (str): Folder where to save the transformed audio file
+        target_sample_rate (int): Target sample rate for the audio file
+        target_extension (str): Optional. Target extension for the audio file. If set to None, it will keep the original extension
+        max_channel (int): Maximum number of channels for the audio file. If the audio file has more channels, it will keep only the first channel. TODO: Add option to keep all channels in different files
+    """
+    from pydub import AudioSegment
+    from pydub.utils import mediainfo
+
+    if new_folder:
+        if target_extension:
+            if not target_extension.startswith("."):
+                target_extension = "." + target_extension
+            new_path = os.path.join(new_folder, os.path.basename(audio_path).replace(os.path.splitext(audio_path)[1], target_extension))
+        else:
+            new_path = os.path.join(new_folder, os.path.basename(audio_path))
+    else:
+        raise ValueError("New folder must be specified for audio conversion")
+    if not os.path.exists(new_path):
+        if not os.path.exists(audio_path):
+            raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
+        infos = mediainfo(audio_path)
+        src_sample_rate = int(infos["sample_rate"])
+        src_n_channels = int(infos["channels"])
+        try:
+            if infos["duration"] == "N/A":  # or float(infos['duration'])<0.01:
+                logger.error(f"Audio file {audio_path} has no duration: {infos['duration']}. It is probably corrupted!")
+                return "error"
+            elif src_n_channels > max_channel or src_sample_rate != target_sample_rate or (target_extension is not None and not audio_path.endswith(target_extension)):
+                waveform = AudioSegment.from_file(audio_path)
+                if src_n_channels > max_channel:
+                    logger.debug(f"Audio file {audio_path} has {src_n_channels} channels. Converting to 1 channel...")
+                    waveform = waveform.set_channels(1)
+                if src_sample_rate != target_sample_rate:
+                    logger.debug(f"Audio file {audio_path} has sample rate of {src_sample_rate}. Converting to {target_sample_rate}Hz...")
+                    waveform = waveform.set_frame_rate(target_sample_rate)
+                if not os.path.exists(new_folder):
+                    os.makedirs(new_folder, exist_ok=True)
+                waveform.export(new_path, format="wav")
+                return new_path
+            elif not audio_path.endswith(target_extension):
+                logger.debug(f"Audio file has the wrong extension {audio_path}. Converting to {target_extension}...")
+                waveform = AudioSegment.from_file(audio_path)
+                waveform.export(new_path, format="wav")
+                return new_path
+            else:
+                return audio_path
+        except Exception as e:
+            raise Exception(f"Error with {audio_path} with infos: {infos}") from e
+    return new_path
 
 def get_audio_from_wav_scp_line(line):
     line = line[1:]

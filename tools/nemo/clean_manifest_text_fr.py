@@ -7,7 +7,7 @@ import os
 import sys
 
 from tqdm import tqdm
-
+from ssak.utils.nemo_dataset import NemoDataset
 from ssak.utils.text_latin import format_text_latin
 
 logging.basicConfig(level=logging.INFO)
@@ -15,13 +15,71 @@ logger = logging.getLogger(__name__)
 
 
 def clean_text_fr(
-    input, output, keep_punc=True, keep_num=False, keep_case=True, empty_string_policy="fail", linebreak_policy="fail", remove_suspicious_entry=False, extract_parenthesis=False, file_acronyms=None, file_special_char=None, wer_format=True
+    nemo_dataset,
+    keep_punc=True,
+    keep_num=False,
+    keep_case=True,
+    empty_string_policy="fail",
+    linebreak_policy="fail",
+    remove_suspicious_entry=False,
+    extract_parenthesis=False,
+    file_acronyms=None,
+    file_special_char=None,
+    wer_format=True,
+    replacements=None,
+):
+    fid_acronyms = open(file_acronyms, "a", encoding="utf-8") if file_acronyms else None
+    fid_special_char = open(file_special_char, "a", encoding="utf-8") if file_special_char else None
+
+    new_data = NemoDataset()
+    for row in tqdm(nemo_dataset, desc=f"Cleaning text {nemo_dataset}"):
+        full_line = row
+        row.text = format_text_latin(
+            row.text,
+            lower_case=not keep_case,
+            keep_punc=keep_punc,
+            convert_numbers=not keep_num,
+            extract_parenthesis=extract_parenthesis,
+            fid_acronyms=fid_acronyms,
+            fid_special_chars=fid_special_char,
+            remove_suspicious_entry=remove_suspicious_entry,
+            wer_format=wer_format,
+            replacements=replacements,
+        )
+
+        if len(row.text) > 0 and row.text[-1] == '"' and row.text[0] == '"':
+            row.text = row.text[1:-1]
+        num_dumps = 0
+        if row.text or empty_string_policy == "allow":
+            new_data.append(row)
+            num_dumps += 1
+        if not num_dumps and empty_string_policy != "ignore":
+            raise RuntimeError(f"Empty string found (on '{full_line}').\nUse option --empty_string_policy=allow or --empty_string_policy=ignore to explicitly allow or ignore empty strings")
+        if num_dumps > 1 and linebreak_policy == "fail":
+            line_ = row.text.replace("\n", "\\n")
+            raise RuntimeError(f"Line break found when normalizing '{full_line}' (into '{line_}').\nUse option --linebreak_policy=allow to explicitly allow line breaks")
+    return new_data
+
+def clean_text_fr_file(
+    input,
+    output_file,
+    keep_punc=True,
+    keep_num=False,
+    keep_case=True,
+    empty_string_policy="fail",
+    linebreak_policy="fail",
+    remove_suspicious_entry=False,
+    extract_parenthesis=False,
+    file_acronyms=None,
+    file_special_char=None,
+    wer_format=True,
+    replacements=None,
 ):
     """
     Clean the text of a manifest file for French language (remove special characters, numbers, etc.)
     Args:
         input (str): input manifest file
-        output (str): output manifest file
+        output_file (str): output manifest file
         keep_punc (bool): keep punctuations
         keep_num (bool): keep numbers and symbols
         keep_case (bool): keep case (otherwise, everything will be lowercased)
@@ -32,67 +90,36 @@ def clean_text_fr(
         file_acronyms (str): a file to list acronyms found
         file_special_char (str): a file to list special characters that were removed
     """
-    if output:
-        output_file = output
+    if output_file:
         if os.path.exists(output_file):
             raise FileExistsError(f"Output file {output_file} already exists")
-            # os.remove(output_file)
-
         dname = os.path.dirname(output_file)
-        if dname and not os.path.isdir(dname):
-            os.makedirs(dname)
-        fout = open(output_file, "w", encoding="utf-8")
-    else:
-        fout = sys.stdout
-
-    # Get the number of lines
-    # Note: This is ~10 times slower than wc -l
-    #       but it's reasonnable (20 sec for ~70 000 000)
-    # see https://stackoverflow.com/questions/845058/how-to-get-line-count-of-a-large-file-cheaply-in-python
+        os.makedirs(dname, exist_ok=True)
+    
     if os.path.isfile(input):
-        num_lines = sum(1 for _ in open(input))
-        gen = open(input, encoding="utf-8")
+        gen = NemoDataset()
+        gen.load(input)
     else:
         print(f"WARNING: File {input} not found. Interpreting that as an input")
-        num_lines = 1
-        gen = [input]
+        gen = NemoDataset()
+        gen.append({"text": input})
 
     fid_acronyms = open(file_acronyms, "a", encoding="utf-8") if file_acronyms else None
     fid_special_char = open(file_special_char, "a", encoding="utf-8") if file_special_char else None
 
-    try:
-        for line in tqdm(gen, total=num_lines, desc=f"Cleaning text {input}"):
-            full_line = line
-            line = json.loads(line)
-            line["text"] = format_text_latin(
-                line["text"],
-                lower_case=not keep_case,
-                keep_punc=keep_punc,
-                convert_numbers=not keep_num,
-                extract_parenthesis=extract_parenthesis,
-                fid_acronyms=fid_acronyms,
-                fid_special_chars=fid_special_char,
-                remove_suspicious_entry=remove_suspicious_entry,
-                wer_format=wer_format,
-            )
+    new_data = clean_text_fr(
+        gen, 
+        keep_punc, 
+        keep_num, 
+        keep_case, 
+        fid_acronyms, 
+        fid_special_char)
 
-            if len(line["text"]) > 0 and line["text"][-1] == '"' and line["text"][0] == '"':
-                line["text"] = line["text"][1:-1]
-            num_dumps = 0
-            if line["text"] or empty_string_policy == "allow":
-                json.dump(line, fout, ensure_ascii=False)
-                fout.write("\n")
-                num_dumps += 1
-            if not num_dumps and empty_string_policy != "ignore":
-                raise RuntimeError(f"Empty string found (on '{full_line}').\nUse option --empty_string_policy=allow or --empty_string_policy=ignore to explicitly allow or ignore empty strings")
-            if num_dumps > 1 and linebreak_policy == "fail":
-                line_ = line.replace("\n", "\\n")
-                raise RuntimeError(f"Line break found when normalizing '{full_line}' (into '{line_}').\nUse option --linebreak_policy=allow to explicitly allow line breaks")
-    finally:
-        if fout is not sys.stdout:
-            fout.close()
-        if hasattr(gen, "close"):
-            gen.close()
+    if output_file:
+        new_data.save(output_file)
+    else:
+        for i in new_data:
+            print(i)
 
 
 if __name__ == "__main__":

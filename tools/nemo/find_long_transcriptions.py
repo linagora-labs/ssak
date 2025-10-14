@@ -1,9 +1,14 @@
 import argparse
-import json
 import logging
-import shutil
+import os
+import re
+from functools import partial
 
+import numpy as np
+from scipy.interpolate import make_interp_spline
 from tqdm import tqdm
+
+from ssak.utils.nemo_dataset import NemoDataset
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -22,42 +27,86 @@ logger = logging.getLogger(__name__)
 # 20s: 528c
 # 30s: 792c
 
-INCOHERENT_THREEHOLD = {1: 50, 5: 200, 10: 350, 20: 550, 30: 700}
+
+def get_charset():
+    french_charset = re.compile(r"^[0-9a-zA-ZàâäæçéèêëîïôœùûüÿÀÂÄÆÇÉÈÊËÎÏÔŒÙÛÜŸ'’ \-.,;:!?]+$")
+    return french_charset
 
 
-def filter_incoherent_segments(input_file, filtered_out_file):
-    with open(input_file, encoding="utf-8") as f:
-        lines = f.readlines()
-        data = [json.loads(l) for l in lines]
-    ct_dict = {i: 0 for i in list(INCOHERENT_THREEHOLD.values())}
-    ct = 0
-    with open(input_file + ".tmp", "w", encoding="utf-8") as f, open(filtered_out_file, "w", encoding="utf-8") as log:
-        for i, row in enumerate(tqdm(data, desc="Checking for incoherent texts lengths")):
-            dur = float(row["duration"])
-            max_text = None
-            for k, v in INCOHERENT_THREEHOLD.items():
-                if dur < k:
-                    max_text = v
-                    break
-            if max_text is None:
-                max_text = list(INCOHERENT_THREEHOLD.values())[-1]
-            if len(row["text"]) > max_text:
-                ct += 1
-                ct_dict[max_text] = ct_dict[max_text] + 1
-                json.dump(row, log, ensure_ascii=False)
-                log.write("\n")
-            else:
-                json.dump(row, f, ensure_ascii=False)
-                f.write("\n")
-    print(f"Find {ct} long texts in {input_file}")
-    print(f"Removed: {ct_dict}")
-    shutil.move(input_file + ".tmp", input_file)
+def incoherence_char(duration, text, charset=None):
+    if not charset.match(text):
+        return True
+    return False
 
+
+def get_too_short_args():
+    INCOHERENT_THREEHOLD = {0.5: 2, 1: 4, 5: 12, 10: 25, 20: 42, 30: 60}
+    x = np.array(list(INCOHERENT_THREEHOLD.keys()))
+    y = np.array(list(INCOHERENT_THREEHOLD.values()))
+    spline_short = make_interp_spline(x, y, k=3)
+    return x, y, spline_short
+
+
+def get_too_long_args():
+    INCOHERENT_THREEHOLD = {0.5: 30, 1: 50, 5: 200, 10: 350, 20: 580, 30: 750}
+    x = np.array(list(INCOHERENT_THREEHOLD.keys()))
+    y = np.array(list(INCOHERENT_THREEHOLD.values()))
+    spline_long = make_interp_spline(x, y, k=3)
+    return x, y, spline_long
+
+
+def incoherence_curve(duration, text, long_mode=True, x=None, y=None, spline=None):
+    value = None
+    if duration <= x[0]:
+        value = y[0]
+    elif duration >= x[-1]:
+        value = y[-1]
+    else:
+        value = spline(duration)
+    if long_mode:
+        return len(text) > value
+    return len(text) < value
+
+def filter_incoherent_segments_file(input_file, output_file, mode="charset"):
+    data = NemoDataset()
+    type = data.load(input_file, type=None)
+    if output_file and os.path.exists(output_file):
+        logger.info(f"Output file {output_file} already exists, skipping")
+    elif output_file is None:
+        output_file = args.file
+    dataset = filter_incoherent_segments(data, mode=mode)
+    dataset.save(output_file, type=type)
+
+def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset"):
+    if mode == "too_long":
+        x, y, spline_long = get_too_long_args()
+        incoherence_function = partial(incoherence_curve, long_mode=True, x=x, y=y, spline=spline_long)
+    elif mode == "charset":
+        charset = get_charset()
+        incoherence_function = partial(incoherence_char, charset=charset)
+    elif mode == "too_short":
+        x, y, spline_short = get_too_short_args()
+        incoherence_function = partial(incoherence_curve, long_mode=False, x=x, y=y, spline=spline_short)
+    else:
+        raise ValueError(f"Unknown mode {mode}")
+    new_data = NemoDataset(name=input_dataset.name, log_folder=input_dataset.log_folder)
+    removed_data = NemoDataset()
+    os.makedirs(os.path.dirname(filtered_out_file), exist_ok=True)
+    for i, row in enumerate(tqdm(input_dataset, desc="Checking for incoherent texts lengths")):
+        is_incoherent = incoherence_function(row.duration, row.answer)
+        if is_incoherent:
+            removed_data.append(row)
+        else:
+            new_data.append(row)
+    removed_data.save(filtered_out_file, type="asr")
+    logger.info(f"Find {len(removed_data)} incoherence segments in {input_dataset} using mode {mode} and {incoherence_function.func.__name__}")
+    return new_data
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Remove incoherent lines by looking at the number of words and segment duration from nemo manifest")
     parser.add_argument("file", help="Input file", type=str)
     parser.add_argument("output", help="output file", type=str)
+    parser.add_argument("--mode", default="charset", help="length or language", type=str)
     # parser.add_argument('--max_char', help="Depends on segments max length", type=int, default=700)
     args = parser.parse_args()
-    filter_incoherent_segments(args.file, args.output)
+    filter_incoherent_segments_file(args.file, args.output, args.mode)

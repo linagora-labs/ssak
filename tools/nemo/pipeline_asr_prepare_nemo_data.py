@@ -1,11 +1,16 @@
 import argparse
 import logging
 import os
+import shutil
+import json
+from functools import partial
 
 from clean_manifest_text_fr import clean_text_fr
+from convert_kaldi_dataset_to_nemo import convert_dataset
 from convert_kaldi_datasets_to_nemo import convert_datasets
 from generate_dataset_list_files import generate_dataset_list_files
 from merge_manifest import merge_manifests
+from tqdm import tqdm
 
 CHECK_AUDIO = True
 CHECK_IF_SEGMENT_IN_AUDIO = False
@@ -17,9 +22,10 @@ if __name__ == "__main__":
     parser.add_argument("--test_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--dev_input_datasets", help="Input datasets", type=str, default=None)
     parser.add_argument("--datasets_folder", help="Dataset folder", type=str, default=None)
-    parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default="processed_dataset")
+    parser.add_argument("--output_wav_dir", help="Place to store converted audios (if audios are not in wav for example)", type=str, default=None)
     parser.add_argument("--manifest_dir", default="input_manifests", help="Place to store/load manifests")
-    parser.add_argument("--subset_pattern", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
+    parser.add_argument("--subset_pattern", nargs="+", default="nocasepunc_max30", help="Subset folders to search for in datasets", type=str)
+    parser.add_argument("--nocasepunc", default=False, action="store_true", help="Remove casing and punctuations when cleaning")
     # Options for creating a tokenizer using all splits
     parser.add_argument("--create_tokenizer", default=None, help="Folder to save tokenizer (if not set, no tokenizer is created)")
     parser.add_argument("--vocab_size", help="Vocab size of the tokenizer", type=int, default=1024)
@@ -39,6 +45,7 @@ if __name__ == "__main__":
     input_datasets = args.train_input_datasets
     output_wav_dir = args.output_wav_dir
     tmp_manifest_dir = args.manifest_dir
+    casepunc = not args.nocasepunc
 
     logger.info(f"Train input is set to {input_datasets}")
     logger.info(f"Test input is set to {args.test_input_datasets}")
@@ -69,7 +76,11 @@ if __name__ == "__main__":
     datasets_folder = args.datasets_folder
     if datasets_folder is None:
         datasets_folder = ""
+        
+    make_train_dev_test_manifests = False
 
+
+    # STEP 0 - Generate json files with the list of datasets to process and their options
     splits_to_process = []
     os.makedirs(os.path.join(tmp_manifest_dir, "datasets_list"), exist_ok=True)
     if args.train_input_datasets:
@@ -79,7 +90,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "train_datasets"),
             mode="train",
-            subset_pattern=args.subset_pattern,
+            subset_patterns=args.subset_pattern,
         )
     if args.test_input_datasets:
         splits_to_process.append("test")
@@ -88,7 +99,7 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "test_datasets"),
             mode="test",
-            subset_pattern=args.subset_pattern,
+            subset_patterns=args.subset_pattern,
         )
     if args.dev_input_datasets:
         splits_to_process.append("dev")
@@ -97,34 +108,27 @@ if __name__ == "__main__":
             datasets_folder,
             dest=os.path.join(tmp_manifest_dir, "datasets_list", "dev_datasets"),
             mode="dev",
-            subset_pattern=args.subset_pattern,
+            subset_patterns=args.subset_pattern,
         )
     if len(splits_to_process) == 0:
         raise ValueError("No splits to process")
 
     for i in splits_to_process:
-        try:
-            convert_datasets(
-                [os.path.join(tmp_manifest_dir, "datasets_list", f"{i}_datasets")],
-                os.path.join(tmp_manifest_dir, f"{i}_manifests"),
-                output_wav_dir,
-                check_audio=CHECK_AUDIO,
-                check_if_in_audio=CHECK_IF_SEGMENT_IN_AUDIO,
-                remove_incoherent_texts=REMOVE_INCOHERENT_TEXTS,
-            )
-        except FileExistsError:
-            pass
+        converted_folder_path = os.path.join(tmp_manifest_dir, f"{i}_manifests", "converted")
+        # READ Step 0
+        with open(os.path.join(tmp_manifest_dir, "datasets_list", f"{i}_datasets")) as f:
+            input_datasets = json.load(f)
+
+
+        # STEP 5 - Merge manifests
         try:
             merge_manifests(
                 [os.path.join(tmp_manifest_dir, f"{i}_manifests")],
-                os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"),
+                os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"),
             )
         except FileExistsError:
             logger.info(f"{i} merged manifest already exists")
-        try:
-            clean_text_fr(input=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest.jsonl"), output=os.path.join(f"{tmp_manifest_dir}", f"{i}_manifest_clean.jsonl"), keep_punc=False, empty_string_policy="ignore", wer_format=False)
-        except FileExistsError:
-            logger.info(f"{i} cleaned manifest already exists")
+    # STEP 6 - Merge train/dev/test
     if len(splits_to_process) > 1:
         try:
             merge_manifests(
@@ -142,6 +146,7 @@ if __name__ == "__main__":
                 os.path.join(f"{tmp_manifest_dir}", f"{splits_to_process[0]}_manifest_clean.jsonl"),
                 os.path.join(f"{tmp_manifest_dir}", "all_manifest_clean.jsonl"),
             )
+    # STEP 7 (Optional) - Create tokenizer
     if args.create_tokenizer:
         from process_asr_text_tokenizer import process_asr_text_tokenizer
 
@@ -158,16 +163,22 @@ if __name__ == "__main__":
             logging.info("Tokenizer created")
         else:
             logging.info(f"Tokenizer already exists in {path_to_tokenizer}")
+    # STEP 8 (Optional) - Create tarred dataset
     if args.create_tarred:
-        from convert_to_tarred_audio_dataset import convert_to_tarred_audio_dataset
+        from convert_to_tarred_audio_dataset import convert_to_tarred_audio_dataset, hybrid_bucketing_times
 
         logging.info(f"Creating tarred dataset in {output_tarred_dir}")
+        if args.num_buckets == 6:
+            custom_hybrid_method = partial(hybrid_bucketing_times, threshold=10, num_buckets_linear=4, num_buckets_log=2)
+        else:
+            custom_hybrid_method = "linear"
         convert_to_tarred_audio_dataset(
             manifest_path=os.path.join(tmp_manifest_dir, "train_manifest_clean.jsonl"),
             target_dir=output_tarred_dir,
             num_shards=args.num_shards,
             max_duration=args.max_duration,
             min_duration=0.1,
+            method=custom_hybrid_method,
             workers=args.num_workers,
             buckets_num=args.num_buckets,
             shuffle_seed=42,
