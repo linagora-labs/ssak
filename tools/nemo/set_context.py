@@ -98,6 +98,8 @@ if __name__ == "__main__":
         parser.error("--context_file can only be used when --output_folder is specified.")
     if args.output_file and not args.input.lower().endswith(".jsonl"):
         parser.error("When --output_file is specified, the input must be a .jsonl file.")
+    if args.input.lower().endswith(".jsonl") and not args.output_file:
+        parser.error("When input is a .jsonl file, --output_file must be specified.")
     if args.output_folder and args.input.lower().endswith(".jsonl"):
         parser.error(f"When --output_folder is specified, the input must be a folder.")
     if args.output_file:
