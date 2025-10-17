@@ -471,7 +471,7 @@ def split_long_audio_kaldifolder(
         if os.path.isfile(os.path.join(dirin, file)):
             shutil.copy(os.path.join(dirin, file), os.path.join(dirout, file))
 
-    check_kaldi_dir(dirout)
+    check_kaldi_dir(dirout)     # If missing speakers or gender it removes
 
 
 def get_last_line(filename):

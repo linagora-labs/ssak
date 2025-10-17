@@ -13,21 +13,27 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert yodas dataset to Kaldi format")
     parser.add_argument("--force", action="store_true", default=True)
     parser.add_argument("--input", type=str, default="/data-server/datasets/audio/transcript/fr/YODAS/fr000")
-    parser.add_argument("--output", type=str, default="/data-server/datasets/audio/kaldi/fr/YODAS/fr000")
+    parser.add_argument("--output", type=str, default="/data-server/datasets/audio/kaldi/fr/YODAS")
     args = parser.parse_args()
 
     input_dataset = args.input
 
     output_path = args.output
 
-    raw = os.path.join(output_path, "casepunc")
+    raw = os.path.join(output_path, "raw/fr000")
 
-    nocasepunc = os.path.join(output_path, "nocasepunc")
+    nocasepunc = os.path.join(output_path, "nocasepunc/fr000")
+    casepunc = os.path.join(output_path, "casepunc/fr000")
 
     if os.path.exists(nocasepunc) and not args.force:
         raise RuntimeError("The output folder already exists. Use --force to overwrite it.")
     elif os.path.exists(nocasepunc):
         shutil.rmtree(nocasepunc)
+
+    if os.path.exists(casepunc) and not args.force:
+        raise RuntimeError("The output folder already exists. Use --force to overwrite it.")
+    elif os.path.exists(casepunc):
+        shutil.rmtree(casepunc)
 
     audios = AudioFolder2Kaldi("audio", execute_order=3, extracted_id="id", audio_extensions=[".wav"], sort_merging="only_new")
     file_reader = TextFile2Kaldi("", return_columns=["id", "text"], execute_order=0, separator=" ")
@@ -63,4 +69,4 @@ if __name__ == "__main__":
     logger.info(f"Dataset duration: {dataset.get_duration('sum')/3600:.2f}h")
     dataset.save(raw, False)
 
-    clean_text_fr(raw, nocasepunc, ignore_first=1, empty_string_policy="ignore", file_clean_mode="kaldi")
+    clean_text_fr(raw, casepunc, ignore_first=1, empty_string_policy="ignore", file_clean_mode="kaldi", keep_case=True, keep_num=True)

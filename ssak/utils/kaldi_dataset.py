@@ -452,7 +452,10 @@ class KaldiDataset:
         """
         texts = None
         if load_texts:
-            texts = parse_text_file(os.path.join(input_dir, "text"))
+            try:
+                texts = parse_text_file(os.path.join(input_dir, "text"))
+            except Exception as e:
+                raise Exception(f"Error while parsing text file {os.path.join(input_dir, 'text')}") from e
         spks = dict()
         if load_speakers:
             spks = parse_utt2spk_file(os.path.join(input_dir, "utt2spk"))
@@ -488,19 +491,22 @@ class KaldiDataset:
 
                         duration = get_audio_duration(wav_path)
                     start, end = 0, duration
-                self.append(
-                    KaldiDatasetRow(
-                        id=seg_id,
-                        text=texts[seg_id] if texts else None,
-                        audio_path=wav_path,
-                        duration=duration,
-                        audio_id=audio_id,
-                        start=start,
-                        end=end,
-                        speaker=spks.get(seg_id, None),
+                if seg_id in texts:
+                    self.append(
+                        KaldiDatasetRow(
+                            id=seg_id,
+                            text=texts[seg_id] if texts else None,
+                            audio_path=wav_path,
+                            duration=duration,
+                            audio_id=audio_id,
+                            start=start,
+                            end=end,
+                            speaker=spks.get(seg_id, None),
+                        )
                     )
-                )
-        logger.info(f"Loaded {len(self.dataset)} rows from {input_dir}")
+                else:
+                    logger.warning(f"Segment {seg_id} is not present in text file")
+        logger.info(f"Loaded {len(self.dataset)} rows (removed {len(loop)-len(self.dataset)} rows) from {input_dir}")
 
     def audio_checks(self, audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
         """
