@@ -20,7 +20,7 @@ if __name__ == "__main__":
 
     output_path = args.output
 
-    raw = os.path.join(output_path, "casepunc")
+    raw = os.path.join(output_path, "raw")
 
     nocasepunc = os.path.join(output_path, "nocasepunc")
 

@@ -481,6 +481,13 @@ def get_last_line(filename):
             pass
     return last_line
 
+def get_output_folder(input_folder, max_duration, pattern_in):
+    output_folder = f"{input_folder}_max{max_duration:.0f}"
+    if not re.match(pattern_in, os.path.basename(input_folder)):
+        split = os.path.basename(input_folder)
+        new_input = os.path.dirname(input_folder)
+        output_folder = os.path.join(f"{new_input}_max{max_duration:.0f}", split)
+    return output_folder
 
 if __name__ == "__main__":
     import argparse
@@ -572,11 +579,7 @@ if __name__ == "__main__":
             # search in FOLDER>DATASETS>CASING(>SPLITS)
             for i in subfolders:
                 dirs_in = []
-                if i.startswith(args.pattern_in):
-                    i_s = i.split("_")
-                    if i_s[-1].startswith("max"):
-                        logger.info(f"Skipping {i} (already processed)")
-                        continue
+                if re.match(args.pattern_in, i):
                     i = os.path.join(args.dirin, file_object, i)
                     if not os.path.exists(os.path.join(i, "text")):
                         dirs = os.listdir(i)
@@ -591,11 +594,7 @@ if __name__ == "__main__":
                 if not dirs_in:
                     raise ValueError(f"No text folder found in {i}")
                 for input_folder in dirs_in:
-                    output_folder = f"{input_folder}_max{args.max_duration:.0f}"
-                    if not os.path.basename(input_folder).startswith(args.pattern_in):
-                        split = os.path.basename(input_folder)
-                        new_input = os.path.dirname(input_folder)
-                        output_folder = os.path.join(os.path.dirname(new_input), f"{args.pattern_in}_max{args.max_duration:.0f}", split)
+                    output_folder = get_output_folder(input_folder, args.max_duration, args.pattern_in)
                     if input_folder == output_folder:
                         raise ValueError(f"Input and output folders are the same: {input_folder}")
                     if os.path.exists(output_folder):
@@ -624,5 +623,5 @@ if __name__ == "__main__":
                         logger.info(f"Segmented: {output_folder}")
                     except Exception as e:
                         logger.error(f"Error {input_folder}: {e} {'(skipped)' if args.skip_erros else ''}")
-                        if not args.skip_erros:
+                        if not args.skip_errors:
                             raise e

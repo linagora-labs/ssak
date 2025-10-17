@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ssak"
-version = "0.0.1"
+version = "0.0.2"
 description = "Toolbox for Audio Processing"
 authors = []
 license = "GPL-3.0"

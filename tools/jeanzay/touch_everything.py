@@ -18,5 +18,8 @@ if __name__ == "__main__":
         pbar.set_description(f"Touching {dir}")
         for root, _, files in os.walk(os.path.join(args.input_folder, dir)):
             for file in files:
-                os.utime(os.path.join(root, file))
+                try:
+                    os.utime(os.path.join(root, file))
+                except Exception as e:
+                    logger.info(f"Failed to touch {os.path.join(root, file)}: {e}")
     logger.info("All done")

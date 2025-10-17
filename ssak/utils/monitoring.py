@@ -125,7 +125,7 @@ def get_num_gpus(ignore_errors=False):
         return len(ALL_GPU_INDICES)
     try:
         pynvml.nvmlInit()  # Can throw pynvml.NVMLError_DriverNotLoaded if driver problem
-    except pynvml.NVMLError_DriverNotLoaded:
+    except (pynvml.NVMLError_DriverNotLoaded, pynvml.NVMLError_LibraryNotFound):
         import torch
 
         if torch.cuda.is_available():
@@ -398,6 +398,7 @@ class Monitoring:
 
     def __init__(self, output_folder="", name="", interval=0.25, device="cuda", plot_monitoring=True, show_steps_in_plots=True):
         self.device = device
+        self.device_name = None
         self.output_folder = output_folder
         if not name:
             self.name = output_folder
@@ -408,13 +409,25 @@ class Monitoring:
         self.will_plot_monitoring = plot_monitoring
         if self.will_plot_monitoring:
             pass
+        self.device = self.device if self.device else 0
+        if self.device=="cuda" or self.device == "gpu":
+            self.device = 0
+        elif self.device.startswith("cuda:"):
+            self.device = int(self.device.split(":")[1])
+        if self.device != "cpu" and isinstance(self.device, int):
+            num_gpus = get_num_gpus()
+            if self.device>num_gpus:
+                raise ValueError(f"GPU {self.device} doesn't exist, only {num_gpus} GPUs available")
+            self.device = ALL_GPU_INDICES[self.device]
+        elif self.device != "cpu":
+            raise ValueError(f"Device {self.device} doesn't exist, use 'gpu', 'cpu', 'cuda', 'cuda:0' or '0' for example")
 
     def _finish_step(self, monitoring, step_values, step=0, start=0):
         for i in step_values:
             if i not in monitoring:
                 monitoring[i] = []
             monitoring[i].extend(step_values[i])
-        if self.steps and len(self.steps)>0:
+        if self.steps and len(self.steps) > 0 and step < len(self.steps):
             if "steps" not in monitoring:
                 monitoring["steps"] = []
             if "steps_end" not in monitoring:
@@ -464,9 +477,11 @@ class Monitoring:
             start = time.time() - monitoring["time_points"][-1]
             if "device" in monitoring and monitoring["device"] != (pynvml.nvmlDeviceGetName(handle) if handle else "cpu"):
                 raise ValueError("The device used in the monitoring is different from the one specified in the current monitoring")
+            self.device_name = monitoring.get("device", "cpu")
         else:
             monitoring = dict()
             monitoring["device"] = pynvml.nvmlDeviceGetName(handle) if handle else "cpu"
+            self.device_name = monitoring["device"]
             start = time.time()
         step = 0
         step_monitoring = dict()
@@ -498,12 +513,6 @@ class Monitoring:
             steps: list of str
                 List of steps to monitor
         """
-        self.device = self.device if self.device else 0
-        if self.device == "cuda" or self.device == "gpu":
-            self.device = 0
-        if self.device != "cpu":
-            get_num_gpus()
-            self.device = ALL_GPU_INDICES[self.device]
         self.event_stop = threading.Event()
         self.event_next = threading.Event()
         self.event_error = threading.Event()
@@ -529,6 +538,18 @@ class Monitoring:
         else:
             self.event_stop.set()
         self.monitoring_thread.join()
+
+    def get_device_name(self):
+        if self.device_name is None:
+            if self.device != "cpu":
+                pynvml.nvmlInit()
+                handle = pynvml.nvmlDeviceGetHandleByIndex(self.device)
+            else:
+                handle = None
+            self.device_name = pynvml.nvmlDeviceGetName(handle) if handle else "cpu"
+            if handle:
+                pynvml.nvmlShutdown()
+        return self.device_name
 
     def plot_hardware(self, values, times, output_folder, ylabel="RAM Usage", lims=None, steps=None):
         import matplotlib.pyplot as plt

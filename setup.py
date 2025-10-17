@@ -20,18 +20,18 @@ with open(os.path.join(os.path.dirname(__file__), "ssak", "version.py")) as f:
                 break
 assert version and license
 
-description = "Multi-lingual Automatic Speech Recognition (ASR) based on Whisper models, with accurate word timestamps, access to language detection confidence, several options for Voice Activity Detection (VAD), and more."
+description = "Toolbox for Speech Processing."
 
 setup(
     name="ssak",
     py_modules=["ssak"],
     version=version,
     description=description,
-    long_description=description + "\nSee https://github.com/linto-ai/ssak for more information.",
+    long_description=description + "\nSee https://github.com/linagora-labs/ssak for more information.",
     long_description_content_type="text/markdown",
     python_requires=">=3.9",
     author="linto-ai",
-    url="https://github.com/linto-ai/ssak",
+    url="https://github.com/linagora-labs/ssak",
     license=license,
     packages=find_packages(exclude=["tests*"]),
     install_requires=install_requires,

@@ -32,6 +32,7 @@ if __name__ == "__main__":
             continue
         logger.info(f"Rsyncing {folder}")
         if args.only_audios:
+            # rsync -rlDvz --chmod=u=rwX,g=rX,o= --size-only --copy-links --include='*.wav' --include='*.flac' --include='*.mp3' --include='*/' --exclude='*' {folder} {args.dest}
             cmd = f"rsync -rlDvz --chmod=u=rwX,g=rX,o= --size-only --copy-links --include='*.wav' --include='*.flac' --include='*.mp3' --include='*/' --exclude='*' {folder} {args.dest} > {log_file}"
         else:
             cmd = f"rsync -rlDvz --chmod=u=rwX,g=rX,o= --size-only --copy-links --exclude='*.zip' --exclude='*.tar' --exclude='*.gz' {folder} {args.dest} > {log_file}"
