@@ -3,10 +3,9 @@ import re
 import shutil
 import subprocess
 
-from envsubst import envsubst
-
 
 def parse_kaldi_wavscp(wavscp):
+    from envsubst import envsubst
     # TODO: the reading of wav.scp is a bit crude...
     with open(wavscp) as f:
         wav = {}

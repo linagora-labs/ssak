@@ -183,7 +183,7 @@ class NemoDataset:
                 self.append(row)
         return type
 
-    def save(self, output_file, type="multiturn"):
+    def save(self, output_file, type="multiturn", keep_minimal=True):
         if not isinstance(output_file, Path):
             output_file = Path(output_file)
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -191,6 +191,8 @@ class NemoDataset:
             for row in tqdm(self, desc="Saving dataset"):
                 if type == "asr":
                     row_data = row.to_json()
+                    if keep_minimal:
+                        row_data = {k: v for k, v in row_data.items() if k in ["id", "audio_filepath", "text", "offset", "duration"]}
                 elif type == "multiturn":
                     row_data = {
                         "id": row.id,
