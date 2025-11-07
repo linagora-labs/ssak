@@ -103,9 +103,20 @@ class NemoDataset:
         Extend the dataset with another dataset. Do not make any checks on the dataset.
 
         Args:
-            dataset (KaldiDataset): Dataset to append to the current dataset
+            dataset (NemoDataset): Dataset to append to the current dataset
         """
         self.dataset.extend(dataset.dataset)
+
+    def get_audio_paths(self, unique=True):
+        """
+        Get the audio paths of the dataset
+
+        Returns:
+            set (or list if unique is False): Set of audio paths
+        """
+        if unique:
+            return set([i.audio_filepath for i in self.dataset])
+        return [i.audio_filepath for i in self.dataset]
 
     def append(self, row):
         """
@@ -173,7 +184,7 @@ class NemoDataset:
                         id=json_row.get("id", json_row.get("utt_id", None)),
                         dataset_name=json_row.get("dataset_name", dataset_name),
                         audio_filepath=json_row["conversations"][1]["value"],
-                        offset=json_row["conversations"][1]["offset"],
+                        offset=json_row["conversations"][1].get("offset", 0),
                         duration=json_row["conversations"][1]["duration"],
                         answer=json_row["conversations"][2]["value"],
                         context=json_row["conversations"][0]["value"],
