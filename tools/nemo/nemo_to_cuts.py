@@ -20,7 +20,8 @@ def convert_manifest(input_path: str, output_cuts_path: str):
     nemo_dataset = NemoDataset()
     data_type = nemo_dataset.load(input_path)
     for row in tqdm(nemo_dataset, desc="Processing lines"):
-        audio_path = row.audio_filepath
+        audio = row.get_audio_turns()[0]
+        audio_path = audio.audio_filepath
         recording_id = Path(audio_path).stem
 
         # Add recording if not already added
@@ -32,8 +33,8 @@ def convert_manifest(input_path: str, output_cuts_path: str):
         seg = SupervisionSegment(
             id=row.id,
             recording_id=recording_id,
-            start=row.offset,
-            duration=row.duration,
+            start=audio.offset,
+            duration=audio.duration,
             channel=0,
             text=row.answer,
             speaker=row.speaker,

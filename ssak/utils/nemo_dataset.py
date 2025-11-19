@@ -12,6 +12,31 @@ from ssak.utils.kaldi_dataset import audio_checks
 
 logger = logging.getLogger(__name__)
 
+@dataclass
+class NemoTurn:
+    
+    role: str = None
+    value: str = None
+    turn_type: str = None
+    duration: float = None
+    offset: float = 0.0
+    
+    @property
+    def audio_filepath(self) -> str:
+        """Alias for audio_filepath"""
+        if self.turn_type == "audio":
+            return self.value
+        return None
+    
+    @classmethod
+    def from_json(cls, data: dict):
+        return cls(
+            role=data.get("from"),
+            value=data.get("value"),
+            turn_type=data.get("type"),
+            duration=data.get("duration"),
+            offset=data.get("offset", 0.0),
+        )
 
 @dataclass
 class NemoDatasetRow:
@@ -23,32 +48,85 @@ class NemoDatasetRow:
     """
 
     id: str
-    context: str = None
-    answer: str = None
-    audio_filepath: str = None
-    duration: float = None
-    offset: float = None
+    turns: list[NemoTurn] = None
     dataset_name: str = None
     speaker: str = None
     language: str = None
     split: str = None
 
     @property
-    def text(self) -> str:
+    def audio_filepath(self) -> str:
+        """Alias for audio_filepath"""
+        if self.turns[0].turn_type == "audio":
+            return self.turns[0].value
+        elif self.turns[1].turn_type == "audio":
+            return self.turns[1].value
+        return None
+
+    @property
+    def context(self) -> str:
+        """Alias for context"""
+        if self.turns[0].turn_type == "text":
+            return self.turns[0].value
+        return None
+
+    @property
+    def answer(self) -> str:
         """Alias for answer"""
+        if self.turns[1].turn_type == "text":
+            return self.turns[1].value
+        elif self.turns[2].turn_type == "text":
+            return self.turns[2].value
+        return None
+
+    @property
+    def text(self) -> str:
+        """Alias for text"""
         return self.answer
-    
-    @text.setter
-    def text(self, value: str):
-        self.answer = value
-    
-    def to_json(self) -> dict:
+
+    def to_json(self, data_type="multiturn") -> dict:
         """Convert to json"""
+        
         row_data = vars(self)
-        row_data["text"] = row_data.pop("answer")
-        row_data["audio_filepath"] = str(row_data["audio_filepath"])
-        row_data.pop("context")
+        if data_type=="asr":
+            row_data["audio_filepath"] = self.turns[0].value
+            row_data["duration"] = self.turns[0].duration
+            row_data["offset"] = self.turns[0].offset
+            row_data["text"] = self.turns[1].value
+        elif data_type=="multiturn":
+            row_data["conversations"] = [vars(t) for t in self.turns]
+        row_data.pop("turns")
         return row_data
+
+    def get_audio_turns(self) -> list:
+        """Get all audios in the conversation"""
+        return [t for t in self.turns if t.turn_type == "audio"]
+
+    @classmethod
+    def from_json(cls, json_row: dict, data_type: str, dataset_name=None):
+        if data_type == "asr":
+            audio_turn = NemoTurn(
+                role="User",
+                value=json_row["audio_filepath"],
+                duration=json_row["duration"],
+                offset=json_row.get("offset", 0),
+                turn_type="audio"
+            )
+            text_turn = NemoTurn(role="Assistant", value=json_row["text"], turn_type="text")
+            turns = [audio_turn, text_turn]
+        elif data_type == "multiturn":
+            turns_json = json_row["conversations"]
+            turns = [NemoTurn.from_json(t) for t in turns_json]
+
+        return cls(
+            id=json_row.get("id", json_row.get("utt_id")),
+            dataset_name=json_row.get("dataset_name", dataset_name),
+            turns=turns,
+            speaker=json_row.get("speaker"),
+            language=json_row.get("language"),
+            split=json_row.get("split"),
+        )
+
 
 class NemoDataset:
     """
@@ -69,7 +147,6 @@ class NemoDataset:
         self.splits = set()
     
     def __repr__(self):
-        # If dataset is a list of lists:
         default_repr = object.__repr__(self)
         first_row = self.dataset[0] if self.dataset else "No data"
         if self.name:
@@ -78,7 +155,6 @@ class NemoDataset:
             return f"{default_repr} (len={len(self.dataset)}): {first_row}"
 
     def __str__(self):
-        # If dataset is a list of lists:
         default_repr = object.__repr__(self)
         if self.name:
             return f"{self.name}"
@@ -115,15 +191,15 @@ class NemoDataset:
             set (or list if unique is False): Set of audio paths
         """
         if unique:
-            return set([i.audio_filepath for i in self.dataset])
-        return [i.audio_filepath for i in self.dataset]
+            return {turn.value for i in self.dataset for turn in i.turns if turn.turn_type == "audio"}
+        return [turn.value for i in self.dataset for turn in i.turns if turn.turn_type == "audio"]
 
     def append(self, row):
         """
         Append a row to the dataset
 
         Args:
-            row (dict or NemoDatasetRow): Row to append to the dataset. If a dict, the keys must be : {id, audio_id, audio_path, text, duration, start, end, speaker}
+            row (dict or NemoDatasetRow): Row to append to the dataset. If a dict, the keys must be : TODO
         """
         if not isinstance(row, NemoDatasetRow):
             row = NemoDatasetRow(**row)
@@ -131,26 +207,32 @@ class NemoDataset:
 
     def kaldi_to_nemo(self, kaldi_dataset):
         for row in tqdm(kaldi_dataset, desc="Converting kaldi to nemo"):
-            offset = row.start if row.start else 0
+            offset = row.start if row.start else 0.0
             if row.duration:
                 duration = row.duration
             elif row.end:
                 duration = row.end - offset
             else:
                 duration = None
+            audio_turn = NemoTurn(
+                role="User",
+                value=row.audio_path,
+                duration=duration,
+                offset=offset,
+                turn_type="audio"
+            )
+            text_turn = NemoTurn(role="Assistant", value=row.text, turn_type="text")
+            turns = [audio_turn, text_turn]
             nemo_row = NemoDatasetRow(
                 id=row.id,
-                audio_filepath=row.audio_path,
-                offset=offset,
-                duration=duration,
-                answer=row.text,
+                turns=turns,
                 dataset_name=kaldi_dataset.name,
                 speaker=row.speaker,
                 split=row.split,
             )
             self.append(nemo_row)
 
-    def load(self, input_file, type=None, debug=False, split=None, language=None, dataset_name=None, show_progress_bar=True):
+    def load(self, input_file, data_type=None, debug=False, split=None, language=None, dataset_name=None, show_progress_bar=True):
         if debug and isinstance(debug, bool):
             debug = 10
         with open(input_file, encoding="utf-8") as f:
@@ -162,61 +244,31 @@ class NemoDataset:
                 if debug and i >= debug:
                     break
                 json_row = json.loads(line)
-                if type is None:
+                if data_type is None:
                     if "conversations" in json_row:
-                        type = "multiturn"
+                        data_type = "multiturn"
                     else:
-                        type = "asr"
-                if type == "asr":
-                    row = NemoDatasetRow(
-                        id=json_row.get("id", json_row.get("utt_id", None)),
-                        dataset_name=json_row.get("dataset_name", dataset_name),
-                        audio_filepath=json_row["audio_filepath"],
-                        offset=json_row.get("offset", 0),
-                        duration=json_row["duration"],
-                        answer=json_row["text"],
-                        speaker=json_row.get("speaker", None),
-                        language=json_row.get("language", language),
-                        split=json_row.get("split", split),
-                    )
-                elif type == "multiturn":
-                    row = NemoDatasetRow(
-                        id=json_row.get("id", json_row.get("utt_id", None)),
-                        dataset_name=json_row.get("dataset_name", dataset_name),
-                        audio_filepath=json_row["conversations"][1]["value"],
-                        offset=json_row["conversations"][1].get("offset", 0),
-                        duration=json_row["conversations"][1]["duration"],
-                        answer=json_row["conversations"][2]["value"],
-                        context=json_row["conversations"][0]["value"],
-                    )
-                else:
-                    raise ValueError(f"Unkown type {type} for saving nemo dataset. Should be 'asr' or 'multiturn")
+                        data_type = "asr"
+                row = NemoDatasetRow.from_json(json_row, data_type=data_type, dataset_name=dataset_name)
                 self.append(row)
-        return type
+        return data_type
 
-    def save(self, output_file, type="multiturn", keep_minimal=True):
+    def save(self, output_file, data_type="multiturn", keep_minimal=True):
         if not isinstance(output_file, Path):
             output_file = Path(output_file)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file.with_suffix(output_file.suffix + ".tmp"), "w", encoding="utf-8") as f:
             for row in tqdm(self, desc="Saving dataset"):
-                if type == "asr":
-                    row_data = row.to_json()
+                if data_type == "asr":
+                    row_data = row.to_json(data_type)
                     if keep_minimal:
                         row_data = {k: v for k, v in row_data.items() if k in ["id", "audio_filepath", "text", "offset", "duration"]}
-                elif type == "multiturn":
-                    row_data = {
-                        "id": row.id,
-                        "conversations": [
-                            {"from": "User", "value": row.context, "type": "text"},
-                            {"from": "User", "value": str(row.audio_filepath), "type": "audio", "duration": row.duration, "offset": row.offset},
-                            {"from": "Assistant", "value": row.answer, "type": "text"},
-                        ],
-                    }
+                elif data_type == "multiturn":
+                    row_data = row.to_json(data_type)
                     if row.dataset_name is not None:
                         row_data["dataset_name"] = row.dataset_name
                 else:
-                    raise ValueError(f"Unkown type {type} for saving nemo dataset. Should be 'asr' or 'multiturn")
+                    raise ValueError(f"Unkown type {data_type} for saving nemo dataset. Should be 'asr' or 'multiturn")
                 json.dump(row_data, f, ensure_ascii=False, indent=None)
                 f.write("\n")
         shutil.move(output_file.with_suffix(output_file.suffix + ".tmp"), output_file)
@@ -248,8 +300,11 @@ class NemoDataset:
     
     def set_context_if_none(self, contexts, force_set_context=False):
         for row in tqdm(self, desc="Set context if none"):
-            if row.context is None or force_set_context:
-                row.context = random.choice(contexts)
+            new_turn = NemoTurn(role="User", type="text", value=random.choice(contexts))
+            if row.turns[0].type=="audio":
+                self.turns.insert(0, new_turn)
+            elif force_set_context:
+                self.turns[0] = new_turn
     
     def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
         """
@@ -298,12 +353,18 @@ class NemoDataset:
                         raise RuntimeError(f"Error processing {audio_path}: {e}")
         if len(updated_audio_paths) > 0:
             for row in self.dataset:
-                row.audio_filepath = updated_audio_paths.get(row.audio_filepath, row.audio_filepath)
+                for turn in row.turns:
+                    if turn.type=="audio":
+                        turn.audio_filepath = updated_audio_paths.get(row.audio_filepath, row.audio_filepath)
         if errors:
             new_dataset = []
             removed_lines = []
             for row in self.dataset:
-                if row.audio_filepath != "error":
+                valid_row = True
+                for turn in row.turns:
+                    if turn.type=="audio" and turn.value=="error":
+                        valid_row = False
+                if valid_row:
                     new_dataset.append(row)
                 else:
                     removed_lines.append(row)
@@ -311,5 +372,5 @@ class NemoDataset:
             self.log_folder.mkdir(exist_ok=True, parents=True)
             with open(self.log_folder / "filtered_out_audio_empty.jsonl", "w") as f:
                 for row in removed_lines:
-                    json.dump(row.to_json(), f, ensure_ascii=False, indent=None)
+                    json.dump(row.to_json("asr"), f, ensure_ascii=False, indent=None)
                     f.write("\n")
