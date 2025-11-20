@@ -21,6 +21,7 @@ import soundfile as sf
 import numpy as np
 import logging
 import torch
+import glob
 from collections import deque
 from dataclasses import dataclass
 from itertools import groupby
@@ -173,6 +174,12 @@ class CustomNeMoMultimodalConversationTarWriter(NeMoMultimodalConversationTarWri
 @click.option("-s", "--seed", type=int, default=42, help="Random seed.")
 def export(manifest: str, output_dir: str, shard_size: int, shuffle: bool, seed: int):
     logger.info(f"Exporting conversations from {manifest} to {output_dir}")
+    output_dir = Path(output_dir)
+    merged_path = output_dir / Path(manifest).name
+    if merged_path.exists():
+        logger.info(f"Found existing merged manifest at {merged_path}, skipping export.")
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
     with open(manifest, 'r') as f:
         number_lines = sum(1 for _ in f)
     with CustomNeMoMultimodalConversationTarWriter(output_dir, shard_size=shard_size) as writer:
@@ -182,7 +189,16 @@ def export(manifest: str, output_dir: str, shard_size: int, shuffle: bool, seed:
         for item in tqdm(source, desc="Writing in .tar files", total=number_lines):
             writer.write(item)
     logger.info(f"Finished exporting to {output_dir}")
-
+    merge_manifest = True
+    if merge_manifest:
+            logger.info("Merging JSONL shards into a final manifest...")
+            jsonl_files = sorted(output_dir.glob("*.jsonl"))
+            with open(merged_path, "w") as outfile:
+                for file in jsonl_files:
+                    with open(file, "r") as infile:
+                        for line in infile:
+                            outfile.write(line)
+            logger.info(f"Merged manifest created at: {merged_path}")
 
 if __name__ == '__main__':
     export()
