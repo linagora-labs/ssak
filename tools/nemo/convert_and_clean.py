@@ -5,10 +5,9 @@ import argparse
 from tqdm import tqdm
 from pathlib import Path
 from clean_manifest_text_fr import clean_text_fr
-from convert_kaldi_dataset_to_nemo import convert_dataset, get_dataset_name
-from convert_kaldi_datasets_to_nemo import convert_datasets
+from convert_kaldi_dataset_to_nemo_asr import get_dataset_name
 from concat_segments import concat_segments as f_concat_segments
-from find_long_transcriptions import filter_incoherent_segments
+from find_incoherent_transcriptions import filter_incoherent_segments
 
 from ssak.utils.kaldi_dataset import KaldiDataset
 from ssak.utils.nemo_dataset import NemoDataset
@@ -99,7 +98,7 @@ def process_dataset(input_kaldi_folder=None, input_nemo_file=None, config=dict()
     nemo_dataset.save(output_folder/ f"manifest_{dataset_name}.jsonl", type=nemo_format)
     logger.info(f"Saved {output_folder/ f'manifest_{dataset_name}.jsonl'}")
 
-def process_datasets(input_datasets, output_folder, output_wav_folder=None, nemo_format="multiturn", casepunc=True):
+def process_datasets(input_datasets, kaldi_input=True, output_folder, output_wav_folder=None, nemo_format="multiturn", casepunc=True):
     logger.info(f"Converting datasets from {input_datasets}")
     output_folder = Path(output_folder)
     output_folder.mkdir(exist_ok=True, parents=True)
@@ -117,7 +116,17 @@ def process_datasets(input_datasets, output_folder, output_wav_folder=None, nemo
             dataset_audio_output_folder = dataset_output_folder / "audios"
         
         output_manifest = dataset_output_folder / f"manifest_{dataset_name}.jsonl"
-        if not output_manifest.exists():
+        if not kaldi_input:
+            process_dataset(
+                input_nemo_file=input_folder, 
+                config=input_datasets[input_folder], 
+                dataset_name=dataset_name, 
+                output_folder=dataset_output_folder, 
+                output_converted_wav_folder=dataset_audio_output_folder,
+                casepunc=casepunc,
+                nemo_format=nemo_format
+            )
+        elif not output_manifest.exists():
             process_dataset(
                 input_kaldi_folder=input_folder, 
                 config=input_datasets[input_folder], 
@@ -132,45 +141,52 @@ def process_datasets(input_datasets, output_folder, output_wav_folder=None, nemo
             
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert a list of Kaldi datasets to Nemo format")
-    parser.add_argument("datasets", help="Input datasets", type=str, nargs="+")
+    parser.add_argument("datasets", help="Input datasets. Can be a a list of datasets, a dataset or a json containing datasets", type=str, nargs="+")
     parser.add_argument("--output", help="Output file", type=str, default="/data-server/datasets/audio/nemo/multi-turn/asr/fr/nocontext")
-    # parser.add_argument("--output_wav_dir", type=str, default=None)
-    # parser.add_argument("--check_audio", action="store_true", default=False)
-    parser.add_argument("--input_data_path", default="/data-server/datasets/audio/kaldi/fr")
+    parser.add_argument("--output_wav_folder", help="Where to put the converted wavs (if check audio is enabled)", type=str, default=None)
+    parser.add_argument("--check_audio", help="Check if audio are wavs mono channel in 16khz", action="store_true", default=False)
+    parser.add_argument("--input_data_path", help="Root path to the audios", default=None)
+    parser.add_argument("--kaldi_input", action="store_true", default=False, help="Input is a Kaldi dataset")
     parser.add_argument("--patterns", type=str, nargs="+", default=["casepunc", "recasepunc"])
-    parser.add_argument("--nemo_format", type=str, default="multiturn")
-    parser.add_argument("--nocasepunc", action="store_true", default=False)
+    parser.add_argument("--nemo_format", type=str, default="multiturn", choices=["multiturn", "asr"], help="Nemo format to use")
+    parser.add_argument("--nocasepunc", help="If true, it will remove punc and case", action="store_true", default=False)
     args = parser.parse_args()
     input_files = args.datasets
-    if len(input_files) == 1 and os.path.isfile(input_files[0]):
+    if len(input_files) == 1 and os.path.isfile(input_files[0]) and input_files[0].endswith(".json"):
         logger.warning("One input file, considering it as containing a list of files")
         with open(input_files[0]) as f:
             input_files = json.load(f)
     else:
-        input_files = {input_file: None for input_file in input_files}
+        input_files = {input_file: {"check_audio": args.check_audio} for input_file in input_files}
     new_input_files = dict()
     for input_folder in input_files:
         if input_files[input_folder] is not None and "kaldi_subpath" in input_files[input_folder]:
             new_path = os.path.join(args.input_data_path, input_files[input_folder]["kaldi_subpath"])
         else:
             new_path = os.path.join(args.input_data_path, input_folder)
-        if not os.path.exists(new_path):
-            raise FileNotFoundError(f"Input folder {new_path} does not exist")
-        elif not os.path.exists(os.path.join(new_path, "wav.scp")):
-            for pattern in args.patterns:
-                if os.path.exists(os.path.join(new_path, pattern, "wav.scp")):
-                    new_input_files[os.path.join(new_path, pattern)] = input_files[input_folder]
-                    break
-                elif os.path.exists(os.path.join(new_path, pattern)):
-                    dirs = os.listdir(os.path.join(new_path, pattern))
-                    for dir in dirs:
-                        new_input_files[os.path.join(new_path, pattern, dir)] = input_files[input_folder]
-                    break
-            else:
-                logger.warning(f"Input folder {new_path} does not contain a wav.scp file")
+        if not args.kaldi_input:
+            new_input_files[new_path] = input_files[input_folder]
+            
+        # else:
+        #     if not os.path.exists(new_path):
+        #         raise FileNotFoundError(f"Input folder {new_path} does not exist")
+        #     elif not os.path.exists(os.path.join(new_path, "wav.scp")):
+        #         for pattern in args.patterns:
+        #             if os.path.exists(os.path.join(new_path, pattern, "wav.scp")):
+        #                 new_input_files[os.path.join(new_path, pattern)] = input_files[input_folder]
+        #                 break
+        #             elif os.path.exists(os.path.join(new_path, pattern)):
+        #                 dirs = os.listdir(os.path.join(new_path, pattern))
+        #                 for dir in dirs:
+        #                     new_input_files[os.path.join(new_path, pattern, dir)] = input_files[input_folder]
+        #                 break
+        #         else:
+        #             logger.warning(f"Input folder {new_path} does not contain a wav.scp file")
     process_datasets(
         new_input_files, 
-        output_folder=args.output, 
+        output_folder=args.output,
+        kaldi_input= args.kaldi_input,
+        output_wav_folder=args.output_wav_folder,
         nemo_format=args.nemo_format,
         casepunc=not args.nocasepunc    
     )

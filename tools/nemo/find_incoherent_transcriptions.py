@@ -104,9 +104,9 @@ def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Remove incoherent lines by looking at the number of words and segment duration from nemo manifest")
-    parser.add_argument("file", help="Input file", type=str)
-    parser.add_argument("output", help="output file", type=str)
-    parser.add_argument("--mode", default="charset", help="length or language", type=str)
+    parser.add_argument("file", help="Input manifest", type=str)
+    parser.add_argument("output", help="Output manifest", type=str)
+    parser.add_argument("--mode", default="charset", help="too_long (text too long compare to audio duration), charset (not french characters) or too_short", type=str)
     # parser.add_argument('--max_char', help="Depends on segments max length", type=int, default=700)
     args = parser.parse_args()
     filter_incoherent_segments_file(args.file, args.output, args.mode)

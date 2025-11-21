@@ -3,7 +3,7 @@ import json
 import logging
 import os
 
-from convert_kaldi_dataset_to_nemo import convert_dataset
+from convert_kaldi_dataset_to_nemo_asr import convert_dataset
 from tqdm import tqdm
 
 logging.basicConfig(level=logging.INFO)

@@ -126,13 +126,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Clean input text (in order to train a language model)",
+        description="Clean input text (in order to train a language model). Can remove punctuation, out of vocabulary words, numbers, and uppercases the text.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("input", help="Input file", type=str)
+    parser.add_argument("input", help="Input manifest file", type=str)
     parser.add_argument(
         "output",
-        help="Output file (if not specified, the text will be outputed on stdout",
+        help="Output file (if not specified, the text will be outputed on stdout)",
         type=str,
         nargs="?",
         default=None,

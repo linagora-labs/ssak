@@ -80,7 +80,7 @@ def set_context_on_folder(folder, context_file=None, output_folder=None, task="a
                 logger.info(f"Skipping {output_file} as it already exists")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Process audio or manifest files with ASR and optional context.")
+    parser = argparse.ArgumentParser(description="Adds context to NeMo manifest file(s).")
 
     parser.add_argument("input", help="Input folder or manifest file.", type=str)
 

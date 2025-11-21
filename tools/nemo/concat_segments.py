@@ -168,14 +168,14 @@ def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Remove incoherent lines by looking at the number of words and segment duration from nemo manifest")
+    parser = argparse.ArgumentParser(description="Concatenate segments that follow each others in a manifest")
     parser.add_argument("file", help="Input manifest", type=str)
-    parser.add_argument("--output_file", help="", type=str, default=None)
-    parser.add_argument("--max_duration", help="", type=float, default=30.0)
-    parser.add_argument("--acceptance", help="", type=float, default=1.0)
-    parser.add_argument("--merge_audios", help="", default=False, action="store_true")
-    parser.add_argument("--merged_audio_folder", help="", default="audio")
-    parser.add_argument("--num_threads", type=int, default=4)
+    parser.add_argument("--output_file", help="Output manifest. If not provided, it will be the same as the input file with a '_merged' suffix", type=str, default=None)
+    parser.add_argument("--max_duration", help="Maximum duration of a segment once concatenated", type=float, default=30.0)
+    parser.add_argument("--acceptance", help="Gap (in seconds) between segments to accept concatenation", type=float, default=1.0)
+    parser.add_argument("--merge_audios", help="Merge audios along with segments. Needed if one segment is one file in the source dataset", default=False, action="store_true")
+    parser.add_argument("--merged_audio_folder", help="The folder to put the new merged audios in. Only used if merge_audios is set to True", default="audio")
+    parser.add_argument("--num_threads", help="Number of threads used when merging audios" type=int, default=4)
     args = parser.parse_args()
 
     concat_segments_input_file(args.file, output_file=args.output_file, max_duration=args.max_duration, acceptance=args.acceptance, merge_audios=args.merge_audios, merged_audio_folder=args.merged_audio_folder, num_threads=args.num_threads)

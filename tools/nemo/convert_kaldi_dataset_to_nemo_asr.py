@@ -6,7 +6,7 @@ import re
 import shutil
 
 from concat_segments import concat_segments as f_concat_segments
-from find_long_transcriptions import filter_incoherent_segments
+from find_incoherent_transcriptions import filter_incoherent_segments
 from tqdm import tqdm
 
 from ssak.utils.kaldi_dataset import KaldiDataset

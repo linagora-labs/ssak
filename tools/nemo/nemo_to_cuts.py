@@ -61,13 +61,13 @@ if __name__=="__main__":
     parser.add_argument(
         "input_path",
         type=str,
-        help=""
+        help="Input manifest"
     )
     parser.add_argument(
         "--output_path",
         type=str,
         default=None,
-        help=""
+        help="Folder or file (.jsonl.gz)"
     )
     args = parser.parse_args()
     convert_manifest(args.input_path, args.output_path)

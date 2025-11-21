@@ -12,12 +12,12 @@ def check_path(input_manifest):
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser(
-        description="Update audio file paths in a NeMo manifest."
+        description="Check if the audio files in a NeMo manifest (or a folder containing manifests) exist."
     )
     parser.add_argument(
         "input_path",
         type=str,
-        help="Path to the input NeMo manifest file."
+        help="Path to the input NeMo manifest file or folder to check."
     )
 
     args = parser.parse_args()
