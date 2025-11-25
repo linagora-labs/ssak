@@ -53,6 +53,7 @@ class NemoDatasetRow:
     speaker: str = None
     language: str = None
     split: str = None
+    custom_metadata: dict = None
 
     @property
     def audio_filepath(self) -> str:

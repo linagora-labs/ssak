@@ -127,7 +127,7 @@ class ToKaldi:
                 diff_b_a = set(dict_new_data.keys()).difference(set(dict_dataset.keys()))
                 logger.warning(f"The data you are trying to merge have different lengths at step {self.__class__.__name__} (execute_order={self.execute_order})!")
                 logger.warning(f"Dataset ({len(dataset)} rows) has {len(diff_a_b)} rows not present in new data")
-                logger.warning(f"New data ({len(new_data)} rows) has {len(diff_b_a)} rows not present in dataset")
+                logger.warning(f"New data ({len(new_data)} rows with executor {self.__class__.__name__}) has {len(diff_b_a)} rows not present in dataset")
                 os.makedirs(LOG_FOLDER, exist_ok=True)
                 if len(diff_a_b) > 0:
                     path = os.path.join(LOG_FOLDER,f"merge_new_data_missing_{self.execute_order}_{self.__class__.__name__}.txt")
@@ -145,6 +145,7 @@ class ToKaldi:
             for key in dict_dataset.keys() & dict_new_data.keys():
                 merged_dict[key] = {**dict_dataset[key], **dict_new_data[key]}
             merged_data = [merged_dict[i] for i in merged_dict]
+            print(len(merged_data))
             return merged_data
         elif self.merge_on == "list":
             logger.warning("Merging a list with a dataset, the list must be aligned with the dataset! Check the order of the elements! Set sort_merging to False")
@@ -152,7 +153,7 @@ class ToKaldi:
                 i.update(j)
             return dataset
         else:  # not optimized, use it when want to keep original order or when lenghts are different (merging speakers list with dataset for example)
-            logger.warning("Using unoptimized merging, use it when want to keep original order or when lenghts are different")
+            logger.warning("Using less optimized merging, use it when want to keep original order or when lenghts are different")
             merged_data = []
             if len(dataset) < len(new_data) and not self.force_merge_new_into_old:
                 dataset, new_data = new_data, dataset
@@ -160,12 +161,12 @@ class ToKaldi:
                 pbar = tqdm(dataset, desc=f"Merging on {self.merge_on} data from {self.__class__.__name__}")
             else:
                 pbar = dataset
+            new_data = {i[self.merge_on]: i for i in new_data}
             for i in pbar:
-                for j in new_data:
-                    if i[self.merge_on] == j[self.merge_on]:
-                        i.update(j)
-                        merged_data.append(i)
-                        break
+                if i[self.merge_on] in new_data:
+                    j = new_data[i[self.merge_on]]
+                    i.update(j)
+                    merged_data.append(i)
             return merged_data
 
 
@@ -347,6 +348,7 @@ class Row2Duration(Row2KaldiInfo):
         from ssak.utils.audio import get_audio_duration
 
         return {self.return_columns[0]: round(get_audio_duration(row[self.input]), 2)}
+
 class RowApplyFunction(Row2KaldiInfo):
     def __init__(self, function, return_columns, execute_order, sort_merging=True, input=None) -> None:
         super().__init__(input, return_columns, execute_order=execute_order, sort_merging=sort_merging)
