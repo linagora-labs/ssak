@@ -28,6 +28,23 @@ class NemoTurn:
             return self.value
         return None
     
+    def to_json(self) -> dict:
+        if self.turn_type == "audio":
+            return {
+                "from": self.role,
+                "value": self.value,
+                "type": self.turn_type,
+                "duration": self.duration,
+                "offset": self.offset,
+            }
+        else:
+            return {
+                "from": self.role,
+                "value": self.value,
+                "type": self.turn_type,
+            }
+        
+    
     @classmethod
     def from_json(cls, data: dict):
         return cls(
@@ -88,16 +105,22 @@ class NemoDatasetRow:
     def to_json(self, data_type="multiturn") -> dict:
         """Convert to json"""
         
-        row_data = vars(self)
-        if data_type=="asr":
+        row_data = vars(self).copy()
+
+        if data_type == "asr":
             row_data["audio_filepath"] = self.turns[0].value
             row_data["duration"] = self.turns[0].duration
             row_data["offset"] = self.turns[0].offset
             row_data["text"] = self.turns[1].value
-        elif data_type=="multiturn":
-            row_data["conversations"] = [vars(t) for t in self.turns]
-        row_data.pop("turns")
+
+        elif data_type == "multiturn":
+            row_data["conversations"] = [t.to_json() for t in self.turns]
+
+        row_data.pop("turns", None)
+        row_data = {k: v for k, v in row_data.items() if v is not None}
+
         return row_data
+
 
     def get_audio_turns(self) -> list:
         """Get all audios in the conversation"""

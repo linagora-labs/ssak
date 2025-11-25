@@ -83,7 +83,9 @@ if __name__ == "__main__":
             maybe_dataset = NemoDataset()
             yes_dataset = NemoDataset()
             for row in dataset:
-                if row.custom_metadata["confidence"].strip().lower()=="yes":
+                confidence = row.custom_metadata["confidence"].strip().lower()
+                row.custom_metadata = None
+                if confidence=="yes":
                     yes_dataset.append(row)
                 else:
                     maybe_dataset.append(row)
