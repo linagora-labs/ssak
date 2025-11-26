@@ -322,6 +322,14 @@ class TextRegexFilter(Row2KaldiInfo):
         return {self.filter_name: True}
 
 
+class Row2ChangeType(Row2KaldiInfo):
+    def __init__(self, input, execute_order, new_type=None, sort_merging=True) -> None:
+        super().__init__(input, [input], execute_order, sort_merging=sort_merging)
+        self.new_type = new_type
+
+    def __call__(self, row):
+        return {self.return_columns[0]: self.new_type(row[self.input])}
+
 class Row2Info(Row2KaldiInfo):
     def __init__(self, input, return_columns, execute_order, separator=None, info_position=None, sort_merging=True) -> None:
         super().__init__(input, return_columns, execute_order, sort_merging=sort_merging)

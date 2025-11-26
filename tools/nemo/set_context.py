@@ -40,7 +40,7 @@ def set_context(input_file, output_file, context_category, task="asr", language=
     if data_type=="asr":
         logger.info(f"Input manifest is in asr format, output will be in multiturn format!")
     dataset.set_context_if_none(contexts, force_set_context=force_context)
-    dataset.save(output_file, type="multiturn")
+    dataset.save(output_file, data_type="multiturn")
 
 def set_context_on_folder(folder, context_file=None, output_folder=None, task="asr", language="fr", force_context=False):
     if context_file:
@@ -91,7 +91,7 @@ if __name__ == "__main__":
     parser.add_argument("--context_file", help="DEPRECATED", type=str, default=None)    
     parser.add_argument("--force_set_context", help="Force setting context even if one is already defined.", default=False, action="store_true")
     parser.add_argument("--task", help="Task for selecting contexts.", choices=["asr"], default="asr")
-    parser.add_argument("--language", help="Language for selecting contexts.", choices=["fr", "en"], default="fr")
+    parser.add_argument("--language", help="Language for selecting contexts.", choices=["fr", "en", "it", "de", "es"], default="fr")
     args = parser.parse_args()
     
     if args.context_file and not args.output_folder:

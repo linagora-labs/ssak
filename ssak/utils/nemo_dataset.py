@@ -133,7 +133,7 @@ class NemoDatasetRow:
                 role="User",
                 value=json_row["audio_filepath"],
                 duration=json_row["duration"],
-                offset=json_row.get("offset", 0),
+                offset=json_row.get("offset", 0.0),
                 turn_type="audio"
             )
             text_turn = NemoTurn(role="Assistant", value=json_row["text"], turn_type="text")
@@ -324,11 +324,11 @@ class NemoDataset:
     
     def set_context_if_none(self, contexts, force_set_context=False):
         for row in tqdm(self, desc="Set context if none"):
-            new_turn = NemoTurn(role="User", type="text", value=random.choice(contexts))
-            if row.turns[0].type=="audio":
-                self.turns.insert(0, new_turn)
+            new_turn = NemoTurn(role="User", turn_type="text", value=random.choice(contexts))
+            if row.turns[0].turn_type=="audio":
+                row.turns.insert(0, new_turn)
             elif force_set_context:
-                self.turns[0] = new_turn
+                row.turns[0] = new_turn
     
     def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
         """
