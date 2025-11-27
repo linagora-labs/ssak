@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from ssak.utils.text import format_text_ar
+from ssak.utils.text_ar import format_text_ar
 
 if __name__ == "__main__":
     import argparse
