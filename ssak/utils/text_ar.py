@@ -7,12 +7,14 @@ from lang_trans.arabic import buckwalter as bw
 
 from ssak.utils.text_utils import (
     cardinal_numbers_to_letters,
-    collapse_whitespace,
-    format_special_characters,
     normalize_arabic_currencies,
-    remove_punctuations,
     remove_special_characters,
     symbols_to_letters,
+)
+from ssak.utils.text_basic import (
+    collapse_whitespace,
+    format_special_characters,
+    remove_punctuations,
 )
 
 # Precompiled regular expressions and constant strings
