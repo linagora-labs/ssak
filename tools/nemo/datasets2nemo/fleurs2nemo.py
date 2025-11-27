@@ -39,13 +39,13 @@ if __name__ == "__main__":
         logger.info(f"Processing {split}")
         transcripts = CsvFile2Kaldi(
             input=split+".tsv",
-            return_columns=["id", "audio_path", None, "answer", "duration", "language", "gender"],
+            return_columns=["id", "audio_path", "answer", None, "duration", "language", "gender"],
             separator="\t",
             header=True,
             execute_order=0,
         )
         def get_audio_path(row):
-            audio_path = Path(input_dataset) / Path(split) / Path(row["audio_path"]).name
+            audio_path = Path(input_dataset) / Path("clips") / Path(split) / Path(row["audio_path"]).name
             audio_path = str(audio_path)
             return audio_path
         

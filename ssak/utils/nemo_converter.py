@@ -56,9 +56,9 @@ class Reader2Nemo:
             if all(row[f] for f in filters):
                 turns = []
                 if row.get("context"):
-                    turns.append(NemoTurn(role="user", value=row["context"], turn_type="text"))
-                turns.append(NemoTurn(role="user", value=row["audio_path"], turn_type="audio", duration=row["duration"], offset=row.get("offset", 0.0)))
-                turns.append(NemoTurn(role="assistant", value=row["answer"], turn_type="text"))
+                    turns.append(NemoTurn(role="User", value=row["context"], turn_type="text"))
+                turns.append(NemoTurn(role="User", value=row["audio_path"], turn_type="audio", duration=row["duration"], offset=row.get("offset", 0.0)))
+                turns.append(NemoTurn(role="Assistant", value=row["answer"], turn_type="text"))
                 metadata = None
                 if custom_metadata_to_keep:
                     metadata = {k: row[k] for k in custom_metadata_to_keep if k in row}

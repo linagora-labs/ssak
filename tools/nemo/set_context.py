@@ -42,7 +42,7 @@ def set_context(input_file, output_file, context_category, task="asr", language=
     dataset.set_context_if_none(contexts, force_set_context=force_context)
     dataset.save(output_file, data_type="multiturn")
 
-def set_context_on_folder(folder, context_file=None, output_folder=None, task="asr", language="fr", force_context=False):
+def set_context_on_folder(folder, context_file=None, output_folder=None, task="asr", language="fr", force_context=False, force=False):
     if context_file:
         with open(context_file, "r") as f:
             contexts_dict = json.load(f)
@@ -63,7 +63,7 @@ def set_context_on_folder(folder, context_file=None, output_folder=None, task="a
                 )
             else:
                 output_file = os.path.join(root, file.replace(".jsonl", "_context.jsonl"))
-            if not os.path.exists(output_file):
+            if not os.path.exists(output_file) or force:
                 try:
                     set_context(
                         input_file=os.path.join(root, file),
