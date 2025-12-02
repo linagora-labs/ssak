@@ -259,7 +259,7 @@ class NemoDataset:
     def load(self, input_file, data_type=None, debug=False, split=None, language=None, dataset_name=None, show_progress_bar=True):
         if debug and isinstance(debug, bool):
             debug = 10
-        with open(input_file, encoding="utf-8") as f:
+        with open(input_file, 'r', encoding="utf-8") as f:
             if show_progress_bar:
                 pbar = tqdm(f, desc="Loading dataset")
             else:
@@ -276,6 +276,31 @@ class NemoDataset:
                 row = NemoDatasetRow.from_json(json_row, data_type=data_type, dataset_name=dataset_name)
                 self.append(row)
         return data_type
+    
+    def stream(self, input_file, data_type=None, debug=False, dataset_name=None, show_progress_bar=True, store_dataset=False):
+        if debug and isinstance(debug, bool):
+            debug = 10
+        if show_progress_bar:
+            with open(input_file, 'r', encoding="utf-8") as f:
+                total_lines = sum(1 for _ in f)
+        with open(input_file, 'r', encoding="utf-8") as f:
+            if show_progress_bar:
+                pbar = tqdm(f, desc="Streaming dataset", total=total_lines)
+            else:
+                pbar = f
+            for i, line in enumerate(pbar):
+                if debug and i >= debug:
+                    break
+                json_row = json.loads(line)
+                if data_type is None:
+                    if "conversations" in json_row:
+                        data_type = "multiturn"
+                    else:
+                        data_type = "asr"
+                row = NemoDatasetRow.from_json(json_row, data_type=data_type, dataset_name=dataset_name)
+                if store_dataset:
+                    self.append(row)
+                yield row
 
     def save(self, output_file, data_type="multiturn", keep_minimal=True):
         if not isinstance(output_file, Path):
