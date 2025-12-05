@@ -168,7 +168,25 @@ class ToKaldi:
                     i.update(j)
                     merged_data.append(i)
             return merged_data
+        
+class DatasetProcessor2Kaldi(ToKaldi):
+    def __init__(self, input, execute_order) -> None:
+        super().__init__(input, "no", execute_order)
 
+class Deduplicator2Kaldi(DatasetProcessor2Kaldi):
+    
+    def process(self, dataset, debug=False):
+        seen = set()
+        new_data = []
+        keys = self.input
+        for row in dataset:
+            key = tuple(row[k] for k in keys)
+            if key not in seen:
+                seen.add(key)
+                new_data.append(row)
+            elif debug:
+                print("Duplicate removed:", row)
+        return new_data
 
 class AudioFolder2Kaldi(ToKaldi):
     def __init__(self, input, execute_order, sort_merging=True, extracted_id="audio_id", audio_extensions=[".wav"]) -> None:

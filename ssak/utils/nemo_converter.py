@@ -6,7 +6,7 @@ import re
 from tqdm import tqdm
 
 from ssak.utils.nemo_dataset import NemoDataset, NemoDatasetRow, NemoTurn
-from ssak.utils.kaldi_converter import Row2KaldiInfo
+from ssak.utils.kaldi_converter import Row2KaldiInfo, DatasetProcessor2Kaldi
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ class Reader2Nemo:
     """
     def __init__(self, root, processors) -> None:
         for i in processors:
-            if not isinstance(i, Row2KaldiInfo):
+            if not isinstance(i, Row2KaldiInfo) and not isinstance(i, DatasetProcessor2Kaldi):
                 if not os.path.exists(i.input):
                     i.input = os.path.join(root, i.input)
                     if not os.path.exists(i.input):
