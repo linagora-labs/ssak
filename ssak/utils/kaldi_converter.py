@@ -145,7 +145,6 @@ class ToKaldi:
             for key in dict_dataset.keys() & dict_new_data.keys():
                 merged_dict[key] = {**dict_dataset[key], **dict_new_data[key]}
             merged_data = [merged_dict[i] for i in merged_dict]
-            print(len(merged_data))
             return merged_data
         elif self.merge_on == "list":
             logger.warning("Merging a list with a dataset, the list must be aligned with the dataset! Check the order of the elements! Set sort_merging to False")

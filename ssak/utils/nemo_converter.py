@@ -52,7 +52,7 @@ class Reader2Nemo:
             filter_files = dict()
             for f in filters:
                 filter_files[f] = open(os.path.join(LOG_FOLDER, f"{f}.txt"), "w")
-        for row in tqdm(dataset, desc="Creating Kaldi dataset"):
+        for row in tqdm(dataset, desc="Creating NeMo dataset"):
             if all(row[f] for f in filters):
                 turns = []
                 if row.get("context"):

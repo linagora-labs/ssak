@@ -5,7 +5,6 @@ import shutil
 from pathlib import Path
 from ssak.utils.kaldi_converter import *
 from ssak.utils.nemo_converter import Reader2Nemo
-from ssak.utils.nemo_dataset import NemoDataset
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

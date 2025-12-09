@@ -30,13 +30,15 @@ class NemoTurn:
     
     def to_json(self) -> dict:
         if self.turn_type == "audio":
-            return {
+            d = {
                 "from": self.role,
                 "value": self.value,
                 "type": self.turn_type,
                 "duration": self.duration,
-                "offset": self.offset,
             }
+            if self.offset > 0:
+                d["offset"] = self.offset
+            return d
         else:
             return {
                 "from": self.role,
@@ -118,7 +120,8 @@ class NemoDatasetRow:
 
         row_data.pop("turns", None)
         row_data = {k: v for k, v in row_data.items() if v is not None}
-
+        if row_data.get("custom_metadata") == {}:
+            row_data.pop("custom_metadata", None)
         return row_data
 
 
