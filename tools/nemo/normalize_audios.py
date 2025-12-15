@@ -1,6 +1,5 @@
 import argparse
-from tqdm import tqdm
-from pathlib import Path
+import shutil
 from ssak.utils.nemo_dataset import NemoDataset
 
 
@@ -14,5 +13,6 @@ if __name__ == "__main__":
     nemo_dataset = NemoDataset()
     data_type = nemo_dataset.load(args.input_manifest)
     nemo_dataset.normalize_audios(args.output_wav_folder, target_sample_rate=16000, target_extension="wav", num_workers=args.num_threads)
-    nemo_dataset.save(args.input_manifest+".normalized", type=data_type)
+    shutil.move(args.input_manifest, args.input_manifest+".original")
+    nemo_dataset.save(args.input_manifest, data_type=data_type)
     

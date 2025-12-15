@@ -406,15 +406,15 @@ class NemoDataset:
         if len(updated_audio_paths) > 0:
             for row in self.dataset:
                 for turn in row.turns:
-                    if turn.type=="audio":
-                        turn.audio_filepath = updated_audio_paths.get(row.audio_filepath, row.audio_filepath)
+                    if turn.turn_type=="audio":
+                        turn.value = updated_audio_paths.get(row.audio_filepath, row.audio_filepath)
         if errors:
             new_dataset = []
             removed_lines = []
             for row in self.dataset:
                 valid_row = True
                 for turn in row.turns:
-                    if turn.type=="audio" and turn.value=="error":
+                    if turn.turn_type=="audio" and turn.value=="error":
                         valid_row = False
                 if valid_row:
                     new_dataset.append(row)

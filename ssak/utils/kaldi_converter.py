@@ -301,11 +301,15 @@ class ColumnFileFolder2Kaldi(ToKaldi):
 
 
 class Row2KaldiInfo(ToKaldi):
+    def __init__(self, input, return_columns, execute_order, sort_merging=True, show_progress=False) -> None:
+        super().__init__(input, return_columns, execute_order, sort_merging=sort_merging)
+        self.show_progress = show_progress
+    
     def __call__(self, row):
         raise NotImplementedError("This method must be implemented in the child class")
 
     def process(self, dataset, debug=False):
-        if len(dataset) > 100_000:
+        if len(dataset) > 100_000 or self.show_progress:
             pbar = tqdm(dataset, desc=f"Processing rows with {self.__class__.__name__}")
         else:
             pbar = dataset
@@ -366,13 +370,47 @@ class Row2Info(Row2KaldiInfo):
 
 
 class Row2Duration(Row2KaldiInfo):
-    def __init__(self, execute_order, sort_merging=True) -> None:
-        super().__init__(input="audio_path", return_columns=["duration"], execute_order=execute_order, sort_merging=sort_merging)
+    def __init__(self, execute_order, max_workers=8) -> None:
+        super().__init__(
+            input="audio_path",
+            return_columns="duration",
+            execute_order=execute_order,
+        )
+        self.max_workers = max_workers
 
     def __call__(self, row):
         from ssak.utils.audio import get_audio_duration
+        return {
+            self.return_columns[0]: round(get_audio_duration(row[self.input]), 2)
+        }
 
-        return {self.return_columns[0]: round(get_audio_duration(row[self.input]), 2)}
+    def process(self, dataset, debug=False):
+        """
+        Process a batch of rows using multithreading.
+        :param rows: iterable of row dicts
+        :return: list of result dicts in the same order as input
+        """
+        if self.max_workers==1:
+            for row in tqdm(dataset, desc=f"Processing rows with {self.__class__.__name__}"):
+                info = self(row)
+                row.update(info)
+                if debug:
+                    break
+            return dataset
+        else:
+            results = dataset.copy()
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def task(idx, row):
+                return idx, self(row)
+
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = [executor.submit(task, i, row) for i, row in enumerate(dataset)]
+                for f in tqdm(as_completed(futures), total=len(dataset)):
+                    idx, result = f.result()
+                    results[idx].update(result)
+            return results
+
 
 class RowApplyFunction(Row2KaldiInfo):
     def __init__(self, function, return_columns, execute_order, sort_merging=True, input=None) -> None:

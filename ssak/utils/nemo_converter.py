@@ -39,7 +39,10 @@ class Reader2Nemo:
         pbar = tqdm(self.processors, desc="Processing pipeline")
         for processor in pbar:
             pbar.set_description(f"Processing {processor.__class__.__name__}")
-            dataset = processor.process(dataset, debug=debug)
+            try:
+                dataset = processor.process(dataset, debug=debug)
+            except Exception as e:
+                raise Exception(f"Error in processor {processor.__class__.__name__}: {e}\nFirst row was {dataset[0]}") from e
             if debug:
                 logger.info(f"Step {processor.__class__.__name__}: {dataset}")
         logger.info(f"Dataset processed with {len(dataset)} rows")
