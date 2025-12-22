@@ -91,7 +91,7 @@ class ToKaldi:
     
     """
     def __init__(self, input, return_columns, execute_order=0, merge_on="id", sort_merging=True, force_merge_new_into_old=False) -> None:
-        if not isinstance(return_columns, list):
+        if not isinstance(return_columns, list) and not isinstance(return_columns, dict):
             return_columns = [return_columns]
         self.execute_order = execute_order
         self.input = input
@@ -367,6 +367,52 @@ class Row2Info(Row2KaldiInfo):
             end = self.info_position[1]
             return {self.return_columns[0]: self.separator.join(row[self.input].split(self.separator)[start:end])}
         return {self.return_columns[0]: row[self.input].split(self.separator)[self.info_position]}
+    
+class Row2Empty(Row2KaldiInfo):
+    def __init__(self, return_columns, execute_order, sort_merging=True) -> None:
+        super().__init__("", return_columns, execute_order, sort_merging=sort_merging)
+
+    def __call__(self, row):
+        return {self.return_columns[0]: ""}
+
+import re
+
+class Row2CleanText(Row2KaldiInfo):
+    def __init__(
+        self,
+        execute_order,
+        input="text",
+        return_columns="text",
+        remove_parentheses=False,
+        remove_brackets=False,
+    ) -> None:
+        super().__init__(
+            input=input,
+            return_columns=return_columns,
+            execute_order=execute_order,
+        )
+        self.remove_parentheses = remove_parentheses
+        self.remove_brackets = remove_brackets
+
+        # precompile regex for speed
+        self._paren_re = re.compile(r"\([^)]*\)")
+        self._bracket_re = re.compile(r"\[[^\]]*\]")
+
+    def __call__(self, row):
+        text = row[self.input]
+
+        if self.remove_parentheses:
+            text = self._paren_re.sub("", text)
+
+        if self.remove_brackets:
+            text = self._bracket_re.sub("", text)
+
+        # normalize spaces after removals
+        text = " ".join(text.split())
+
+        return {
+            self.return_columns[0]: text
+        }
 
 
 class Row2Duration(Row2KaldiInfo):
@@ -380,9 +426,13 @@ class Row2Duration(Row2KaldiInfo):
 
     def __call__(self, row):
         from ssak.utils.audio import get_audio_duration
-        return {
-            self.return_columns[0]: round(get_audio_duration(row[self.input]), 2)
-        }
+        try:
+            return {
+                self.return_columns[0]: round(get_audio_duration(row[self.input]), 2)
+            }
+        except:
+            print(f"Error getting duration for {row[self.input]}")
+            return {self.return_columns[0]: None}
 
     def process(self, dataset, debug=False):
         """
@@ -435,9 +485,28 @@ class CsvFile2Kaldi(ToKaldi):
         with open(self.input) as f:
             reader = csv.reader(f, delimiter=self.separator)
             if self.header:
-                next(reader)
+                if isinstance(self.header, int):
+                    header = None
+                    for i in range(self.header):
+                        tmp_header = next(reader)
+                        if header is None:
+                            header = tmp_header
+                        else:
+                            header = [
+                                f"{h}_{t}" if h and t else (t or h)
+                                for h, t in zip(header, tmp_header)
+                            ]
+                else:
+                    header = next(reader)
+                print(header)
             for row in reader:
-                data.append({col: row[i].strip() for i, col in enumerate(self.return_columns) if col is not None})
+                if self.header and isinstance(self.return_columns, dict):
+                    data.append({
+                        new_name: row[header.index(csv_col)].strip()
+                        for csv_col, new_name in self.return_columns.items()
+                    })
+                else:
+                    data.append({col: row[i].strip() for i, col in enumerate(self.return_columns) if col is not None})
                 if debug:
                     break
         return self.merge_data(dataset, new_data=data)

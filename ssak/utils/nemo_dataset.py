@@ -320,7 +320,7 @@ class NemoDataset:
                     if row.dataset_name is not None:
                         row_data["dataset_name"] = row.dataset_name
                 else:
-                    raise ValueError(f"Unkown type {data_type} for saving nemo dataset. Should be 'asr' or 'multiturn")
+                    raise ValueError(f"Unkown type {data_type} for saving nemo dataset. Should be 'asr' or 'multiturn'")
                 json.dump(row_data, f, ensure_ascii=False, indent=None)
                 f.write("\n")
         shutil.move(output_file.with_suffix(output_file.suffix + ".tmp"), output_file)
@@ -350,13 +350,108 @@ class NemoDataset:
                 json.dump(row.to_json(), f, ensure_ascii=False, indent=None)
                 f.write("\n")
     
+
     def set_context_if_none(self, contexts, force_set_context=False):
+        if isinstance(contexts, dict):
+            texts = []
+            weights = []
+            for weight, values in contexts.items():
+                w = float(weight)
+                for v in values:
+                    texts.append(v)
+                    weights.append(w)
+        elif isinstance(contexts, tuple):
+            texts, weights = contexts
+        else:
+            texts = contexts
+            weights = None
+
         for row in tqdm(self, desc="Set context if none"):
-            new_turn = NemoTurn(role="User", turn_type="text", value=random.choice(contexts))
+            sampled_context = random.choices(texts, weights=weights, k=1)[0]
+            new_turn = NemoTurn(role="User", turn_type="text", value=sampled_context)
             if row.turns[0].turn_type=="audio":
                 row.turns.insert(0, new_turn)
             elif force_set_context:
                 row.turns[0] = new_turn
+    
+    def extract_one_segment_per_audio(
+        self,
+        output_wavs_folder,
+        target_sample_rate=16000,
+        target_extension=None,
+        num_workers=1,
+    ):
+        """
+        Extract exactly one audio segment per audio turn and normalize it
+        (sample rate / extension).
+
+        Updates turn.value with the new audio path.
+        Removes rows containing invalid audio ("error").
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        audio_turns = []
+        for row in self.dataset:
+            for turn in row.turns:
+                if turn.turn_type == "audio":
+                    audio_turns.append(turn)
+
+        def process_turn(turn, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
+            from pydub import AudioSegment
+            audio_path = Path(turn.value)
+            new_folder = Path(new_folder)
+            offset = float(turn.offset) if turn.offset else 0.0
+            if new_folder:
+                offset_text = f"{turn.offset:.2f}".replace(".", "-")
+                if target_extension:
+                    if not target_extension.startswith("."):
+                        target_extension = "." + target_extension
+                    new_name = f"{audio_path.stem}_{offset_text}s{target_extension}"
+                    new_path = new_folder / new_name
+                else:
+                    new_name = f"{audio_path.stem}_{offset_text}s{audio_path.suffix}"
+                    new_path = new_folder / new_name
+            else:
+                raise ValueError("New folder must be specified for audio conversion")
+            # if not new_path.exists():
+            if True:
+                if not audio_path.exists():
+                    raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
+                duration = turn.duration
+                waveform = AudioSegment.from_file(audio_path, start_second=offset, duration=duration)
+                if waveform.channels != max_channel:
+                    waveform = waveform.set_channels(max_channel)
+                if waveform.frame_rate != target_sample_rate:
+                    waveform = waveform.set_frame_rate(target_sample_rate)
+                waveform.export(new_path, format=new_path.suffix.lstrip("."))
+                
+            return new_path
+
+        Path(output_wavs_folder).mkdir(parents=True, exist_ok=True)
+        if num_workers == 1:
+            for turn in tqdm(audio_turns, desc="Extracting audio segments"):
+                new_path = str(process_turn(turn, output_wavs_folder, target_sample_rate, target_extension))
+                if new_path != turn.value:
+                    turn.value = new_path
+        else:
+            with ThreadPoolExecutor(max_workers=num_workers) as executor:
+                futures = {
+                    executor.submit(process_turn, turn, output_wavs_folder, target_sample_rate, target_extension): turn
+                    for turn in audio_turns
+                }
+                for future in tqdm(
+                    as_completed(futures),
+                    total=len(futures),
+                    desc="Extracting audio segments",
+                ):
+                    turn = futures[future]
+                    try:
+                        new_path = str(future.result())
+                        if new_path != turn.value:
+                            turn.value = new_path
+                    except Exception as e:
+                        raise RuntimeError(f"Error processing audio {turn.value}: {e}")
+
     
     def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
         """

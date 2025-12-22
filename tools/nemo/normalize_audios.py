@@ -8,11 +8,15 @@ if __name__ == "__main__":
     parser.add_argument("input_manifest", help="Input manifest", type=str)
     parser.add_argument("output_wav_folder", help="The folder to save the normalized audios", type=str)
     parser.add_argument("--num_threads", help="Number of threads to use for normalizing audios", type=int, default=8)
+    parser.add_argument("--one_segment_per_audio", help="If set, one segment per audio is created", action="store_true", default=False)
     args = parser.parse_args()
     
     nemo_dataset = NemoDataset()
     data_type = nemo_dataset.load(args.input_manifest)
-    nemo_dataset.normalize_audios(args.output_wav_folder, target_sample_rate=16000, target_extension="wav", num_workers=args.num_threads)
+    if args.one_segment_per_audio:
+        nemo_dataset.extract_one_segment_per_audio(args.output_wav_folder, target_sample_rate=16000, target_extension="wav", num_workers=args.num_threads)
+    else:
+        nemo_dataset.normalize_audios(args.output_wav_folder, target_sample_rate=16000, target_extension="wav", num_workers=args.num_threads)
     shutil.move(args.input_manifest, args.input_manifest+".original")
     nemo_dataset.save(args.input_manifest, data_type=data_type)
     

@@ -64,7 +64,11 @@ class Reader2Nemo:
                 turns.append(NemoTurn(role="Assistant", value=row["answer"], turn_type="text"))
                 metadata = None
                 if custom_metadata_to_keep:
-                    metadata = {k: row[k] for k in custom_metadata_to_keep if k in row}
+                    if custom_metadata_to_keep=="all":
+                        exclude_keys = {"audio_path", "audio_id", "id", "answer", "context", "text", "speaker", "duration", "offset"}
+                        metadata = {k: v for k, v in row.items() if k not in exclude_keys}
+                    else:
+                        metadata = {k: row[k] for k in custom_metadata_to_keep if k in row}
                 nemo_row = NemoDatasetRow(
                     turns=turns,
                     id=row["id"],
@@ -78,3 +82,58 @@ class Reader2Nemo:
                         filter_files[f].write(f"{row}\n")
         logger.info(f"Removed {len(dataset)-len(nemo_dataset)} rows (from {len(dataset)} rows to {len(nemo_dataset)})")
         return nemo_dataset
+
+class Reader2CSV:
+    """
+    Convert a dataset to NeMo format using a list of processors.
+    The processors are executed in the order of the execute_order attribute of processors
+    """
+    def __init__(self, root, processors) -> None:
+        for i in processors:
+            if not isinstance(i, Row2KaldiInfo) and not isinstance(i, DatasetProcessor2Kaldi):
+                if not os.path.exists(i.input):
+                    i.input = os.path.join(root, i.input)
+                    if not os.path.exists(i.input):
+                        raise FileNotFoundError(f"File {i.input} not found")
+        self.processors = processors
+
+    def load(
+        self,
+        debug=False,
+        dataset_name=None,
+        custom_metadata_to_keep=None,
+    ):
+        if debug:
+            logger.warning("Debug mode is on, will only process the first row")
+        dataset = []
+        self.processors = sorted(self.processors, key=lambda x: x.execute_order)
+        pbar = tqdm(self.processors, desc="Processing pipeline")
+        for processor in pbar:
+            pbar.set_description(f"Processing {processor.__class__.__name__}")
+            try:
+                dataset = processor.process(dataset, debug=debug)
+            except Exception as e:
+                raise Exception(f"Error in processor {processor.__class__.__name__}: {e}\nFirst row was {dataset[0]}") from e
+            if debug:
+                logger.info(f"Step {processor.__class__.__name__}: {dataset}")
+        logger.info(f"Dataset processed with {len(dataset)} rows")
+        logger.info(f"First row: {dataset[0]}")
+        new_dataset = []
+        # find the filters by finding all keys in first row that starts with "filter_"
+        filters = [k for k in dataset[0] if k.startswith("filter_")]
+        if len(filters) > 0:
+            logger.info(f"Found filters: {filters}")
+            filter_files = dict()
+            for f in filters:
+                filter_files[f] = open(os.path.join(LOG_FOLDER, f"{f}.txt"), "w")
+        for row in tqdm(dataset, desc="Creating NeMo dataset"):
+            if all(row[f] for f in filters):
+                if custom_metadata_to_keep:
+                    row = {k: row[k] for k in custom_metadata_to_keep if k in row}
+                new_dataset.append(row)
+            else:
+                for f in filters:
+                    if not row[f]:
+                        filter_files[f].write(f"{row}\n")
+        logger.info(f"Removed {len(dataset)-len(new_dataset)} rows (from {len(dataset)} rows to {len(new_dataset)})")
+        return new_dataset
