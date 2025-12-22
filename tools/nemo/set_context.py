@@ -10,27 +10,28 @@ from ssak.utils.nemo_dataset import NemoDataset
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def load_contexts(task="asr", lang="fr"):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     filename = f"{lang}_{task}_contexts.json"
-    filepath = Path(base_dir, "contexts", filename)
-    try:
+    if task=="ast":
+        filepath = Path(base_dir, "contexts", "translation", filename)
+    else:
+        filepath = Path(base_dir, "contexts", filename)
+    if filepath.exists():
         with open(filepath, "r", encoding="utf-8") as f:
             contexts = json.load(f)
-    except FileNotFoundError:
+    else:
         raise FileNotFoundError(f"Context file not found: {filepath}")
-    except json.JSONDecodeError:
-        raise ValueError(f"Invalid JSON in file: {filepath}")
     return contexts
 
 def get_available_contexts_categories(task="asr", lang="fr"):
     return list(load_contexts(task=task, lang=lang).keys())
 
 def get_contexts(category, task="asr", language="fr", add_defaults=True):
-    contexts_dict = load_contexts(task=task, lang=language)
-    contexts = contexts_dict.get(category, [])
-    if (not contexts or add_defaults) and not category == "default_contexts":
-        contexts.extend(contexts_dict.get("default_contexts", []))
+    contexts = load_contexts(task=task, lang=language)["default_contexts"]
+    if isinstance(contexts, list):
+        contexts = {1.0: contexts}
     return contexts
 
 def set_context(input_file, output_file, context_category, task="asr", language="fr", dataset_name=None, force_context=False):
@@ -90,8 +91,17 @@ if __name__ == "__main__":
 
     parser.add_argument("--context_file", help="DEPRECATED", type=str, default=None)    
     parser.add_argument("--force_set_context", help="Force setting context even if one is already defined.", default=False, action="store_true")
-    parser.add_argument("--task", help="Task for selecting contexts.", choices=["asr"], default="asr")
-    parser.add_argument("--language", help="Language for selecting contexts.", choices=["fr", "en", "it", "de", "es"], default="fr")
+    parser.add_argument("--task", help="Task for selecting contexts.", choices=["asr", "ast"], default="asr")
+    def generate_language_choices(languages):
+        pairs = [
+            f"{src}-{tgt}"
+            for src in languages
+            for tgt in languages
+            if src != tgt
+        ]
+        return languages + pairs
+
+    parser.add_argument("--language", help="Language for selecting contexts.", choices=generate_language_choices(["fr", "en", "it", "de", "es"]), default="fr")
     args = parser.parse_args()
     
     if args.context_file and not args.output_folder:
