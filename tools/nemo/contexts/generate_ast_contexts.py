@@ -3,7 +3,7 @@ import os
 import re
 
 # Output folder
-output_folder = "translation_prompts"
+output_folder = "translation"
 os.makedirs(output_folder, exist_ok=True)
 
 # Language codes
@@ -12,16 +12,20 @@ language_codes = {
     "English": "en",
     "Spanish": "es",
     "German": "de",
-    "Italian": "it"
+    "Italian": "it",
+    "Portuguese": "pt",
+    "Arabic": "ar"
 }
 
 # Localized language names
 localized_languages = {
-    "French": {"French": "français", "English": "anglais", "Spanish": "espagnol", "German": "allemand", "Italian": "italien"},
-    "English": {"French": "French", "English": "English", "Spanish": "Spanish", "German": "German", "Italian": "Italian"},
-    "Spanish": {"French": "francés", "English": "inglés", "Spanish": "español", "German": "alemán", "Italian": "italiano"},
-    "German": {"French": "Französisch", "English": "Englisch", "Spanish": "Spanisch", "German": "Deutsch", "Italian": "Italienisch"},
-    "Italian": {"French": "francese", "English": "inglese", "Spanish": "spagnolo", "German": "tedesco", "Italian": "italiano"}
+    "French": {"French": "français", "English": "anglais", "Spanish": "espagnol", "German": "allemand", "Italian": "italien", "Portuguese": "portugais", "Arabic": "arabe"},
+    "English": {"French": "French", "English": "English", "Spanish": "Spanish", "German": "German", "Italian": "Italian", "Portuguese": "Portuguese", "Arabic": "Arabic"},
+    "Spanish": {"French": "francés", "English": "inglés", "Spanish": "español", "German": "alemán", "Italian": "italiano", "Portuguese": "portugués", "Arabic": "árabe"},
+    "German": {"French": "Französisch", "English": "Englisch", "Spanish": "Spanisch", "German": "Deutsch", "Italian": "Italienisch", "Portuguese": "Portugiesisch", "Arabic": "Arabisch"},
+    "Italian": {"French": "francese", "English": "inglese", "Spanish": "spagnolo", "German": "tedesco", "Italian": "italiano", "Portuguese": "portoghese", "Arabic": "arabo"},
+    "Portuguese": {"French": "francês", "English": "inglês", "Spanish": "espanhol", "German": "alemão", "Italian": "italiano", "Portuguese": "português", "Arabic": "árabe"},
+    "Arabic": {"French": "فرنسي", "English": "إنجليزي", "Spanish": "إسباني", "German": "ألماني", "Italian": "إيطالي", "Portuguese": "برتغالي", "Arabic": "عربي"}
 }
 
 # Prompt templates (multiple variations)
@@ -61,6 +65,20 @@ templates = {
             "Converti il contenuto parlato dal {lang1} al {lang2}.",
             "Traduci il discorso fornito dal {lang1} al {lang2}.",
             "Traduci questo file dal {lang1} al {lang2}."
+        ],
+        "Portuguese": [
+            "Traduza o seguinte conteúdo de {lang1} para {lang2}.",
+            "Por favor, traduza esta gravação de {lang1} para {lang2}.",
+            "Converta o conteúdo falado de {lang1} para {lang2}.",
+            "Traduza o discurso fornecido de {lang1} para {lang2}.",
+            "Traduza este arquivo de {lang1} para {lang2}."
+        ],
+        "Arabic": [
+            "ترجم المحتوى التالي من {lang1} إلى {lang2}.",
+            "يرجى ترجمة هذا التسجيل من {lang1} إلى {lang2}.",
+            "حوّل المحتوى المنطوق من {lang1} إلى {lang2}.",
+            "ترجم الكلام المقدم من {lang1} إلى {lang2}.",
+            "يرجى ترجمة هذا الملف من {lang1} إلى {lang2}."
         ]
     },
     "target_only": {
@@ -98,6 +116,20 @@ templates = {
             "Converti il contenuto parlato in {lang2}.",
             "Traduci il discorso fornito in {lang2}.",
             "Traduci questo file in {lang2}."
+        ],
+        "Portuguese": [
+            "Traduza o seguinte conteúdo para {lang2}.",
+            "Por favor, traduza esta gravação para {lang2}.",
+            "Converta o conteúdo falado para {lang2}.",
+            "Traduza o discurso fornecido para {lang2}.",
+            "Traduza este arquivo para {lang2}."
+        ],
+        "Arabic": [
+            "ترجم المحتوى التالي إلى {lang2}.",
+            "يرجى ترجمة هذا التسجيل إلى {lang2}.",
+            "حوّل المحتوى المنطوق إلى {lang2}.",
+            "ترجم الكلام المقدم إلى {lang2}.",
+            "يرجى ترجمة هذا الملف إلى {lang2}."
         ]
     },
     "implicit_only": {
@@ -105,13 +137,15 @@ templates = {
         "English": ["Translate", "Convert the content", "Translate what is being said"],
         "Spanish": ["Traduce", "Convierte el contenido", "Traduce lo que se dice"],
         "German": ["Übersetzen Sie", "Konvertieren Sie den Inhalt", "Übersetzen Sie das Gesagte"],
-        "Italian": ["Traduci", "Converti il contenuto", "Traduci ciò che viene detto"]
+        "Italian": ["Traduci", "Converti il contenuto", "Traduci ciò che viene detto"],
+        "Portuguese": ["Traduza", "Converta o conteúdo", "Traduza o que está sendo dito"],
+        "Arabic": ["ترجم", "حوّل المحتوى", "ترجم ما يقال"]
     }
 }
 
+languages = ["French", "English", "Spanish", "German", "Italian", "Portuguese", "Arabic"]
 
 
-languages = ["French", "English", "Spanish", "German", "Italian"]
 
 def fix_prompt(text):
     text = re.sub(r"\bdu\s+([aeiouhAEIOUH])", r"de l'\1", text)
@@ -133,9 +167,13 @@ for src_lang in languages:
         if src_lang == tgt_lang:
             continue
 
+        target_proba = 0.94
+        fr_en_proba = 0.04
+        other_languages_proba = 0.02
         prompts = {
-            0.75: [],
-            0.25: []
+            target_proba: [],
+            fr_en_proba: [],
+            other_languages_proba: []
         }
 
         # 1. Full prompts
@@ -147,9 +185,11 @@ for src_lang in languages:
                 )
                 p = fix_prompt(p)
                 if prompt_lang==src_lang or prompt_lang==tgt_lang:
-                    prompts[0.75].append(p)
+                    prompts[target_proba].append(p)
+                elif prompt_lang in ["English", "French"]:
+                    prompts[fr_en_proba].append(p)
                 else:
-                    prompts[0.25].append(p)
+                    prompts[other_languages_proba].append(p)
 
         # Target-only prompts
         for prompt_lang in languages:
@@ -159,12 +199,14 @@ for src_lang in languages:
                 )
                 p = fix_prompt(p)
                 if prompt_lang==src_lang or prompt_lang==tgt_lang:
-                    prompts[0.75].append(p)
+                    prompts[target_proba].append(p)
+                elif prompt_lang in ["English", "French"]:
+                    prompts[fr_en_proba].append(p)
                 else:
-                    prompts[0.25].append(p)
+                    prompts[other_languages_proba].append(p)
         # 3
         for template in templates["implicit_only"][tgt_lang]:
-            prompts[0.75].append(template)
+            prompts[target_proba].append(template)
 
         # Save JSON file
         data = {"default_contexts": prompts}
