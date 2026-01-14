@@ -146,11 +146,13 @@
     "Écris le contenu",
     "Prends note de ce qui est dit",
     "Transforme ce fichier audio en text, s'il te plait.",
-    "Can you write exactly what's being said in this recording in its original language?",
-    "Transcribe in french the entire audio content without omitting anything.",
-    "Write down in french the content of the given audio as close as possible.",
+    "Transcribe the audio in its original language.",
+    "Write exactly in French what is said in this audio recording.",
     "Transcribe in French",
-    "Transcribe the speech in the original language",
-    "Transcribe what is said in the source language"
+    "Can you write the text of this audio file in its source language?",
+    "Transcribe el audio en francés.",
+    "Trascrivi il discorso in francese.",
+    "Transkribiere das Audio auf Französisch so genau wie möglich.",
+    "Transcreva o áudio em francês."
   ]
 }
