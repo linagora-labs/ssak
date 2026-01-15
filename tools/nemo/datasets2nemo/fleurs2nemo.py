@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert FLEURS dataset to NeMo format")
     parser.add_argument("--force", action="store_true", default=False)
-    parser.add_argument("--language", type=str, default="es", choices=["es", "en", "fr", "it", "de"])
+    parser.add_argument("--language", type=str, default="es", choices=["es", "en", "fr", "it", "de", "pt_br", "ar_eg"])
     parser.add_argument("--input", type=str, default=None)
     parser.add_argument("--output", type=str, default=None)
 

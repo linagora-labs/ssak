@@ -506,7 +506,18 @@ class CsvFile2Kaldi(ToKaldi):
                         for csv_col, new_name in self.return_columns.items()
                     })
                 else:
-                    data.append({col: row[i].strip() for i, col in enumerate(self.return_columns) if col is not None})
+                    try:
+                        data.append({col: row[i].strip() for i, col in enumerate(self.return_columns) if col is not None})
+                    except Exception as e:
+                        if any(self.separator in cell for cell in row if isinstance(cell, str)):    # if sep=\t and cell has a\t
+                            for i, cell in enumerate(row):
+                                if isinstance(cell, str) and self.separator in cell:
+                                    split_cells = cell.split(self.separator)
+                                    row[i] = split_cells[0]
+                                    for j, extra_cell in enumerate(split_cells[1:], start=1):
+                                        row.insert(i + j, extra_cell)
+                        else:
+                            raise Exception(f"Problem with row {row} (len {len(row)} vs len columns {len(self.return_columns)})") from e
                 if debug:
                     break
         return self.merge_data(dataset, new_data=data)

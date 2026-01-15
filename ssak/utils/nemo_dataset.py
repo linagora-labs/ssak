@@ -351,7 +351,7 @@ class NemoDataset:
                 f.write("\n")
     
 
-    def set_context_if_none(self, contexts, force_set_context=False):
+    def set_context_if_none(self, contexts, force_set_context=False, seed=42):
         if isinstance(contexts, dict):
             texts = []
             weights = []
@@ -365,7 +365,7 @@ class NemoDataset:
         else:
             texts = contexts
             weights = None
-
+        random.seed(seed)
         for row in tqdm(self, desc="Set context if none"):
             sampled_context = random.choices(texts, weights=weights, k=1)[0]
             new_turn = NemoTurn(role="User", turn_type="text", value=sampled_context)

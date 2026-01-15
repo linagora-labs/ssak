@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Convert VoxPopuli dataset to Kaldi format")
+    parser = argparse.ArgumentParser(description="Convert VoxPopuli dataset to NeMo format")
     parser.add_argument("--force", action="store_true", default=False)
     parser.add_argument("--input", type=str, default=None)
     parser.add_argument("--output", type=str, default=None)

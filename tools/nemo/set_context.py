@@ -101,7 +101,7 @@ if __name__ == "__main__":
         ]
         return languages + pairs
 
-    parser.add_argument("--language", help="Language for selecting contexts.", choices=generate_language_choices(["fr", "en", "it", "de", "es"]), default="fr")
+    parser.add_argument("--language", help="Language for selecting contexts.", choices=generate_language_choices(["fr", "en", "it", "de", "es", "pt", "ar"]), default="fr")
     args = parser.parse_args()
     
     if args.context_file and not args.output_folder:
