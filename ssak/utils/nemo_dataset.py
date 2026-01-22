@@ -208,7 +208,10 @@ class NemoDataset:
         Args:
             dataset (NemoDataset): Dataset to append to the current dataset
         """
-        self.dataset.extend(dataset.dataset)
+        if isinstance(dataset, NemoDataset):
+            self.dataset.extend(dataset.dataset)
+        else:
+            self.dataset.extend(dataset)
 
     def get_audio_paths(self, unique=True):
         """
