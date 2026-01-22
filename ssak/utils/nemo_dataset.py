@@ -21,6 +21,19 @@ class NemoTurn:
     duration: float = None
     offset: float = 0.0
     
+    def __init__(self, **kwargs):
+        if "from" in kwargs and "role" not in kwargs:
+            kwargs["role"] = kwargs.pop("from")
+        if "type" in kwargs and "turn_type" not in kwargs:
+            kwargs["turn_type"] = kwargs.pop("type")
+
+        self.role = kwargs["role"]
+        self.value = kwargs["value"]
+        self.turn_type = kwargs["turn_type"]
+
+        self.duration = kwargs.get("duration")
+        self.offset = kwargs.get("offset", 0.0)
+        
     @property
     def audio_filepath(self) -> str:
         """Alias for audio_filepath"""
