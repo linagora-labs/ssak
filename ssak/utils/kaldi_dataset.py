@@ -602,12 +602,12 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
                     waveform = waveform.set_frame_rate(target_sample_rate)
                 if not os.path.exists(new_folder):
                     os.makedirs(new_folder, exist_ok=True)
-                waveform.export(new_path, format="wav")
+                waveform.export(new_path, format=target_extension)
                 return new_path
             elif not audio_path.endswith(target_extension):
                 logger.debug(f"Audio file has the wrong extension {audio_path}. Converting to {target_extension}...")
                 waveform = AudioSegment.from_file(audio_path)
-                waveform.export(new_path, format="wav")
+                waveform.export(new_path, format=target_extension)
                 return new_path
             else:
                 return audio_path

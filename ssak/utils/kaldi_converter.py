@@ -473,17 +473,18 @@ class RowApplyFunction(Row2KaldiInfo):
         return {self.return_columns[0]: self.function(row)}
 
 class CsvFile2Kaldi(ToKaldi):
-    def __init__(self, input, return_columns, execute_order, separator: str, header=False, **kwargs) -> None:
+    def __init__(self, input, return_columns, execute_order, separator: str, header=False, quoting=csv.QUOTE_MINIMAL, **kwargs) -> None:
         if return_columns is None:
             raise ValueError("Columns must be specified")
         super().__init__(input, return_columns, execute_order, **kwargs)
         self.separator = separator
         self.header = header
+        self.quoting = quoting
 
     def process(self, dataset, debug=False):
         data = []
         with open(self.input) as f:
-            reader = csv.reader(f, delimiter=self.separator)
+            reader = csv.reader(f, delimiter=self.separator, quoting=self.quoting)
             if self.header:
                 if isinstance(self.header, int):
                     header = None
