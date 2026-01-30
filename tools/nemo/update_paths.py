@@ -7,11 +7,16 @@ def update_path_in_manifest(manifest_path, str_in, str_out):
     nemo_dataset = NemoDataset()
     data_type = nemo_dataset.load(str(manifest_path))
 
+    found = False
     for row in tqdm(nemo_dataset, desc=f"Updating {manifest_path.name}"):
         for audio_turn in row.get_audio_turns():
-            audio_turn.value = audio_turn.value.replace(str_in, str_out)
+            if not found and str_in in audio_turn.value:
+                found = True
+            if found:
+                audio_turn.value = audio_turn.value.replace(str_in, str_out)
 
-    nemo_dataset.save(str(manifest_path), data_type=data_type)
+    if found:
+        nemo_dataset.save(str(manifest_path), data_type=data_type)
 
 def process_path(path, str_in, str_out, recursive=False):
     path = Path(path)
@@ -24,7 +29,12 @@ def process_path(path, str_in, str_out, recursive=False):
         if not manifests:
             print(f"No .jsonl files found in directory: {path}")
         for manifest in manifests:
-            update_path_in_manifest(manifest, str_in, str_out)
+            try:
+                update_path_in_manifest(manifest, str_in, str_out)
+            except Exception as e:
+                print()
+                print(f"!!! Failed while processing {manifest} ({str(e)})")
+                print()
     elif path.is_file() and path.suffix == ".jsonl":
         update_path_in_manifest(path, str_in, str_out)
     else:
