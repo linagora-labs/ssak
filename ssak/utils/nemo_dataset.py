@@ -66,8 +66,8 @@ class NemoTurn:
             role=data.get("from"),
             value=data.get("value"),
             turn_type=data.get("type"),
-            duration=data.get("duration"),
-            offset=data.get("offset", 0.0),
+            duration=round(data.get("duration"), 3) if data.get("duration") is not None else None,
+            offset=round(data.get("offset", 0.0), 3),
         )
 
 @dataclass

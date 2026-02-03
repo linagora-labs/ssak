@@ -18,7 +18,7 @@ def update_path_in_manifest(manifest_path, str_in, str_out):
     if found:
         nemo_dataset.save(str(manifest_path), data_type=data_type)
 
-def process_path(path, str_in, str_out, recursive=False):
+def process_path(path, str_in, str_out, recursive=False, pattern=None):
     path = Path(path)
     if path.is_dir():
         if recursive:
@@ -26,8 +26,14 @@ def process_path(path, str_in, str_out, recursive=False):
             print("Recursively checking directories")
         else:
             manifests = sorted(path.glob("*.jsonl"))
+        if pattern:
+            manifests = [
+                p for p in manifests
+                if pattern in p.as_posix()
+            ]
         if not manifests:
-            print(f"No .jsonl files found in directory: {path}")
+            print(f"No .jsonl files found in directory: {path} (and pattern={pattern})")
+        print(f"Found {len(manifests)} manifests in {path} (and pattern={pattern})")
         for manifest in manifests:
             try:
                 update_path_in_manifest(manifest, str_in, str_out)
@@ -52,8 +58,9 @@ if __name__ == "__main__":
     parser.add_argument("--str_in", help="Substring to replace in paths.")
     parser.add_argument("--str_out", help="Replacement substring.")
     parser.add_argument("--recursive", default=False, action="store_true", help="If input path is a folder, recursively search for jsonl")
+    parser.add_argument("--pattern", default=None, help="")
 
     args = parser.parse_args()
 
     for input_path in args.input_paths:
-        process_path(input_path, args.str_in, args.str_out, recursive=args.recursive)
+        process_path(input_path, args.str_in, args.str_out, recursive=args.recursive, pattern=args.pattern)
