@@ -14,18 +14,20 @@ language_codes = {
     "German": "de",
     "Italian": "it",
     "Portuguese": "pt",
-    "Arabic": "ar"
+    "Arabic": "ar",
+    "Dutch": "nl"
 }
 
 # Localized language names
 localized_languages = {
-    "French": {"French": "français", "English": "anglais", "Spanish": "espagnol", "German": "allemand", "Italian": "italien", "Portuguese": "portugais", "Arabic": "arabe"},
-    "English": {"French": "French", "English": "English", "Spanish": "Spanish", "German": "German", "Italian": "Italian", "Portuguese": "Portuguese", "Arabic": "Arabic"},
-    "Spanish": {"French": "francés", "English": "inglés", "Spanish": "español", "German": "alemán", "Italian": "italiano", "Portuguese": "portugués", "Arabic": "árabe"},
-    "German": {"French": "Französisch", "English": "Englisch", "Spanish": "Spanisch", "German": "Deutsch", "Italian": "Italienisch", "Portuguese": "Portugiesisch", "Arabic": "Arabisch"},
-    "Italian": {"French": "francese", "English": "inglese", "Spanish": "spagnolo", "German": "tedesco", "Italian": "italiano", "Portuguese": "portoghese", "Arabic": "arabo"},
-    "Portuguese": {"French": "francês", "English": "inglês", "Spanish": "espanhol", "German": "alemão", "Italian": "italiano", "Portuguese": "português", "Arabic": "árabe"},
-    "Arabic": {"French": "فرنسي", "English": "إنجليزي", "Spanish": "إسباني", "German": "ألماني", "Italian": "إيطالي", "Portuguese": "برتغالي", "Arabic": "عربي"}
+    "French": {"French": "français", "English": "anglais", "Spanish": "espagnol", "German": "allemand", "Italian": "italien", "Portuguese": "portugais", "Arabic": "arabe", "Dutch": "néerlandais"},
+    "English": {"French": "French", "English": "English", "Spanish": "Spanish", "German": "German", "Italian": "Italian", "Portuguese": "Portuguese", "Arabic": "Arabic", "Dutch": "Dutch"},
+    "Dutch": {"French": "Frans", "English": "Engels", "Spanish": "Spaans", "German": "Duits", "Italian": "Italiaans", "Portuguese": "Portugees", "Arabic": "Arabisch", "Dutch": "Nederlands"},
+    "Spanish": {"French": "francés", "English": "inglés", "Spanish": "español", "German": "alemán", "Italian": "italiano", "Portuguese": "portugués", "Arabic": "árabe", "Dutch": "neerlandés"},
+    "German": {"French": "Französisch", "English": "Englisch", "Spanish": "Spanisch", "German": "Deutsch", "Italian": "Italienisch", "Portuguese": "Portugiesisch", "Arabic": "Arabisch", "Dutch": "Niederländisch"},
+    "Italian": {"French": "francese", "English": "inglese", "Spanish": "spagnolo", "German": "tedesco", "Italian": "italiano", "Portuguese": "portoghese", "Arabic": "arabo", "Dutch": "olandese"},
+    "Portuguese": {"French": "francês", "English": "inglês", "Spanish": "espanhol", "German": "alemão", "Italian": "italiano", "Portuguese": "português", "Arabic": "árabe", "Dutch": "holandês"},
+    "Arabic": {"French": "فرنسي", "English": "إنجليزي", "Spanish": "إسباني", "German": "ألماني", "Italian": "إيطالي", "Portuguese": "برتغالي", "Arabic": "عربي", "Dutch": "الهولندية"}
 }
 
 # Prompt templates (multiple variations)
@@ -44,6 +46,13 @@ templates = {
             "Convert the spoken content from {lang1} to {lang2}.",
             "Translate the speech provided from {lang1} to {lang2}.",
             "Translate this file from {lang1} into {lang2}."
+        ],
+        "Dutch":[
+            "Vertaal de volgende inhoud van {lang1} naar het {lang2}.",
+            "Vertaal deze audio-opname van {lang1} naar het {lang2}.",
+            "Kun je deze toespraak van {lang1} naar het {lang2} vertalen?",
+            "Zet de gesproken inhoud van {lang1} om naar het {lang2}.",
+            "Vertaal dit bestand van {lang1} naar het {lang2}."
         ],
         "Spanish": [
             "Traduce el siguiente contenido de {lang1} a {lang2}.",
@@ -96,6 +105,13 @@ templates = {
             "Translate the provided speech into {lang2}.",
             "Translate this file into {lang2}."
         ],
+        "Dutch": [
+            "Vertaal de volgende inhoud naar {lang2}.",
+            "Vertaal deze audio-opname naar {lang2}.",
+            "Kun je deze toespraak naar {lang2} vertalen?",
+            "Zet de gesproken inhoud om naar {lang2}.",
+            "Vertaal dit bestand naar {lang2}."    
+        ],
         "Spanish": [
             "Traduce el siguiente contenido a {lang2}.",
             "Por favor, traduzca esta grabación a {lang2}.",
@@ -135,6 +151,7 @@ templates = {
     "implicit_only": {
         "French": ["Traduisez", "Convertissez le contenu", "Traduis"],
         "English": ["Translate", "Convert the content", "Translate what is being said"],
+        "Dutch": ["Vertaal", "Zet de inhoud om", "Vertaal wat er wordt gezegd"],
         "Spanish": ["Traduce", "Convierte el contenido", "Traduce lo que se dice"],
         "German": ["Übersetzen Sie", "Konvertieren Sie den Inhalt", "Übersetzen Sie das Gesagte"],
         "Italian": ["Traduci", "Converti il contenuto", "Traduci ciò che viene detto"],
@@ -143,7 +160,7 @@ templates = {
     }
 }
 
-languages = ["French", "English", "Spanish", "German", "Italian", "Portuguese", "Arabic"]
+languages = ["French", "English", "Spanish", "German", "Italian", "Portuguese", "Arabic", "Dutch"]
 
 
 
