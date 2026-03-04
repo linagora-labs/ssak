@@ -51,16 +51,16 @@ if __name__ == "__main__":
         # Strip prefix from audio paths so destination preserves structure after it.
         # Append the prefix to --source so rsync still reads from the right place.
         prefix = args.relative_to.rstrip("/") + "/"
-        file_paths = []
-        for p in sorted(audio_paths):
+        file_paths = set()
+        for p in audio_paths:
             if p.startswith(prefix):
-                file_paths.append(p[len(prefix):])
+                file_paths.add(p[len(prefix):])
             else:
                 logger.warning(f"Path does not start with '{prefix}', keeping as-is: {p}")
-                file_paths.append(p)
+                file_paths.add(p)
         src = args.source.rstrip("/") + "/" + args.relative_to.strip("/") + "/"
     else:
-        file_paths = sorted(audio_paths)
+        file_paths = set(audio_paths)
         src = args.source.rstrip("/") + "/"
 
     # Skip files that already exist at destination
@@ -84,7 +84,7 @@ if __name__ == "__main__":
 
     # Write file list and run rsync
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp:
-        tmp.write("\n".join(file_paths) + "\n")
+        tmp.write("\n".join(sorted(file_paths)) + "\n")
         tmp_path = tmp.name
 
     try:
