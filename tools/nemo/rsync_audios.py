@@ -5,6 +5,7 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
+from tqdm import tqdm
 
 from ssak.utils.nemo_dataset import NemoDataset
 
@@ -36,9 +37,11 @@ if __name__ == "__main__":
 
     # Load all manifests and collect unique audio paths
     audio_paths = set()
+    base = Path(args.manifest).resolve()
     for mf in manifest_files:
+        relative = Path(mf).relative_to(base)
         dataset = NemoDataset()
-        dataset.load(mf)
+        dataset.load(mf, dataset_name=relative)
         audio_paths.update(dataset.get_audio_paths(unique=True))
     logger.info(f"Found {len(audio_paths)} unique audio files across {len(manifest_files)} manifest(s)")
 
@@ -56,18 +59,20 @@ if __name__ == "__main__":
             if p.startswith(prefix):
                 file_paths.add(p[len(prefix):])
             else:
-                logger.warning(f"Path does not start with '{prefix}', keeping as-is: {p}")
-                file_paths.add(p)
+                # logger.warning(f"Path does not start with '{prefix}', keeping as-is: {p}")
+                # file_paths.add(p)
+                pass
         src = args.source.rstrip("/") + "/" + args.relative_to.strip("/") + "/"
     else:
-        file_paths = set(audio_paths)
-        src = args.source.rstrip("/") + "/"
+        raise NotImplementedError("Not implemented yet")
+        # file_paths = set(audio_paths)
+        # src = args.source.rstrip("/") + "/"
 
     # Skip files that already exist at destination
     dest_dir = args.destination.rstrip("/")
     filtered_paths = []
     skipped = 0
-    for fp in file_paths:
+    for fp in tqdm(file_paths, desc="Checking for existing files"):
         local_path = Path(dest_dir) / fp
         if local_path.exists():
             logger.debug(f"Skipping already synced: {local_path}")
