@@ -4,6 +4,7 @@ import logging
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 from ssak.utils.nemo_dataset import NemoDataset
 
@@ -61,6 +62,25 @@ if __name__ == "__main__":
     else:
         file_paths = sorted(audio_paths)
         src = args.source.rstrip("/") + "/"
+
+    # Skip files that already exist at destination
+    dest_dir = args.destination.rstrip("/")
+    filtered_paths = []
+    skipped = 0
+    for fp in file_paths:
+        local_path = Path(dest_dir) / fp
+        if local_path.exists():
+            logger.debug(f"Skipping already synced: {local_path}")
+            skipped += 1
+        else:
+            filtered_paths.append(fp)
+    if skipped:
+        logger.info(f"Skipped {skipped} files already present at destination")
+    file_paths = filtered_paths
+
+    if not file_paths:
+        logger.info("All files already synced, nothing to do")
+        exit(0)
 
     # Write file list and run rsync
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp:
