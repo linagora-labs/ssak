@@ -1,7 +1,5 @@
 import argparse
-import glob
 import logging
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -22,12 +20,14 @@ if __name__ == "__main__":
     parser.add_argument("--pattern", default="*.jsonl", help="Glob pattern to filter manifest files when using a directory (default: *.jsonl, e.g. test.jsonl)")
     parser.add_argument("--dry-run", action="store_true", help="Pass --dry-run to rsync (preview only)")
     parser.add_argument("--update-paths", action="store_true", help="Update audio paths in manifests to point to destination after successful rsync")
+    parser.add_argument("--max-samples", type=int, help="Max number of samples per manifest. Creates a downsampled manifest if exceeded.")
 
     args = parser.parse_args()
 
     # Collect manifest files
-    if os.path.isdir(args.manifest):
-        manifest_files = sorted(glob.glob(os.path.join(args.manifest, "**", args.pattern), recursive=True))
+    manifest_path = Path(args.manifest)
+    if manifest_path.is_dir():
+        manifest_files = sorted(str(p) for p in manifest_path.rglob(args.pattern))
         logger.info(f"Found {len(manifest_files)} manifest files matching '{args.pattern}' in {args.manifest}")
         if not manifest_files:
             logger.warning(f"No files matching '{args.pattern}' found in directory")
@@ -37,12 +37,23 @@ if __name__ == "__main__":
 
     # Load all manifests and collect unique audio paths
     audio_paths = set()
+    downsampled_manifest_files = []
     base = Path(args.manifest).resolve()
     for mf in manifest_files:
-        relative = Path(mf).relative_to(base)
+        mf = Path(mf).resolve()
+        relative = mf.relative_to(base)
         dataset = NemoDataset()
         dataset.load(mf, dataset_name=relative)
+        if args.max_samples and len(dataset.dataset) > args.max_samples:
+            dataset.dataset = dataset.dataset[:args.max_samples]
+            downsampled_path = str(mf.with_stem(f"{mf.stem}_downsampled_{args.max_samples}"))
+            dataset.save(downsampled_path)
+            logger.info(f"Downsampled {mf} to {args.max_samples} samples -> {downsampled_path}")
+            downsampled_manifest_files.append(downsampled_path)
+        else:
+            downsampled_manifest_files.append(mf)
         audio_paths.update(dataset.get_audio_paths(unique=True))
+    manifest_files = downsampled_manifest_files
     logger.info(f"Found {len(audio_paths)} unique audio files across {len(manifest_files)} manifest(s)")
 
     if not audio_paths:
@@ -69,11 +80,11 @@ if __name__ == "__main__":
         # src = args.source.rstrip("/") + "/"
 
     # Skip files that already exist at destination
-    dest_dir = args.destination.rstrip("/")
+    dest_dir = Path(args.destination)
     filtered_paths = []
     skipped = 0
     for fp in tqdm(file_paths, desc="Checking for existing files"):
-        local_path = Path(dest_dir) / fp
+        local_path = dest_dir / fp
         if local_path.exists():
             logger.debug(f"Skipping already synced: {local_path}")
             skipped += 1
@@ -98,11 +109,11 @@ if __name__ == "__main__":
         logger.info(f"Running: {cmd}")
         result = subprocess.run(cmd, shell=True)
     finally:
-        os.unlink(tmp_path)
+        Path(tmp_path).unlink()
 
     # Update manifest paths after successful rsync (not dry-run)
     if args.update_paths and not args.dry_run and result.returncode == 0:
-        dest = args.destination.rstrip("/")
+        dest = Path(args.destination)
         for mf in manifest_files:
             dataset = NemoDataset()
             dataset.load(mf)
@@ -112,9 +123,9 @@ if __name__ == "__main__":
                         if args.relative_to:
                             prefix = args.relative_to.rstrip("/") + "/"
                             if turn.value.startswith(prefix):
-                                turn.value = dest + "/" + turn.value[len(prefix):]
+                                turn.value = str(dest / turn.value[len(prefix):])
                         else:
-                            turn.value = dest + "/" + turn.value.lstrip("/")
+                            turn.value = str(dest / turn.value.lstrip("/"))
             dataset.save(mf)
         logger.info(f"Updated audio paths in {len(manifest_files)} manifest(s)")
 

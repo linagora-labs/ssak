@@ -280,7 +280,7 @@ class NemoDataset:
             debug = 10
         with open(input_file, 'r', encoding="utf-8") as f:
             if show_progress_bar:
-                pbar = tqdm(f, desc=f"Loading dataset {dataset_name if dataset_name else ""}")
+                pbar = tqdm(f, desc=f"Loading dataset {dataset_name if dataset_name else ''}")
             else:
                 pbar = f
             for i, line in enumerate(pbar):
