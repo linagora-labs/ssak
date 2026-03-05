@@ -27,31 +27,31 @@ if __name__ == "__main__":
     # Collect manifest files
     manifest_path = Path(args.manifest)
     if manifest_path.is_dir():
-        manifest_files = sorted(str(p) for p in manifest_path.rglob(args.pattern))
+        manifest_files = set(str(p) for p in manifest_path.rglob(args.pattern))
         logger.info(f"Found {len(manifest_files)} manifest files matching '{args.pattern}' in {args.manifest}")
         if not manifest_files:
             logger.warning(f"No files matching '{args.pattern}' found in directory")
             exit(0)
     else:
-        manifest_files = [args.manifest]
+        manifest_files = {args.manifest}
 
     # Load all manifests and collect unique audio paths
     audio_paths = set()
-    downsampled_manifest_files = []
+    downsampled_manifest_files = set()
     base = Path(args.manifest).resolve()
     for mf in manifest_files:
         mf = Path(mf).resolve()
         relative = mf.relative_to(base)
         dataset = NemoDataset()
-        dataset.load(mf, dataset_name=relative)
+        dataset.load(mf, show_progress_bar=str(relative))
         if args.max_samples and len(dataset.dataset) > args.max_samples:
             dataset.dataset = dataset.dataset[:args.max_samples]
-            downsampled_path = str(mf.with_stem(f"{mf.stem}_downsampled_{args.max_samples}"))
+            downsampled_path = mf.with_stem(f"{mf.stem}_downsampled_{args.max_samples}")
             dataset.save(downsampled_path)
             logger.info(f"Downsampled {mf} to {args.max_samples} samples -> {downsampled_path}")
-            downsampled_manifest_files.append(downsampled_path)
+            downsampled_manifest_files.add(downsampled_path)
         else:
-            downsampled_manifest_files.append(mf)
+            downsampled_manifest_files.add(mf)
         audio_paths.update(dataset.get_audio_paths(unique=True))
     manifest_files = downsampled_manifest_files
     logger.info(f"Found {len(audio_paths)} unique audio files across {len(manifest_files)} manifest(s)")
@@ -97,7 +97,9 @@ if __name__ == "__main__":
     if not file_paths:
         logger.info("All files already synced, nothing to do")
         exit(0)
-
+    else:
+        logger.info(f"Syncing {len(file_paths)} files")
+    
     # Write file list and run rsync
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as tmp:
         tmp.write("\n".join(sorted(file_paths)) + "\n")
