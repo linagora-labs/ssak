@@ -6,7 +6,7 @@ cyrtranslit
 dtw-python
 envsubst
 googletrans>=3.1.0a0
-jiwer>=3.0.5
+jiwer>=3.0.5,<4.0.0
 langid
 lang-trans
 Levenshtein
