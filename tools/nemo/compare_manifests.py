@@ -6,6 +6,7 @@ from ssak.utils.nemo_dataset import NemoDataset
 
 import pandas as pd
 from IPython.display import display, clear_output
+from IPython.display import Audio
 
 import pandas as pd
 import os
@@ -20,6 +21,19 @@ def strip_common_path(paths):
         for p in paths
     }
 
+def extract_audio_paths_from_item(json_row):
+    """
+    Extract audio file paths from conversation turns of type 'audio'.
+    """
+    audio_paths = []
+
+    for turn in json_row.get("conversations", []):
+        if turn.get("type") == "audio":
+            value = turn.get("value")
+            if value:
+                audio_paths.append(value)
+
+    return audio_paths
 
 def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
     keys = list(merged_data.keys())
@@ -116,13 +130,31 @@ def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
         remaining = total_items - current_index
         user_input = input(
             f"\nPress Enter to display the next "
-            f"{min(batch_size, remaining)} items, or 'q' to quit: "
+            f"{min(batch_size, remaining)} items, 'p' to play audio, '>X' to fast forward X data, or 'q' to quit: "
         ).strip().lower()
 
         if user_input == "q":
             print(f"\n✓ Stop displaying. {current_index}/{total_items} items were displayed.")
             break
+        elif user_input == "p":
+            audio_paths = extract_audio_paths_from_item(items)
+            if not audio_paths:
+                print("\n⚠ No audio turns found in this item.")
+                continue
 
+            for idx, path in enumerate(audio_paths):
+                if os.path.exists(path):
+                    print(f"\n▶ Playing audio turn #{idx}: {path}")
+                    display(Audio(path))
+                else:
+                    print(f"\n⚠ File not found: {path}")
+        elif user_input and user_input[0] == ">":
+            if user_input[1:].isdigit():
+                current_index += int(user_input[1:])
+            elif all(i==">" for i in user_input):
+                current_index += 100 * len(user_input)
+            else:
+                current_index += batch_size
 
 # Utilisation
 def process_path(paths):
@@ -144,7 +176,7 @@ def process_path(paths):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Compare fields of manifests"
+        description="Compare fields of different manifests. You can also use to see the rows of a single manifest in a structured way."
     )
     parser.add_argument(
         "input_paths",

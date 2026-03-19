@@ -29,7 +29,7 @@ def get_available_contexts_categories(task="asr", lang="fr"):
     return list(load_contexts(task=task, lang=lang).keys())
 
 def get_contexts(category, task="asr", language="fr", add_defaults=True):
-    contexts = load_contexts(task=task, lang=language)["default_contexts"]
+    contexts = load_contexts(task=task, lang=language)[category]
     if isinstance(contexts, list):
         contexts = {1.0: contexts}
     return contexts
@@ -43,12 +43,7 @@ def set_context(input_file, output_file, context_category, task="asr", language=
     dataset.set_context_if_none(contexts, force_set_context=force_context)
     dataset.save(output_file, data_type="multiturn")
 
-def set_context_on_folder(folder, context_file=None, output_folder=None, task="asr", language="fr", force_context=False, force=False):
-    if context_file:
-        with open(context_file, "r") as f:
-            contexts_dict = json.load(f)
-    else:
-        contexts_dict = dict()
+def set_context_on_folder(folder, context_category=None, output_folder=None, task="asr", language="fr", force_context=False, force=False):
     for root, dirs, files in tqdm(os.walk(folder)):
         if "intermediate" in root or "audios_merged" in root:
             continue
@@ -69,7 +64,7 @@ def set_context_on_folder(folder, context_file=None, output_folder=None, task="a
                     set_context(
                         input_file=os.path.join(root, file),
                         output_file=output_file, 
-                        context_category=contexts_dict.get(dataset_name, "default_contexts"),
+                        context_category=context_category,
                         task=task,
                         language=language,
                         force_context=force_context,
@@ -79,6 +74,7 @@ def set_context_on_folder(folder, context_file=None, output_folder=None, task="a
                     raise Exception(f"Error in dataset '{dataset_name}' ({file}): {e}") from e
             else:
                 logger.info(f"Skipping {output_file} as it already exists")
+    logger.info(f"Done processing {folder} with context category '{context_category}' to {output_folder}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Adds context to NeMo manifest file(s).")
@@ -89,9 +85,9 @@ if __name__ == "__main__":
     output_group.add_argument("--output_folder", help="Output folder to save results. If not specified, results will be saved in the same folder as input.", type=str, default=None)
     output_group.add_argument("--output_file", help="Output file path (used when input is a single file). Cannot be used together with --output_folder.", type=str, default=None)
 
-    parser.add_argument("--context_file", help="DEPRECATED", type=str, default=None)    
-    parser.add_argument("--force_set_context", help="Force setting context even if one is already defined.", default=False, action="store_true")
+    parser.add_argument("--force", help="Force setting context even if one is already defined.", default=False, action="store_true")
     parser.add_argument("--task", help="Task for selecting contexts.", choices=["asr", "ast"], default="asr")
+    parser.add_argument("--context_category", help="", choices=["nocasepunc", "default_contexts"], default="default_contexts")
     def generate_language_choices(languages):
         pairs = [
             f"{src}-{tgt}"
@@ -104,8 +100,6 @@ if __name__ == "__main__":
     parser.add_argument("--language", help="Language for selecting contexts.", choices=generate_language_choices(["fr", "en", "it", "de", "es", "pt", "ar", "nl"]), default="fr")
     args = parser.parse_args()
     
-    if args.context_file and not args.output_folder:
-        parser.error("--context_file can only be used when --output_folder is specified.")
     if args.output_file and not args.input.lower().endswith(".jsonl"):
         parser.error("When --output_file is specified, the input must be a .jsonl file.")
     if args.input.lower().endswith(".jsonl") and not args.output_file:
@@ -123,4 +117,4 @@ if __name__ == "__main__":
             dataset_name=args.input.replace(".jsonl", "").replace("manifest_", "")
         )
     else:
-        set_context_on_folder(args.input, context_file=args.context_file, output_folder=args.output_folder, task=args.task, language=args.language, force_context=args.force_set_context)
+        set_context_on_folder(args.input, context_category=args.context_category, output_folder=args.output_folder, task=args.task, language=args.language, force_context=args.force, force=args.force)
