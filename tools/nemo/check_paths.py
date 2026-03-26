@@ -1,8 +1,60 @@
 import argparse
+import os
+import re
 from tqdm import tqdm
 from pathlib import Path
 import json
+import yaml
 from ssak.utils.nemo_dataset import NemoDataset
+
+
+def resolve_oc_env(path_str):
+    """Resolve ${oc.env:VAR_NAME} patterns using environment variables."""
+    def replacer(match):
+        var_name = match.group(1)
+        value = os.environ.get(var_name)
+        if value is None:
+            raise ValueError(f"Environment variable '{var_name}' is not set (needed for path: {path_str})")
+        return value
+    return re.sub(r'\$\{oc\.env:([^}]+)\}', replacer, path_str)
+
+
+def extract_manifest_paths(cfg):
+    """Recursively extract all manifest_filepath values from a nested input_cfg structure."""
+    paths = []
+    if isinstance(cfg, list):
+        for entry in cfg:
+            if isinstance(entry, dict):
+                if "input_cfg" in entry:
+                    paths.extend(extract_manifest_paths(entry["input_cfg"]))
+                if "manifest_filepath" in entry:
+                    paths.append(entry["manifest_filepath"])
+    return paths
+
+
+def process_yaml(yaml_path, all_paths, show_errors):
+    """Load a YAML input_cfg file and check all manifest paths it references."""
+    yaml_path = Path(yaml_path)
+    with open(yaml_path, "r") as f:
+        cfg = yaml.safe_load(f)
+    manifest_paths = extract_manifest_paths(cfg)
+    print(f"Found {len(manifest_paths)} manifest paths in {yaml_path}")
+    for manifest_str in manifest_paths:
+        try:
+            resolved = resolve_oc_env(manifest_str)
+        except ValueError as e:
+            if show_errors:
+                print(f"!!! {e}")
+            continue
+        manifest = Path(resolved)
+        if not manifest.exists():
+            print(f"Missing manifest: {resolved}")
+            continue
+        try:
+            check_manifest(manifest, all_paths)
+        except Exception as e:
+            if show_errors:
+                print(f"!!! Failed while processing {manifest} ({str(e)})")
 
 def check_manifest(manifest_path, all_paths):
     if all_paths:
@@ -35,6 +87,8 @@ def process_path(path, recursive=False, all_paths=False, show_errors=False):
             except Exception as e:
                 if show_errors:
                     print(f"!!! Failed while processing {manifest} ({str(e)})")
+    elif path.is_file() and path.suffix in (".yaml", ".yml"):
+        process_yaml(path, all_paths, show_errors)
     elif path.is_file() and path.suffix == ".jsonl":
         check_manifest(path, all_paths)
     else:
