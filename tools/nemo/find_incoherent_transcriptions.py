@@ -3,6 +3,7 @@ import logging
 import os
 import re
 from functools import partial
+from pathlib import Path
 
 import numpy as np
 from scipy.interpolate import make_interp_spline
@@ -72,9 +73,11 @@ def filter_incoherent_segments_file(input_file, output_file, mode="charset"):
     data_type = data.load(input_file, data_type=None)
     if output_file and os.path.exists(output_file):
         logger.info(f"Output file {output_file} already exists, skipping")
-    elif output_file is None:
-        output_file = args.file
-    dataset = filter_incoherent_segments(data, mode=mode)
+        return
+    if output_file is None:
+        output_file = input_file
+    filtered_out_file = str(Path(output_file).parent / f"filtered_out_{mode}.jsonl")
+    dataset = filter_incoherent_segments(data, filtered_out_file, mode=mode)
     dataset.save(output_file, data_type=data_type)
 
 def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset"):

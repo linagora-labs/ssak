@@ -314,6 +314,14 @@ class NemoDatasetRow:
             turns_json = json_row["conversations"]
             turns = [NemoTurn.from_json(t) for t in turns_json]
 
+        # Collect custom_metadata: explicit field or any key not part of the standard fields
+        standard_keys = {"id", "utt_id", "dataset_name", "conversations", "speaker", "language", "split",
+                         "audio_filepath", "duration", "offset", "text", "custom_metadata"}
+        custom_metadata = json_row.get("custom_metadata", {})
+        extra_fields = {k: v for k, v in json_row.items() if k not in standard_keys}
+        if extra_fields:
+            custom_metadata.update(extra_fields)
+
         return cls(
             id=json_row.get("id", json_row.get("utt_id")),
             dataset_name=json_row.get("dataset_name", dataset_name),
@@ -321,6 +329,7 @@ class NemoDatasetRow:
             speaker=json_row.get("speaker"),
             language=json_row.get("language"),
             split=json_row.get("split"),
+            custom_metadata=custom_metadata if custom_metadata else None,
         )
 
 
@@ -399,6 +408,25 @@ class NemoDataset:
         if not isinstance(row, NemoDatasetRow):
             row = NemoDatasetRow(**row)
         self.dataset.append(row)
+
+    def filter(self, predicate):
+        """Filter the dataset in-place, keeping only rows where predicate(row) is True.
+
+        Args:
+            predicate: a callable that takes a NemoDatasetRow and returns True to keep it.
+
+        Returns:
+            list: the removed rows.
+        """
+        kept = []
+        removed = []
+        for row in self.dataset:
+            if predicate(row):
+                kept.append(row)
+            else:
+                removed.append(row)
+        self.dataset = kept
+        return removed
 
     def kaldi_to_nemo(self, kaldi_dataset):
         for row in tqdm(kaldi_dataset, desc="Converting kaldi to nemo"):

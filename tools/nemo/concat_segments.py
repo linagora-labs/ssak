@@ -62,8 +62,8 @@ def merge_segments_and_audios(prev, row, max_duration, acceptance):
 
     if same_file and follow and merged_duration <= max_duration:
         sep = " "
-        first_char = row.text.lstrip()[0] if row.text else ""
-        last_char = prev.text.rstrip()[-1] if prev.text else ""
+        first_char = row.text.lstrip()[0] if row.text and row.text.strip() else ""
+        last_char = prev.text.rstrip()[-1] if prev.text and prev.text.strip() else ""
         if last_char in string.punctuation:
             sep = " "
         else:
@@ -88,8 +88,8 @@ def merge_segments(prev, row, max_duration, acceptance, acceptance_punc):
     if same_file and gap <= acceptance and merged_duration <= max_duration:
         sep = " "
         if gap > acceptance_punc:  # only consider punctuation when there is a noticeable pause
-            first_char = row.text.lstrip()[0] if row.text else ""
-            last_char = prev.text.rstrip()[-1] if prev.text else ""
+            first_char = row.text.lstrip()[0] if row.text and row.text.strip() else ""
+            last_char = prev.text.rstrip()[-1] if prev.text and prev.text.strip() else ""
             if last_char in string.punctuation:
                 sep = " "
             else:

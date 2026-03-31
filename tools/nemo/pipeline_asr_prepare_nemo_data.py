@@ -7,7 +7,7 @@ from functools import partial
 
 from clean_manifest_text_fr import clean_text_fr
 from convert_kaldi_to_nemo import convert_batch, get_dataset_name
-from generate_dataset_list_files import generate_dataset_list_files
+from generate_asr_dataset_list import generate_dataset_list_files
 from merge_manifest import merge_manifests
 from tqdm import tqdm
 
@@ -164,7 +164,7 @@ if __name__ == "__main__":
             logging.info(f"Tokenizer already exists in {path_to_tokenizer}")
     # STEP 8 (Optional) - Create tarred dataset
     if args.create_tarred:
-        from convert_to_tarred_audio_dataset import convert_to_tarred_audio_dataset, hybrid_bucketing_times
+        from convert_asr_dataset_to_tar import convert_to_tarred_audio_dataset, hybrid_bucketing_times
 
         logging.info(f"Creating tarred dataset in {output_tarred_dir}")
         if args.num_buckets == 6:
