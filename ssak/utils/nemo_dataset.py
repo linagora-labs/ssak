@@ -275,14 +275,14 @@ class NemoDatasetRow:
 
     def to_json(self, data_type="multiturn") -> dict:
         """Convert to json"""
-        
+
         row_data = vars(self).copy()
 
         if data_type == "asr":
-            row_data["audio_filepath"] = self.turns[0].value
-            row_data["duration"] = self.turns[0].duration
-            row_data["offset"] = self.turns[0].offset
-            row_data["text"] = self.turns[1].value
+            row_data["audio_filepath"] = self.audio_filepath
+            row_data["duration"] = self.duration
+            row_data["offset"] = self.offset
+            row_data["text"] = self.text
 
         elif data_type == "multiturn":
             row_data["conversations"] = [t.to_json() for t in self.turns]
@@ -338,7 +338,7 @@ class NemoDataset:
 
     def __init__(self, name=None, log_folder=None):
         self.name = name
-        self.log_folder = Path(log_folder) if log_folder else "nemo_data_processing"
+        self.log_folder = Path(log_folder) if log_folder else Path("nemo_data_processing")
         self.dataset = list()
         self.splits = set()
     
@@ -363,12 +363,8 @@ class NemoDataset:
     def __getitem__(self, index) -> NemoDatasetRow:
         return self.dataset[index]
 
-    def __next__(self):
-        for row in self.dataset:
-            yield row
-
     def __iter__(self) -> Iterator["NemoDatasetRow"]:
-        return self.__next__()
+        return iter(self.dataset)
 
     def extend(self, dataset):
         """
@@ -608,8 +604,7 @@ class NemoDataset:
                     new_path = new_folder / new_name
             else:
                 raise ValueError("New folder must be specified for audio conversion")
-            # if not new_path.exists():
-            if True:
+            if not new_path.exists():
                 if not audio_path.exists():
                     raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
                 duration = turn.duration
@@ -697,8 +692,8 @@ class NemoDataset:
         if len(updated_audio_paths) > 0:
             for row in self.dataset:
                 for turn in row.turns:
-                    if turn.turn_type=="audio":
-                        turn.value = updated_audio_paths.get(row.audio_filepath, row.audio_filepath)
+                    if turn.turn_type == "audio":
+                        turn.value = updated_audio_paths.get(turn.value, turn.value)
         if errors:
             new_dataset = []
             removed_lines = []
