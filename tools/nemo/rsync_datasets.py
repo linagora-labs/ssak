@@ -28,13 +28,14 @@ def rsync_jsonl(datasets, source, destination, dry_run=False):
     """Rsync jsonl files from source to destination, preserving directory structure."""
     for ds in datasets:
         src_path = f"{source.rstrip('/')}/{ds}"
-        dst_path = Path(destination) / ds
-        dst_path.parent.mkdir(parents=True, exist_ok=True)
-
-        cmd = ["rsync", "-rlDvz", "--size-only"]
+        dst_dir = Path(destination) / Path(ds).parent
+        
+        dst_dir.exists()
+        
+        cmd = ["rsync", "-rlDvz", "--size-only", "--mkpath"]
         if dry_run:
             cmd.append("--dry-run")
-        cmd += [src_path, str(dst_path)]
+        cmd += [src_path, str(dst_dir)+"/"]
 
         logger.info(f"Rsyncing: {' '.join(cmd)}")
         result = subprocess.run(cmd)
@@ -65,7 +66,6 @@ def update_audio_paths(datasets, destination, old_prefix, new_prefix):
 
         dataset.save(str(jsonl_path), data_type=data_type)
         logger.info(f"Updated {updated} audio paths in {ds}")
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Rsync NeMo dataset manifests and fix audio paths")
