@@ -192,35 +192,86 @@ class NemoDatasetRow:
     split: str = None
     custom_metadata: dict = None
 
-    @property
-    def audio_filepath(self) -> str:
-        """Alias for audio_filepath"""
-        if self.turns[0].turn_type == "audio":
-            return self.turns[0].value
-        elif self.turns[1].turn_type == "audio":
-            return self.turns[1].value
+    def _first_audio_turn(self):
+        """Return the first audio turn, or None."""
+        for t in self.turns:
+            if t.turn_type == "audio":
+                return t
+        return None
+
+    def _text_turn(self):
+        """Return the text turn (first text turn after the first audio turn), or None."""
+        found_audio = False
+        for t in self.turns:
+            if t.turn_type == "audio":
+                found_audio = True
+            elif t.turn_type == "text" and found_audio:
+                return t
+        return None
+
+    def _context_turn(self):
+        """Return the context turn (first text turn before any audio turn), or None."""
+        for t in self.turns:
+            if t.turn_type == "audio":
+                return None
+            if t.turn_type == "text":
+                return t
         return None
 
     @property
-    def context(self) -> str:
-        """Alias for context"""
-        if self.turns[0].turn_type == "text":
-            return self.turns[0].value
-        return None
+    def audio_filepath(self):
+        turn = self._first_audio_turn()
+        return turn.value if turn else None
+
+    @audio_filepath.setter
+    def audio_filepath(self, value):
+        turn = self._first_audio_turn()
+        if turn:
+            turn.value = value
 
     @property
-    def answer(self) -> str:
-        """Alias for answer"""
-        if self.turns[1].turn_type == "text":
-            return self.turns[1].value
-        elif self.turns[2].turn_type == "text":
-            return self.turns[2].value
-        return None
+    def duration(self):
+        turn = self._first_audio_turn()
+        return turn.duration if turn else None
+
+    @duration.setter
+    def duration(self, value):
+        turn = self._first_audio_turn()
+        if turn:
+            turn.duration = value
 
     @property
-    def text(self) -> str:
-        """Alias for text"""
-        return self.answer
+    def offset(self):
+        turn = self._first_audio_turn()
+        return turn.offset if turn else None
+
+    @offset.setter
+    def offset(self, value):
+        turn = self._first_audio_turn()
+        if turn:
+            turn.offset = value
+
+    @property
+    def context(self):
+        turn = self._context_turn()
+        return turn.value if turn else None
+
+    @context.setter
+    def context(self, value):
+        turn = self._context_turn()
+        if turn:
+            turn.value = value
+
+    @property
+    def text(self):
+        turn = self._text_turn()
+        return turn.value if turn else None
+
+    @text.setter
+    def text(self, value):
+        turn = self._text_turn()
+        if turn:
+            turn.value = value
 
     def to_json(self, data_type="multiturn") -> dict:
         """Convert to json"""

@@ -93,7 +93,7 @@ def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset")
     removed_data = NemoDataset()
     os.makedirs(os.path.dirname(filtered_out_file), exist_ok=True)
     for i, row in enumerate(tqdm(input_dataset, desc="Checking for incoherent texts lengths")):
-        is_incoherent = incoherence_function(row.duration, row.answer)
+        is_incoherent = incoherence_function(row.duration, row.text)
         if is_incoherent:
             removed_data.append(row)
         else:

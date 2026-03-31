@@ -43,7 +43,7 @@ def convert_manifest(input_path: str, output_cuts_path: str):
             start=audio.offset,
             duration=audio.duration,
             channel=0,
-            text=row.answer,
+            text=row.text,
             speaker=row.speaker,
             custom={"context": row.context} if row.context else None
         )
