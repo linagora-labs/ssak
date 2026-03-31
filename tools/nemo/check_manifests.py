@@ -11,6 +11,8 @@ from pathlib import Path
 import yaml
 from tqdm import tqdm
 
+from ssak.utils.nemo_dataset import resolve_manifest_paths
+
 class TqdmHandler(logging.StreamHandler):
     def emit(self, record):
         tqdm.write(self.format(record))
@@ -258,67 +260,27 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
 # YAML / directory / path dispatch
 # ---------------------------------------------------------------------------
 
-def process_yaml(yaml_path, **kwargs):
-    yaml_path = Path(yaml_path)
-    with open(yaml_path, "r") as f:
-        cfg = yaml.safe_load(f)
+def process_path(path, recursive=False, **kwargs):
+    """Resolve input path (file, dir, or YAML) and check all found manifests."""
+    manifests = resolve_manifest_paths(path, recursive=recursive)
+    if not manifests:
+        logger.warning(f"No manifest files found for: {path}")
+        return None
 
-    manifest_paths = extract_manifest_paths(cfg)
-    logger.info(f"Found {len(manifest_paths)} manifest paths in {yaml_path}")
-
-    # Resolve all paths first to compute common prefix for shorter labels
-    resolved_paths = []
-    for manifest_str in manifest_paths:
-        try:
-            resolved_paths.append(resolve_oc_env(manifest_str))
-        except ValueError as e:
-            logger.warning(str(e))
-            resolved_paths.append(None)
-
-    existing = [p for p in resolved_paths if p and Path(p).exists()]
-    base = os.path.commonpath(existing) if len(existing) > 1 else None
+    # Compute common prefix for shorter labels
+    str_paths = [str(p) for p in manifests]
+    base = os.path.commonpath(str_paths) if len(str_paths) > 1 else None
 
     overall = empty_overall()
-    pbar = tqdm(resolved_paths, desc="Manifests", unit="file")
-    for resolved in pbar:
-        if resolved is None:
-            continue
-
-        label = os.path.relpath(resolved, base) if base else str(resolved)
+    pbar = tqdm(manifests, desc="Manifests", unit="file")
+    for mf in pbar:
+        label = os.path.relpath(mf, base) if base else str(mf)
         pbar.set_postfix_str(label)
-
-        if not Path(resolved).exists():
-            logger.warning(f"Missing manifest: {resolved}")
-            overall["manifests_missing"] += 1
-            continue
-
-        stats = check_manifest(resolved, label=label, **kwargs)
+        stats = check_manifest(mf, label=label, **kwargs)
         overall["manifests_checked"] += 1
         merge_stats(overall, stats)
 
     return overall
-
-
-def process_path(path, recursive=False, **kwargs):
-    path = Path(path)
-    if path.is_file() and path.suffix in (".yaml", ".yml"):
-        return process_yaml(path, **kwargs)
-    elif path.is_file() and path.suffix == ".jsonl":
-        return check_manifest(path, **kwargs) | {"manifests_checked": 1, "manifests_missing": 0}
-    elif path.is_dir():
-        glob_fn = path.rglob if recursive else path.glob
-        jsonls = sorted(glob_fn("*.jsonl"))
-        if jsonls:
-            overall = empty_overall()
-            for j in tqdm(jsonls, desc="Manifests", unit="file"):
-                overall["manifests_checked"] += 1
-                label = os.path.relpath(j, path)
-                merge_stats(overall, check_manifest(j, label=label, **kwargs))
-            return overall
-        logger.warning(f"No JSONL files found in {path}")
-    else:
-        logger.warning(f"Skipping unsupported path: {path}")
-    return None
 
 
 # ---------------------------------------------------------------------------

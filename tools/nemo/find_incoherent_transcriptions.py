@@ -69,13 +69,13 @@ def incoherence_curve(duration, text, long_mode=True, x=None, y=None, spline=Non
 
 def filter_incoherent_segments_file(input_file, output_file, mode="charset"):
     data = NemoDataset()
-    type = data.load(input_file, type=None)
+    data_type = data.load(input_file, data_type=None)
     if output_file and os.path.exists(output_file):
         logger.info(f"Output file {output_file} already exists, skipping")
     elif output_file is None:
         output_file = args.file
     dataset = filter_incoherent_segments(data, mode=mode)
-    dataset.save(output_file, type=type)
+    dataset.save(output_file, data_type=data_type)
 
 def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset"):
     if mode == "too_long":
@@ -98,15 +98,25 @@ def filter_incoherent_segments(input_dataset, filtered_out_file, mode="charset")
             removed_data.append(row)
         else:
             new_data.append(row)
-    removed_data.save(filtered_out_file, type="asr")
+    removed_data.save(filtered_out_file, data_type="asr")
     logger.info(f"Find {len(removed_data)} incoherence segments in {input_dataset} using mode {mode} and {incoherence_function.func.__name__}")
     return new_data
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Remove incoherent lines by looking at the number of words and segment duration from nemo manifest")
-    parser.add_argument("file", help="Input manifest", type=str)
-    parser.add_argument("output", help="Output manifest", type=str)
+    parser.add_argument("file", help="Input manifest file, directory, or YAML config", type=str)
+    parser.add_argument("output", help="Output manifest file or directory", type=str)
     parser.add_argument("--mode", default="charset", help="too_long (text too long compare to audio duration), charset (not french characters) or too_short", type=str)
-    # parser.add_argument('--max_char', help="Depends on segments max length", type=int, default=700)
+    parser.add_argument("--pattern", default="*.jsonl", help="Glob pattern for manifest files when input is a directory")
+    parser.add_argument("--recursive", action="store_true", default=False, help="Recursively search directories")
     args = parser.parse_args()
-    filter_incoherent_segments_file(args.file, args.output, args.mode)
+
+    from ssak.utils.nemo_dataset import resolve_manifest_paths, resolve_output_path
+    manifests = resolve_manifest_paths(args.file, pattern=args.pattern, recursive=args.recursive)
+    if not manifests:
+        logger.error(f"No manifest files found for input: {args.file}")
+        exit(1)
+    for mf in manifests:
+        out_file = str(resolve_output_path(mf, args.file, args.output))
+        logger.info(f"Processing {mf} -> {out_file}")
+        filter_incoherent_segments_file(str(mf), out_file, args.mode)

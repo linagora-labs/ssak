@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import random
 from collections.abc import Iterator
@@ -12,6 +13,106 @@ from tqdm import tqdm
 from ssak.utils.kaldi_dataset import audio_checks
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_oc_env(path_str):
+    """Resolve ${oc.env:VAR_NAME} patterns using environment variables."""
+    def replacer(match):
+        var_name = match.group(1)
+        value = os.environ.get(var_name)
+        if value is None:
+            raise ValueError(f"Environment variable '{var_name}' not set (needed for: {path_str})")
+        return value
+    return re.sub(r'\$\{oc\.env:([^}]+)\}', replacer, path_str)
+
+
+def _extract_manifest_paths_from_yaml(cfg):
+    """Recursively extract manifest_filepath values from a nested input_cfg structure."""
+    paths = []
+    if isinstance(cfg, list):
+        for entry in cfg:
+            if isinstance(entry, dict):
+                if "input_cfg" in entry:
+                    paths.extend(_extract_manifest_paths_from_yaml(entry["input_cfg"]))
+                if "manifest_filepath" in entry:
+                    paths.append(entry["manifest_filepath"])
+    return paths
+
+
+def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
+    """Resolve input path(s) to a list of JSONL manifest file paths.
+
+    Supports:
+    - .jsonl file: returns [input_path]
+    - .yaml/.yml file: recursively extracts manifest_filepath values,
+      resolving ${oc.env:VAR} patterns from environment variables
+    - directory: globs for pattern (recursively if recursive=True)
+    - list of paths: resolves each one and flattens the result
+
+    Returns:
+        Sorted list of Path objects pointing to .jsonl files.
+    """
+    if isinstance(input_path, (list, tuple)):
+        result = []
+        for p in input_path:
+            result.extend(resolve_manifest_paths(p, pattern=pattern, recursive=recursive))
+        return sorted(set(result))
+
+    path = Path(input_path)
+
+    if path.is_file() and path.suffix == ".jsonl":
+        return [path]
+
+    if path.is_file() and path.suffix in (".yaml", ".yml"):
+        import yaml
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        raw_paths = _extract_manifest_paths_from_yaml(cfg)
+        resolved = []
+        for p in raw_paths:
+            try:
+                resolved_str = _resolve_oc_env(p)
+                resolved_path = Path(resolved_str)
+                if resolved_path.exists():
+                    resolved.append(resolved_path)
+                else:
+                    logger.warning(f"Manifest not found: {resolved_str}")
+            except ValueError as e:
+                logger.warning(str(e))
+        return sorted(resolved)
+
+    if path.is_dir():
+        glob_fn = path.rglob if recursive else path.glob
+        return sorted(glob_fn(pattern))
+
+    logger.warning(f"Skipping unrecognized path: {path}")
+    return []
+
+
+def resolve_output_path(input_file, input_root, output_dir):
+    """Compute the output path for a manifest, preserving directory structure.
+
+    Args:
+        input_file: Path to the input manifest file.
+        input_root: The root input path (file or directory) originally passed
+            to resolve_manifest_paths. Used to compute relative paths.
+        output_dir: Output directory (str/Path), or None for in-place processing.
+
+    Returns:
+        Path: output file path.
+            - If output_dir is None: returns input_file (in-place)
+            - If input_root is a directory: output_dir / relative_path_from_input_root
+            - Otherwise: output_dir / input_file.name
+    """
+    input_file = Path(input_file)
+    if output_dir is None:
+        return input_file
+    output_dir = Path(output_dir)
+    input_root = Path(input_root)
+    if input_root.is_dir():
+        return output_dir / input_file.relative_to(input_root)
+    else:
+        return output_dir / input_file.name
 
 @dataclass
 class NemoTurn:
@@ -399,6 +500,16 @@ class NemoDataset:
             elif force_set_context:
                 row.turns[0] = new_turn
     
+    def update_audio_paths(self, old_prefix, new_prefix):
+        """Replace old_prefix with new_prefix in all audio turn values. Returns count of changes."""
+        count = 0
+        for row in self:
+            for turn in row.get_audio_turns():
+                if old_prefix in turn.value:
+                    turn.value = turn.value.replace(old_prefix, new_prefix)
+                    count += 1
+        return count
+
     def extract_one_segment_per_audio(
         self,
         output_wavs_folder,

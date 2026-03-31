@@ -79,7 +79,7 @@ def set_context_on_folder(folder, context_category=None, output_folder=None, tas
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Adds context to NeMo manifest file(s).")
 
-    parser.add_argument("input", help="Input folder or manifest file.", type=str)
+    parser.add_argument("input", help="Input folder, manifest file, or YAML config.", type=str)
 
     output_group = parser.add_mutually_exclusive_group()
     output_group.add_argument("--output_folder", help="Output folder to save results. If not specified, results will be saved in the same folder as input.", type=str, default=None)
@@ -100,21 +100,44 @@ if __name__ == "__main__":
     parser.add_argument("--language", help="Language for selecting contexts.", choices=generate_language_choices(["fr", "en", "it", "de", "es", "pt", "ar", "nl"]), default="fr")
     args = parser.parse_args()
     
-    if args.output_file and not args.input.lower().endswith(".jsonl"):
-        parser.error("When --output_file is specified, the input must be a .jsonl file.")
-    if args.input.lower().endswith(".jsonl") and not args.output_file:
-        parser.error("When input is a .jsonl file, --output_file must be specified.")
-    if args.output_folder and args.input.lower().endswith(".jsonl"):
-        parser.error(f"When --output_folder is specified, the input must be a folder.")
-    if args.output_file:
+    from ssak.utils.nemo_dataset import resolve_manifest_paths, resolve_output_path
+    input_lower = args.input.lower()
+
+    if input_lower.endswith(".jsonl"):
+        # Single file mode
+        if not args.output_file:
+            parser.error("When input is a .jsonl file, --output_file must be specified.")
         set_context(
             input_file=args.input,
-            output_file=args.output_file, 
-            context_category="default_contexts",
+            output_file=args.output_file,
+            context_category=args.context_category,
             task=args.task,
             language=args.language,
-            force_context=args.force_set_context,
-            dataset_name=args.input.replace(".jsonl", "").replace("manifest_", "")
+            force_context=args.force,
+            dataset_name=Path(args.input).stem.replace("manifest_", "")
         )
+    elif input_lower.endswith((".yaml", ".yml")):
+        # YAML config mode — resolve manifests from YAML
+        if not args.output_folder:
+            parser.error("When input is a YAML config, --output_folder must be specified.")
+        manifests = resolve_manifest_paths(args.input)
+        for mf in manifests:
+            out_file = str(resolve_output_path(mf, args.input, args.output_folder))
+            dataset_name = mf.stem.replace("manifest_", "")
+            try:
+                set_context(
+                    input_file=str(mf),
+                    output_file=out_file,
+                    context_category=args.context_category,
+                    task=args.task,
+                    language=args.language,
+                    force_context=args.force,
+                    dataset_name=dataset_name
+                )
+            except Exception as e:
+                raise Exception(f"Error in dataset '{dataset_name}' ({mf}): {e}") from e
     else:
+        # Folder mode
+        if args.output_file:
+            parser.error("When input is a folder, use --output_folder instead of --output_file.")
         set_context_on_folder(args.input, context_category=args.context_category, output_folder=args.output_folder, task=args.task, language=args.language, force_context=args.force, force=args.force)

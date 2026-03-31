@@ -6,8 +6,7 @@ import json
 from functools import partial
 
 from clean_manifest_text_fr import clean_text_fr
-from convert_kaldi_dataset_to_nemo import convert_dataset
-from convert_kaldi_datasets_to_nemo import convert_datasets
+from convert_kaldi_to_nemo import convert_batch, get_dataset_name
 from generate_dataset_list_files import generate_dataset_list_files
 from merge_manifest import merge_manifests
 from tqdm import tqdm

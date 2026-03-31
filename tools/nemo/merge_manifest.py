@@ -4,7 +4,7 @@ import os
 
 from tqdm import tqdm
 
-from ssak.utils.nemo_dataset import NemoDataset
+from ssak.utils.nemo_dataset import NemoDataset, resolve_manifest_paths
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -25,19 +25,12 @@ def is_manifest(filename):
 def merge_manifests(inputs, output):
     if os.path.exists(output):
         raise FileExistsError(f"Output file {output} already exists")
-    input_files = inputs
     os.makedirs(os.path.dirname(output), exist_ok=True)
-    if len(input_files) == 1:
-        if os.path.isdir(inputs[0]):
-            logger.info("Input is a folder, looking for manifest files in it")
-            input_files = []
-            for file in os.listdir(inputs[0]):
-                if is_manifest(file):
-                    input_files.append(os.path.join(inputs[0], file))
-        else:
-            logger.info("One input file, considering it as containing a list of files")
-            with open(inputs[0], encoding="utf-8") as f:
-                input_files = [l.strip() for l in f.readlines()]
+    # Resolve inputs: supports files, directories, YAML configs, and lists
+    input_files = resolve_manifest_paths(inputs)
+    if not input_files:
+        logger.warning(f"No manifest files found for inputs: {inputs}")
+        return
     merged_data = NemoDataset()
     for input_file in tqdm(input_files, desc="Merging manifest files"):
         name, _ = os.path.splitext(input_file)
@@ -57,7 +50,7 @@ def merge_manifests(inputs, output):
         data = NemoDataset()
         data_type = data.load(input_file, split=split, language=language, dataset_name=name, show_progress_bar=False)
         merged_data.extend(data)
-    merged_data.save(output, type=data_type)
+    merged_data.save(output, data_type=data_type)
     logger.info(f"Saved {len(merged_data)} lines to {output}")
 
 

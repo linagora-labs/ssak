@@ -62,7 +62,7 @@ def clean_text_fr(
 
 def clean_text_fr_file(
     input,
-    output_file,
+    output_file=None,
     keep_punc=True,
     keep_num=False,
     keep_case=True,
@@ -95,28 +95,29 @@ def clean_text_fr_file(
             raise FileExistsError(f"Output file {output_file} already exists")
         dname = os.path.dirname(output_file)
         os.makedirs(dname, exist_ok=True)
-    
+
     if os.path.isfile(input):
         gen = NemoDataset()
-        gen.load(input)
+        data_type = gen.load(input)
     else:
         print(f"WARNING: File {input} not found. Interpreting that as an input")
         gen = NemoDataset()
         gen.append({"text": input})
+        data_type = "multiturn"
 
     fid_acronyms = open(file_acronyms, "a", encoding="utf-8") if file_acronyms else None
     fid_special_char = open(file_special_char, "a", encoding="utf-8") if file_special_char else None
 
     new_data = clean_text_fr(
-        gen, 
-        keep_punc, 
-        keep_num, 
-        keep_case, 
-        fid_acronyms, 
+        gen,
+        keep_punc,
+        keep_num,
+        keep_case,
+        fid_acronyms,
         fid_special_char)
 
     if output_file:
-        new_data.save(output_file)
+        new_data.save(output_file, data_type=data_type)
     else:
         for i in new_data:
             print(i)
@@ -129,14 +130,16 @@ if __name__ == "__main__":
         description="Clean input text (in order to train a language model). Can remove punctuation, out of vocabulary words, numbers, and uppercases the text.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("input", help="Input manifest file", type=str)
+    parser.add_argument("input", help="Input manifest file, directory, or YAML config", type=str)
     parser.add_argument(
         "output",
-        help="Output file (if not specified, the text will be outputed on stdout)",
+        help="Output file or directory (if not specified, in-place for dir/yaml, stdout for single file)",
         type=str,
         nargs="?",
         default=None,
     )
+    parser.add_argument("--pattern", default="*.jsonl", help="Glob pattern for manifest files when input is a directory")
+    parser.add_argument("--recursive", action="store_true", default=False, help="Recursively search directories")
     parser.add_argument("--keep_punc", help="Keep punctuations", default=True, action="store_false")
     parser.add_argument("--keep_num", help="Keep numbers and symbols", default=False, action="store_true")
     parser.add_argument("--keep_case", help="Keep case (otherwise, everything will be lowercased)", default=True, action="store_false")
@@ -168,16 +171,26 @@ if __name__ == "__main__":
     parser.add_argument("--file_special_char", help="A file to list special characters that were removed", default=None, type=str)
     args = parser.parse_args()
 
-    clean_text_fr(
-        input=args.input,
-        output=args.output,
-        keep_punc=args.keep_punc,
-        keep_num=args.keep_num,
-        keep_case=args.keep_case,
-        empty_string_policy=args.empty_string_policy,
-        linebreak_policy=args.linebreak_policy,
-        remove_suspicious_entry=args.remove_suspicious_entry,
-        extract_parenthesis=args.extract_parenthesis,
-        file_acronyms=args.file_acronyms,
-        file_special_char=args.file_special_char,
-    )
+    from ssak.utils.nemo_dataset import resolve_manifest_paths, resolve_output_path
+
+    manifests = resolve_manifest_paths(args.input, pattern=args.pattern, recursive=args.recursive)
+    if not manifests:
+        print(f"No manifest files found for input: {args.input}")
+        sys.exit(1)
+
+    for mf in manifests:
+        out_file = str(resolve_output_path(mf, args.input, args.output))
+        print(f"Processing {mf} -> {out_file}")
+        clean_text_fr_file(
+            input=str(mf),
+            output_file=out_file,
+            keep_punc=args.keep_punc,
+            keep_num=args.keep_num,
+            keep_case=args.keep_case,
+            empty_string_policy=args.empty_string_policy,
+            linebreak_policy=args.linebreak_policy,
+            remove_suspicious_entry=args.remove_suspicious_entry,
+            extract_parenthesis=args.extract_parenthesis,
+            file_acronyms=args.file_acronyms,
+            file_special_char=args.file_special_char,
+        )

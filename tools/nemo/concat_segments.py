@@ -118,7 +118,7 @@ def concat_segments_input_file(input_file, output_file=None, max_duration=30, ac
     if merge_audios:
         merged_audio_folder.mkdir(parents=True, exist_ok=True)
     new_data = concat_segments(input_data, max_duration, acceptance, acceptance_punc, merge_audios, merged_audio_folder, keep_audio_structure, num_threads)
-    new_data.save(output_file, type=nemo_dataset_type)
+    new_data.save(output_file, data_type=nemo_dataset_type)
     logger.info(f"New dataset saved to {output_file}")
 
 def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc=0.2, merge_audios=False, merged_audio_folder="audio", keep_audio_structure=True, num_threads=4):
@@ -169,13 +169,23 @@ def concat_segments(input_data, max_duration=30, acceptance=1.0, acceptance_punc
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Concatenate segments that follow each others in a manifest")
-    parser.add_argument("file", help="Input manifest", type=str)
-    parser.add_argument("--output_file", help="Output manifest. If not provided, it will be the same as the input file with a '_merged' suffix", type=str, default=None)
+    parser.add_argument("file", help="Input manifest file, directory, or YAML config", type=str)
+    parser.add_argument("--output_file", help="Output manifest or directory. If not provided, uses '_merged' suffix", type=str, default=None)
     parser.add_argument("--max_duration", help="Maximum duration of a segment once concatenated", type=float, default=30.0)
     parser.add_argument("--acceptance", help="Gap (in seconds) between segments to accept concatenation", type=float, default=1.0)
     parser.add_argument("--merge_audios", help="Merge audios along with segments. Needed if one segment is one file in the source dataset", default=False, action="store_true")
     parser.add_argument("--merged_audio_folder", help="The folder to put the new merged audios in. Only used if merge_audios is set to True", default="audio")
-    parser.add_argument("--num_threads", help="Number of threads used when merging audios" type=int, default=4)
+    parser.add_argument("--num_threads", help="Number of threads used when merging audios", type=int, default=4)
+    parser.add_argument("--pattern", default="*.jsonl", help="Glob pattern for manifest files when input is a directory")
+    parser.add_argument("--recursive", action="store_true", default=False, help="Recursively search directories")
     args = parser.parse_args()
 
-    concat_segments_input_file(args.file, output_file=args.output_file, max_duration=args.max_duration, acceptance=args.acceptance, merge_audios=args.merge_audios, merged_audio_folder=args.merged_audio_folder, num_threads=args.num_threads)
+    from ssak.utils.nemo_dataset import resolve_manifest_paths, resolve_output_path
+    manifests = resolve_manifest_paths(args.file, pattern=args.pattern, recursive=args.recursive)
+    if not manifests:
+        logger.error(f"No manifest files found for input: {args.file}")
+        exit(1)
+    for mf in manifests:
+        out_file = str(resolve_output_path(mf, args.file, args.output_file)) if args.output_file else None
+        logger.info(f"Processing {mf}")
+        concat_segments_input_file(str(mf), output_file=out_file, max_duration=args.max_duration, acceptance=args.acceptance, merge_audios=args.merge_audios, merged_audio_folder=args.merged_audio_folder, num_threads=args.num_threads)
