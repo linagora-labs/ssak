@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import shutil
 import random
 from collections.abc import Iterator
@@ -404,6 +405,7 @@ class NemoDataset:
         target_sample_rate=16000,
         target_extension=None,
         num_workers=1,
+        relative_to=None,
     ):
         """
         Extract exactly one audio segment per audio turn and normalize it
@@ -420,7 +422,7 @@ class NemoDataset:
                 if turn.turn_type == "audio":
                     audio_turns.append(turn)
 
-        def process_turn(turn, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
+        def process_turn(turn, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1, relative_to=None):
             from pydub import AudioSegment
             audio_path = Path(turn.value)
             new_folder = Path(new_folder)
@@ -430,6 +432,13 @@ class NemoDataset:
                 if target_extension:
                     if not target_extension.startswith("."):
                         target_extension = "." + target_extension
+                if relative_to:
+                    rel_path = Path(os.path.relpath(audio_path, relative_to))
+                    suffix = target_extension if target_extension else audio_path.suffix
+                    new_name = f"{rel_path.stem}_{offset_text}s{suffix}"
+                    new_path = new_folder / rel_path.parent / new_name
+                    os.makedirs(new_path.parent, exist_ok=True)
+                elif target_extension:
                     new_name = f"{audio_path.stem}_{offset_text}s{target_extension}"
                     new_path = new_folder / new_name
                 else:
@@ -454,13 +463,13 @@ class NemoDataset:
         Path(output_wavs_folder).mkdir(parents=True, exist_ok=True)
         if num_workers == 1:
             for turn in tqdm(audio_turns, desc="Extracting audio segments"):
-                new_path = str(process_turn(turn, output_wavs_folder, target_sample_rate, target_extension))
+                new_path = str(process_turn(turn, output_wavs_folder, target_sample_rate, target_extension, relative_to=relative_to))
                 if new_path != turn.value:
                     turn.value = new_path
         else:
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = {
-                    executor.submit(process_turn, turn, output_wavs_folder, target_sample_rate, target_extension): turn
+                    executor.submit(process_turn, turn, output_wavs_folder, target_sample_rate, target_extension, relative_to=relative_to): turn
                     for turn in audio_turns
                 }
                 for future in tqdm(
@@ -477,7 +486,7 @@ class NemoDataset:
                         raise RuntimeError(f"Error processing audio {turn.value}: {e}")
 
     
-    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1):
+    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1, relative_to=None):
         """
         Check audio files sample rate and number of channels and convert them if they don't match the target sample rate/number of channels.
 
@@ -495,7 +504,7 @@ class NemoDataset:
         errors = False
         if num_workers == 1:
             for audio_path in tqdm(audio_paths, total=len(audio_paths), desc="Checking audio files"):
-                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension)
+                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension, relative_to=relative_to)
                 if new_path != audio_path:
                     updated_audio_paths[audio_path] = new_path
                     if new_path == "error":
@@ -509,6 +518,7 @@ class NemoDataset:
                         output_wavs_conversion_folder,
                         target_sample_rate,
                         target_extension,
+                        relative_to=relative_to,
                     ): audio_path
                     for audio_path in audio_paths
                 }

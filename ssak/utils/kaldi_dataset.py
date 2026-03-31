@@ -559,7 +559,7 @@ class KaldiDataset:
             for row in removed_lines:
                 f.write(str(row) + "\n")
                 
-def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1):
+def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1, relative_to=None):
     """
     Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
 
@@ -569,12 +569,21 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
         target_sample_rate (int): Target sample rate for the audio file
         target_extension (str): Optional. Target extension for the audio file. If set to None, it will keep the original extension
         max_channel (int): Maximum number of channels for the audio file. If the audio file has more channels, it will keep only the first channel. TODO: Add option to keep all channels in different files
+        relative_to (str): Optional. When set, preserve directory structure relative to this path instead of flattening to basename.
     """
     from pydub import AudioSegment
     from pydub.utils import mediainfo
 
     if new_folder:
-        if target_extension:
+        if relative_to:
+            rel_path = os.path.relpath(audio_path, relative_to)
+            if target_extension:
+                if not target_extension.startswith("."):
+                    target_extension = "." + target_extension
+                rel_path = os.path.splitext(rel_path)[0] + target_extension
+            new_path = os.path.join(new_folder, rel_path)
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+        elif target_extension:
             if not target_extension.startswith("."):
                 target_extension = "." + target_extension
             new_path = os.path.join(new_folder, os.path.basename(audio_path).replace(os.path.splitext(audio_path)[1], target_extension))
