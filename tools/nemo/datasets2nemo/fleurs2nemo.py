@@ -18,16 +18,27 @@ logger = logging.getLogger(__name__)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert FLEURS dataset to NeMo format")
     parser.add_argument("--force", action="store_true", default=False)
-    parser.add_argument("--language", type=str, default="es", choices=["es", "en", "fr", "it", "de", "pt_br", "ar_eg"])
+    parser.add_argument("--language", type=str, default="es", choices=["es", "en", "fr", "it", "de", "pt", "ar", "nl"])
     parser.add_argument("--input", type=str, default=None)
     parser.add_argument("--output", type=str, default=None)
 
     args = parser.parse_args()
     
-    if args.input is None:
-        args.input = f"/data-server/datasets/audio/transcript/{args.language}/FLEURS"
     if args.output is None:
-        args.output = f"/data-server/datasets/audio/nemo/multi-turn/asr/{args.language}/nocontext/FLEURS"
+        args.output = f"/data-server/datasets/audio/nemo/asr/{args.language}/nocontext/FLEURS"
+    
+    language = f"{args.language}_{args.language}"
+    if args.language == "pt":
+        language = "pt_br"
+    elif args.language == "ar":
+        language = "ar_eg"
+    elif args.language == "es":
+        language = "es_419"
+    elif args.language == "en":
+        language = "en_us"
+    
+    if args.input is None:
+        args.input = f"/data-server/datasets/audio/raw/transcript/{language}/FLEURS"
 
     input_dataset = args.input
     output_path = Path(args.output)
@@ -51,8 +62,8 @@ if __name__ == "__main__":
         
         audio_paths = RowApplyFunction(function=get_audio_path, return_columns=["audio_path"], execute_order=1)
         
-        duration_type = Row2ChangeType(input="duration", new_type=float, execute_order=1)
+        duration = RowApplyFunction(function=lambda row: float(row["duration"])/16000, return_columns=["duration"], execute_order=2)
         
-        reader = Reader2Nemo(input_dataset, processors=[transcripts, audio_paths, duration_type])
+        reader = Reader2Nemo(input_dataset, processors=[transcripts, audio_paths, duration])
         dataset = reader.load(debug=False, dataset_name="fleurs")
         dataset.save(output_path / Path(split+".jsonl"))

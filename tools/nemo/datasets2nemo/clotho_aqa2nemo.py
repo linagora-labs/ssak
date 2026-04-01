@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert Clotho AQA dataset to NeMo format")
     parser.add_argument("--force", action="store_true", default=False)
-    parser.add_argument("--input", type=str, default="/data-server/datasets/audio/sounds/clotho_aqa")
-    parser.add_argument("--output", type=str, default="/data-server/datasets/audio/nemo/multi-turn/sound/audio-question-answering/en/clotho_aqa")
+    parser.add_argument("--input", type=str, default="/data-server/datasets/audio/raw/sounds/clotho_aqa")
+    parser.add_argument("--output", type=str, default="/data-server/datasets/audio/nemo/sounds/audio-question-answering/en/clotho_aqa")
     args = parser.parse_args()
 
     input_dataset = args.input
