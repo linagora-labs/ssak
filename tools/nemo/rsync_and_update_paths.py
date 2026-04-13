@@ -99,17 +99,48 @@ def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_
     return processed_manifests
 
 
-def rsync_manifests(manifest_paths, source, destination, dry_run=False):
-    """Rsync manifest JSONL files from source to destination."""
+def _join_remote(prefix: str, rel: str) -> str:
+    """Join a (possibly remote `host:/path`) prefix with a relative path without producing `//`."""
+    rel = rel.lstrip("/")
+    if not prefix or prefix == "/":
+        return "/" + rel
+    return prefix.rstrip("/") + "/" + rel
+
+
+def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_run=False):
+    """Rsync manifest JSONL files from source to destination.
+
+    If `relative_to` is given, it is stripped from absolute inputs to compute
+    the relative dataset path that is appended under `destination`. Otherwise
+    inputs are treated as relative paths under `source` (legacy behavior).
+    """
     for ds in manifest_paths:
         ds = str(ds)
-        src_path = f"{source.rstrip('/')}/{ds}"
-        dst_dir = Path(destination) / Path(ds).parent
+        if relative_to:
+            prefix = relative_to.rstrip("/") + "/"
+            if ds.startswith(prefix):
+                rel = ds[len(prefix):]
+                src_path = ds
+            elif not ds.startswith("/"):
+                rel = ds
+                src_path = _join_remote(source, rel)
+            else:
+                logger.warning(f"{ds} does not start with --relative-to '{prefix}', skipping")
+                continue
+        else:
+            rel = ds.lstrip("/")
+            src_path = _join_remote(source, rel)
+
+        rel_parent = str(Path(rel).parent)
+        if rel_parent in (".", ""):
+            dst_dir = destination.rstrip("/") + "/"
+        else:
+            dst_dir = destination.rstrip("/") + "/" + rel_parent + "/"
 
         cmd = ["rsync", "-rlDvz", "--size-only", "--mkpath"]
         if dry_run:
             cmd.append("--dry-run")
-        cmd += [src_path, str(dst_dir) + "/"]
+        cmd += [src_path, dst_dir]
 
         logger.info(f"Rsyncing: {' '.join(cmd)}")
         result = subprocess.run(cmd)
@@ -122,7 +153,7 @@ if __name__ == "__main__":
         description="Rsync audio files / manifests and/or update audio paths in NeMo manifests",
         epilog="""Examples:
   # Pure path update:
-  %(prog)s manifests/ --old-prefix /old/path --new-prefix /new/path
+  %(prog)s manifests/ --update-paths --old-prefix /old/path --new-prefix /new/path
 
   # Rsync audios + update paths:
   %(prog)s manifests/ --rsync-audios /dest --relative-to /data/raw --update-paths --old-prefix /old --new-prefix /new
@@ -133,6 +164,10 @@ if __name__ == "__main__":
   # Rsync manifests AND their referenced audios from a remote machine:
   # (--old-prefix/--new-prefix inferred from --relative-to and --rsync-audios)
   %(prog)s nemo/asr/train.jsonl nemo/asr/test.jsonl --rsync-manifests /local/data --rsync-audios /local/data --rsync-source user@host:/data --relative-to /data/audio --update-paths
+
+  # Push a local dataset folder to a remote machine (local -> remote).
+  # --rsync-manifests / --rsync-audios are roots; --relative-to controls the layout under them.
+  %(prog)s /data/audio/nemo/asr/MyDataset --rsync-manifests host:/lustre/audio/ --rsync-audios host:/lustre/audio/ --relative-to /data/audio/ --dry-run
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -184,10 +219,14 @@ if __name__ == "__main__":
 
     local_manifests = None
     if args.rsync_manifests:
-        rsync_manifests(args.inputs, args.rsync_source, args.rsync_manifests, dry_run=args.dry_run)
-        # Find the rsynced manifests locally (handles files, folders, or mix)
-        local_paths = [Path(args.rsync_manifests) / ds for ds in args.inputs]
-        local_manifests = resolve_manifest_paths(local_paths, pattern=args.pattern, recursive=True)
+        rsync_manifests(
+            args.inputs, args.rsync_source, args.rsync_manifests,
+            relative_to=args.relative_to, dry_run=args.dry_run,
+        )
+        # Find the rsynced manifests locally (only meaningful for local destinations)
+        if ":" not in args.rsync_manifests:
+            local_paths = [Path(args.rsync_manifests) / ds for ds in args.inputs]
+            local_manifests = resolve_manifest_paths(local_paths, pattern=args.pattern, recursive=True)
 
     if args.rsync_audios:
         if local_manifests is not None:

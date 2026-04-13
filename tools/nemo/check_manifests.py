@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(TqdmHandler())
 
-STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "invalid_field", "wrong_last_turn", "ok")
+STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "invalid_field", "wrong_last_turn", "long_text", "ok")
 
 
 def empty_stats():
@@ -96,9 +96,25 @@ def extract_audio_entries(row):
     return []
 
 
-def check_row(row, stats):
+def _check_long_text(text, max_text_length, label, stats, row_errors):
+    """If text exceeds max_text_length characters, record a long_text error."""
+    if not max_text_length or not isinstance(text, str):
+        return
+    if len(text) > max_text_length:
+        logger.error(f"{label}: text length {len(text)} exceeds max_text_length={max_text_length}")
+        stats["long_text"] += 1
+        stats["errors"].append({
+            "status": "long_text", "path": label,
+            "expected": f"<= {max_text_length} chars", "actual": len(text),
+        })
+        if "long_text" not in row_errors:
+            row_errors.append("long_text")
+
+
+def check_row(row, stats, max_text_length=None):
     """Run field validation and last-turn check, updating stats in place. Returns list of error types."""
     row_errors = []
+    row_id = row.get("id", "<no-id>")
     if "conversations" in row:
         turns = row["conversations"]
         if turns and turns[-1].get("from") != "Assistant":
@@ -111,11 +127,14 @@ def check_row(row, stats):
                 stats["invalid_field"] += n
                 if n:
                     row_errors.append("invalid_field")
+            elif t.get("type") == "text":
+                _check_long_text(t.get("value"), max_text_length, f"row={row_id}", stats, row_errors)
     elif "audio_filepath" in row:
         n = _check_audio_fields(row["audio_filepath"], row.get("duration"), row.get("offset"))
         stats["invalid_field"] += n
         if n:
             row_errors.append("invalid_field")
+        _check_long_text(row.get("text"), max_text_length, row.get("audio_filepath", f"row={row_id}"), stats, row_errors)
     return row_errors
 
 
@@ -162,7 +181,8 @@ def _iter_rows(manifest_path, num_rows, label=None):
 
 
 def check_manifest(manifest_path, num_rows=None, check_metadata=False,
-                   duration_tolerance=0.5, num_threads=1, label=None):
+                   duration_tolerance=0.5, num_threads=1, label=None,
+                   max_text_length=None):
     manifest_path = Path(manifest_path)
     label = label or str(manifest_path)
     if not manifest_path.exists():
@@ -175,7 +195,7 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
     unique_paths = set()
     total = 0
     for row in _iter_rows(manifest_path, num_rows, label):
-        row_errors = check_row(row, stats)
+        row_errors = check_row(row, stats, max_text_length=max_text_length)
         audio_entries = extract_audio_entries(row)
         for path, dur, offset in audio_entries:
             unique_paths.add(path)
@@ -240,6 +260,8 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
         extra += f", {stats['invalid_field']} invalid fields"
     if stats["wrong_last_turn"]:
         extra += f", {stats['wrong_last_turn']} wrong last turn"
+    if stats["long_text"]:
+        extra += f", {stats['long_text']} long texts"
 
     if check_metadata:
         logger.info(
@@ -292,6 +314,7 @@ ERROR_FMT = {
     "unreadable": lambda e: f"  UNREADABLE: {e['path']} ({e.get('error', '')})",
     "duration_mismatch": lambda e: f"  DURATION MISMATCH: {e['path']} (expected={e['expected']}s, actual={e['actual']}s)",
     "segment_out_of_bounds": lambda e: f"  SEGMENT OOB: {e['path']} (segment_end={e['expected']}, file_duration={e['actual']}s)",
+    "long_text": lambda e: f"  LONG TEXT: {e['path']} (length={e['actual']}, expected {e['expected']})",
 
 }
 
@@ -306,7 +329,8 @@ def print_summary(overall):
     for key, label in [("missing", "Missing files"), ("unreadable", "Unreadable files"),
                        ("duration_mismatch", "Duration mismatches"), ("segment_out_of_bounds", "Segments OOB"),
                        ("invalid_field", "Invalid fields"),
-                       ("wrong_last_turn", "Wrong last turn")]:
+                       ("wrong_last_turn", "Wrong last turn"),
+                       ("long_text", "Long texts")]:
         if overall[key] > 0:
             print(f"{label + ':':22}{overall[key]}")
 
@@ -337,6 +361,7 @@ if __name__ == "__main__":
     parser.add_argument("--duration_tolerance", type=float, default=0.5, help="Tolerance in seconds for duration checks (default: 0.5).")
     parser.add_argument("--num_threads", type=int, default=1, help="Number of threads for parallel checking.")
     parser.add_argument("--output_errors", type=str, default=None, help="Write problematic rows to this JSONL file.")
+    parser.add_argument("--max_text_length", type=int, default=5000, help="Flag rows whose text exceeds this many characters (default: 5000). Set to 0 to disable. Checks `text` for ASR rows and text-type turns in conversations.")
 
     args = parser.parse_args()
 
@@ -345,6 +370,7 @@ if __name__ == "__main__":
         check_metadata=args.check_metadata,
         duration_tolerance=args.duration_tolerance,
         num_threads=args.num_threads,
+        max_text_length=args.max_text_length,
     )
 
     combined = empty_overall()
