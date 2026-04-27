@@ -11,6 +11,8 @@ from pathlib import Path
 import yaml
 from tqdm import tqdm
 
+from ssak.utils.nemo_dataset import resolve_manifest_paths
+
 class TqdmHandler(logging.StreamHandler):
     def emit(self, record):
         tqdm.write(self.format(record))
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(TqdmHandler())
 
-STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "invalid_field", "wrong_last_turn", "ok")
+STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "invalid_field", "wrong_last_turn", "long_text", "ok")
 
 
 def empty_stats():
@@ -94,9 +96,25 @@ def extract_audio_entries(row):
     return []
 
 
-def check_row(row, stats):
+def _check_long_text(text, max_text_length, label, stats, row_errors):
+    """If text exceeds max_text_length characters, record a long_text error."""
+    if not max_text_length or not isinstance(text, str):
+        return
+    if len(text) > max_text_length:
+        logger.error(f"{label}: text length {len(text)} exceeds max_text_length={max_text_length}")
+        stats["long_text"] += 1
+        stats["errors"].append({
+            "status": "long_text", "path": label,
+            "expected": f"<= {max_text_length} chars", "actual": len(text),
+        })
+        if "long_text" not in row_errors:
+            row_errors.append("long_text")
+
+
+def check_row(row, stats, max_text_length=None):
     """Run field validation and last-turn check, updating stats in place. Returns list of error types."""
     row_errors = []
+    row_id = row.get("id", "<no-id>")
     if "conversations" in row:
         turns = row["conversations"]
         if turns and turns[-1].get("from") != "Assistant":
@@ -109,11 +127,14 @@ def check_row(row, stats):
                 stats["invalid_field"] += n
                 if n:
                     row_errors.append("invalid_field")
+            elif t.get("type") == "text":
+                _check_long_text(t.get("value"), max_text_length, f"row={row_id}", stats, row_errors)
     elif "audio_filepath" in row:
         n = _check_audio_fields(row["audio_filepath"], row.get("duration"), row.get("offset"))
         stats["invalid_field"] += n
         if n:
             row_errors.append("invalid_field")
+        _check_long_text(row.get("text"), max_text_length, row.get("audio_filepath", f"row={row_id}"), stats, row_errors)
     return row_errors
 
 
@@ -160,7 +181,8 @@ def _iter_rows(manifest_path, num_rows, label=None):
 
 
 def check_manifest(manifest_path, num_rows=None, check_metadata=False,
-                   duration_tolerance=0.5, num_threads=1, label=None):
+                   duration_tolerance=0.5, num_threads=1, label=None,
+                   max_text_length=None):
     manifest_path = Path(manifest_path)
     label = label or str(manifest_path)
     if not manifest_path.exists():
@@ -173,7 +195,7 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
     unique_paths = set()
     total = 0
     for row in _iter_rows(manifest_path, num_rows, label):
-        row_errors = check_row(row, stats)
+        row_errors = check_row(row, stats, max_text_length=max_text_length)
         audio_entries = extract_audio_entries(row)
         for path, dur, offset in audio_entries:
             unique_paths.add(path)
@@ -238,6 +260,8 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
         extra += f", {stats['invalid_field']} invalid fields"
     if stats["wrong_last_turn"]:
         extra += f", {stats['wrong_last_turn']} wrong last turn"
+    if stats["long_text"]:
+        extra += f", {stats['long_text']} long texts"
 
     if check_metadata:
         logger.info(
@@ -258,67 +282,27 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
 # YAML / directory / path dispatch
 # ---------------------------------------------------------------------------
 
-def process_yaml(yaml_path, **kwargs):
-    yaml_path = Path(yaml_path)
-    with open(yaml_path, "r") as f:
-        cfg = yaml.safe_load(f)
+def process_path(path, recursive=False, **kwargs):
+    """Resolve input path (file, dir, or YAML) and check all found manifests."""
+    manifests = resolve_manifest_paths(path, recursive=recursive)
+    if not manifests:
+        logger.warning(f"No manifest files found for: {path}")
+        return None
 
-    manifest_paths = extract_manifest_paths(cfg)
-    logger.info(f"Found {len(manifest_paths)} manifest paths in {yaml_path}")
-
-    # Resolve all paths first to compute common prefix for shorter labels
-    resolved_paths = []
-    for manifest_str in manifest_paths:
-        try:
-            resolved_paths.append(resolve_oc_env(manifest_str))
-        except ValueError as e:
-            logger.warning(str(e))
-            resolved_paths.append(None)
-
-    existing = [p for p in resolved_paths if p and Path(p).exists()]
-    base = os.path.commonpath(existing) if len(existing) > 1 else None
+    # Compute common prefix for shorter labels
+    str_paths = [str(p) for p in manifests]
+    base = os.path.commonpath(str_paths) if len(str_paths) > 1 else None
 
     overall = empty_overall()
-    pbar = tqdm(resolved_paths, desc="Manifests", unit="file")
-    for resolved in pbar:
-        if resolved is None:
-            continue
-
-        label = os.path.relpath(resolved, base) if base else str(resolved)
+    pbar = tqdm(manifests, desc="Manifests", unit="file")
+    for mf in pbar:
+        label = os.path.relpath(mf, base) if base else str(mf)
         pbar.set_postfix_str(label)
-
-        if not Path(resolved).exists():
-            logger.warning(f"Missing manifest: {resolved}")
-            overall["manifests_missing"] += 1
-            continue
-
-        stats = check_manifest(resolved, label=label, **kwargs)
+        stats = check_manifest(mf, label=label, **kwargs)
         overall["manifests_checked"] += 1
         merge_stats(overall, stats)
 
     return overall
-
-
-def process_path(path, recursive=False, **kwargs):
-    path = Path(path)
-    if path.is_file() and path.suffix in (".yaml", ".yml"):
-        return process_yaml(path, **kwargs)
-    elif path.is_file() and path.suffix == ".jsonl":
-        return check_manifest(path, **kwargs) | {"manifests_checked": 1, "manifests_missing": 0}
-    elif path.is_dir():
-        glob_fn = path.rglob if recursive else path.glob
-        jsonls = sorted(glob_fn("*.jsonl"))
-        if jsonls:
-            overall = empty_overall()
-            for j in tqdm(jsonls, desc="Manifests", unit="file"):
-                overall["manifests_checked"] += 1
-                label = os.path.relpath(j, path)
-                merge_stats(overall, check_manifest(j, label=label, **kwargs))
-            return overall
-        logger.warning(f"No JSONL files found in {path}")
-    else:
-        logger.warning(f"Skipping unsupported path: {path}")
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +314,7 @@ ERROR_FMT = {
     "unreadable": lambda e: f"  UNREADABLE: {e['path']} ({e.get('error', '')})",
     "duration_mismatch": lambda e: f"  DURATION MISMATCH: {e['path']} (expected={e['expected']}s, actual={e['actual']}s)",
     "segment_out_of_bounds": lambda e: f"  SEGMENT OOB: {e['path']} (segment_end={e['expected']}, file_duration={e['actual']}s)",
+    "long_text": lambda e: f"  LONG TEXT: {e['path']} (length={e['actual']}, expected {e['expected']})",
 
 }
 
@@ -344,7 +329,8 @@ def print_summary(overall):
     for key, label in [("missing", "Missing files"), ("unreadable", "Unreadable files"),
                        ("duration_mismatch", "Duration mismatches"), ("segment_out_of_bounds", "Segments OOB"),
                        ("invalid_field", "Invalid fields"),
-                       ("wrong_last_turn", "Wrong last turn")]:
+                       ("wrong_last_turn", "Wrong last turn"),
+                       ("long_text", "Long texts")]:
         if overall[key] > 0:
             print(f"{label + ':':22}{overall[key]}")
 
@@ -375,6 +361,7 @@ if __name__ == "__main__":
     parser.add_argument("--duration_tolerance", type=float, default=0.5, help="Tolerance in seconds for duration checks (default: 0.5).")
     parser.add_argument("--num_threads", type=int, default=1, help="Number of threads for parallel checking.")
     parser.add_argument("--output_errors", type=str, default=None, help="Write problematic rows to this JSONL file.")
+    parser.add_argument("--max_text_length", type=int, default=5000, help="Flag rows whose text exceeds this many characters (default: 5000). Set to 0 to disable. Checks `text` for ASR rows and text-type turns in conversations.")
 
     args = parser.parse_args()
 
@@ -383,6 +370,7 @@ if __name__ == "__main__":
         check_metadata=args.check_metadata,
         duration_tolerance=args.duration_tolerance,
         num_threads=args.num_threads,
+        max_text_length=args.max_text_length,
     )
 
     combined = empty_overall()

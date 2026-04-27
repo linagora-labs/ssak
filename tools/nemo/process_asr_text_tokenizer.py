@@ -290,9 +290,8 @@ def process_asr_text_tokenizer(
 ):
     if not os.path.exists(data_root):
         os.makedirs(data_root)
-    if log:
-        logging.basicConfig(level=logging.INFO)
-        logger = logging.getLogger(__name__)
+    logging.basicConfig(level=logging.INFO if log else logging.WARNING)
+    logger = logging.getLogger(__name__)
     logger.info("Starting tokenizer creation")
     if manifests:
         logger.info("Building document from manifests")

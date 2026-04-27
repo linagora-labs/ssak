@@ -19,10 +19,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.input is None:
-        args.input = f"/data-server/datasets/audio/transcript/{args.language}/COMMONVOICE/cv-corpus-23.0-2025-09-05/{args.language}"
+        args.input = f"/data-server/datasets/audio/raw/transcript/{args.language}/COMMONVOICE/cv-corpus-23.0-2025-09-05/{args.language}"
         print(f"Input path not specified, using default: {args.input}")
     if args.output is None:
-        args.output = f"/data-server/datasets/audio/nemo/multi-turn/asr/{args.language}/nocontext/CommonVoice"
+        args.output = f"/data-server/datasets/audio/nemo/asr/{args.language}/nocontext/CommonVoice"
         print(f"Output path not specified, using default: {args.output}")
 
     input_dataset = args.input

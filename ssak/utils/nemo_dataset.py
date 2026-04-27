@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import shutil
 import random
 from collections.abc import Iterator
@@ -12,6 +13,135 @@ from tqdm import tqdm
 from ssak.utils.kaldi_dataset import audio_checks
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_oc_env(path_str):
+    """Resolve ${oc.env:VAR_NAME} patterns using environment variables."""
+    def replacer(match):
+        var_name = match.group(1)
+        value = os.environ.get(var_name)
+        if value is None:
+            raise ValueError(f"Environment variable '{var_name}' not set (needed for: {path_str})")
+        return value
+    return re.sub(r'\$\{oc\.env:([^}]+)\}', replacer, path_str)
+
+
+_NEMO_RANGE_RE = re.compile(r'__OP_(\d+)\.\.(\d+)_CL_')
+
+
+def _expand_nemo_range(path_str):
+    """Expand a NeMo shard glob like 'prefix__OP_0..N_CL_.jsonl' into concrete shard paths.
+
+    The shard naming convention (see shard_manifest.py) is '{stem}_{i}.jsonl', so the
+    '__OP_N..M_CL_' segment is replaced with '_{i}' for each i in [N, M].
+    Returns the original string in a list if no pattern is present.
+    """
+    m = _NEMO_RANGE_RE.search(path_str)
+    if not m:
+        return [path_str]
+    start, end = int(m.group(1)), int(m.group(2))
+    return [path_str[:m.start()] + f"_{i}" + path_str[m.end():] for i in range(start, end + 1)]
+
+
+def _extract_manifest_paths_from_yaml(cfg):
+    """Recursively extract manifest_filepath values from a nested input_cfg structure."""
+    paths = []
+    if isinstance(cfg, list):
+        for entry in cfg:
+            if isinstance(entry, dict):
+                if "input_cfg" in entry:
+                    paths.extend(_extract_manifest_paths_from_yaml(entry["input_cfg"]))
+                if "manifest_filepath" in entry:
+                    paths.append(entry["manifest_filepath"])
+    return paths
+
+
+def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
+    """Resolve input path(s) to a list of JSONL manifest file paths.
+
+    Supports:
+    - .jsonl file: returns [input_path]
+    - .yaml/.yml file: recursively extracts manifest_filepath values,
+      resolving ${oc.env:VAR} patterns from environment variables
+    - directory: globs for pattern (recursively if recursive=True)
+    - list of paths: resolves each one and flattens the result
+
+    Returns:
+        Sorted list of Path objects pointing to .jsonl files.
+    """
+    if isinstance(input_path, (list, tuple)):
+        result = []
+        for p in input_path:
+            result.extend(resolve_manifest_paths(p, pattern=pattern, recursive=recursive))
+        return sorted(set(result))
+
+    input_str = str(input_path)
+    if _NEMO_RANGE_RE.search(input_str):
+        resolved = []
+        for p in _expand_nemo_range(input_str):
+            pp = Path(p)
+            if pp.exists():
+                resolved.append(pp)
+            else:
+                logger.warning(f"Shard not found: {pp}")
+        return sorted(resolved)
+
+    path = Path(input_path)
+
+    if path.is_file() and path.suffix == ".jsonl":
+        return [path]
+
+    if path.is_file() and path.suffix in (".yaml", ".yml"):
+        import yaml
+        with open(path) as f:
+            cfg = yaml.safe_load(f)
+        raw_paths = _extract_manifest_paths_from_yaml(cfg)
+        resolved = []
+        for p in raw_paths:
+            try:
+                resolved_str = _resolve_oc_env(p)
+                for expanded in _expand_nemo_range(resolved_str):
+                    expanded_path = Path(expanded)
+                    if expanded_path.exists():
+                        resolved.append(expanded_path)
+                    else:
+                        logger.warning(f"Manifest not found: {expanded}")
+            except ValueError as e:
+                logger.warning(str(e))
+        return sorted(resolved)
+
+    if path.is_dir():
+        glob_fn = path.rglob if recursive else path.glob
+        return sorted(glob_fn(pattern))
+
+    logger.warning(f"Skipping unrecognized path: {path}")
+    return []
+
+
+def resolve_output_path(input_file, input_root, output_dir):
+    """Compute the output path for a manifest, preserving directory structure.
+
+    Args:
+        input_file: Path to the input manifest file.
+        input_root: The root input path (file or directory) originally passed
+            to resolve_manifest_paths. Used to compute relative paths.
+        output_dir: Output directory (str/Path), or None for in-place processing.
+
+    Returns:
+        Path: output file path.
+            - If output_dir is None: returns input_file (in-place)
+            - If input_root is a directory: output_dir / relative_path_from_input_root
+            - Otherwise: output_dir / input_file.name
+    """
+    input_file = Path(input_file)
+    if output_dir is None:
+        return input_file
+    output_dir = Path(output_dir)
+    input_root = Path(input_root)
+    if input_root.is_dir():
+        return output_dir / input_file.relative_to(input_root)
+    else:
+        return output_dir / input_file.name
 
 @dataclass
 class NemoTurn:
@@ -68,8 +198,8 @@ class NemoTurn:
                 role=data.get("from"),
                 value=data.get("value"),
                 turn_type=data.get("type"),
-                duration=round(data.get("duration"), 3) if data.get("duration") is not None else None,
-                offset=round(data.get("offset", 0.0), 3),
+                duration=round(float(data.get("duration")), 3) if data.get("duration") is not None else None,
+                offset=round(float(data.get("offset", 0.0)), 3),
             )
         except Exception as e:
             raise ValueError(f"Could not parse turn from json: {data}") from e
@@ -91,46 +221,97 @@ class NemoDatasetRow:
     split: str = None
     custom_metadata: dict = None
 
-    @property
-    def audio_filepath(self) -> str:
-        """Alias for audio_filepath"""
-        if self.turns[0].turn_type == "audio":
-            return self.turns[0].value
-        elif self.turns[1].turn_type == "audio":
-            return self.turns[1].value
+    def _first_audio_turn(self):
+        """Return the first audio turn, or None."""
+        for t in self.turns:
+            if t.turn_type == "audio":
+                return t
+        return None
+
+    def _text_turn(self):
+        """Return the text turn (first text turn after the first audio turn), or None."""
+        found_audio = False
+        for t in self.turns:
+            if t.turn_type == "audio":
+                found_audio = True
+            elif t.turn_type == "text" and found_audio:
+                return t
+        return None
+
+    def _context_turn(self):
+        """Return the context turn (first text turn before any audio turn), or None."""
+        for t in self.turns:
+            if t.turn_type == "audio":
+                return None
+            if t.turn_type == "text":
+                return t
         return None
 
     @property
-    def context(self) -> str:
-        """Alias for context"""
-        if self.turns[0].turn_type == "text":
-            return self.turns[0].value
-        return None
+    def audio_filepath(self):
+        turn = self._first_audio_turn()
+        return turn.value if turn else None
+
+    @audio_filepath.setter
+    def audio_filepath(self, value):
+        turn = self._first_audio_turn()
+        if turn:
+            turn.value = value
 
     @property
-    def answer(self) -> str:
-        """Alias for answer"""
-        if self.turns[1].turn_type == "text":
-            return self.turns[1].value
-        elif self.turns[2].turn_type == "text":
-            return self.turns[2].value
-        return None
+    def duration(self):
+        turn = self._first_audio_turn()
+        return turn.duration if turn else None
+
+    @duration.setter
+    def duration(self, value):
+        turn = self._first_audio_turn()
+        if turn:
+            turn.duration = value
 
     @property
-    def text(self) -> str:
-        """Alias for text"""
-        return self.answer
+    def offset(self):
+        turn = self._first_audio_turn()
+        return turn.offset if turn else None
+
+    @offset.setter
+    def offset(self, value):
+        turn = self._first_audio_turn()
+        if turn:
+            turn.offset = value
+
+    @property
+    def context(self):
+        turn = self._context_turn()
+        return turn.value if turn else None
+
+    @context.setter
+    def context(self, value):
+        turn = self._context_turn()
+        if turn:
+            turn.value = value
+
+    @property
+    def text(self):
+        turn = self._text_turn()
+        return turn.value if turn else None
+
+    @text.setter
+    def text(self, value):
+        turn = self._text_turn()
+        if turn:
+            turn.value = value
 
     def to_json(self, data_type="multiturn") -> dict:
         """Convert to json"""
-        
+
         row_data = vars(self).copy()
 
         if data_type == "asr":
-            row_data["audio_filepath"] = self.turns[0].value
-            row_data["duration"] = self.turns[0].duration
-            row_data["offset"] = self.turns[0].offset
-            row_data["text"] = self.turns[1].value
+            row_data["audio_filepath"] = self.audio_filepath
+            row_data["duration"] = self.duration
+            row_data["offset"] = self.offset
+            row_data["text"] = self.text
 
         elif data_type == "multiturn":
             row_data["conversations"] = [t.to_json() for t in self.turns]
@@ -162,6 +343,14 @@ class NemoDatasetRow:
             turns_json = json_row["conversations"]
             turns = [NemoTurn.from_json(t) for t in turns_json]
 
+        # Collect custom_metadata: explicit field or any key not part of the standard fields
+        standard_keys = {"id", "utt_id", "dataset_name", "conversations", "speaker", "language", "split",
+                         "audio_filepath", "duration", "offset", "text", "custom_metadata"}
+        custom_metadata = json_row.get("custom_metadata", {})
+        extra_fields = {k: v for k, v in json_row.items() if k not in standard_keys}
+        if extra_fields:
+            custom_metadata.update(extra_fields)
+
         return cls(
             id=json_row.get("id", json_row.get("utt_id")),
             dataset_name=json_row.get("dataset_name", dataset_name),
@@ -169,6 +358,7 @@ class NemoDatasetRow:
             speaker=json_row.get("speaker"),
             language=json_row.get("language"),
             split=json_row.get("split"),
+            custom_metadata=custom_metadata if custom_metadata else None,
         )
 
 
@@ -186,7 +376,7 @@ class NemoDataset:
 
     def __init__(self, name=None, log_folder=None):
         self.name = name
-        self.log_folder = Path(log_folder) if log_folder else "nemo_data_processing"
+        self.log_folder = Path(log_folder) if log_folder else Path("nemo_data_processing")
         self.dataset = list()
         self.splits = set()
     
@@ -211,12 +401,8 @@ class NemoDataset:
     def __getitem__(self, index) -> NemoDatasetRow:
         return self.dataset[index]
 
-    def __next__(self):
-        for row in self.dataset:
-            yield row
-
     def __iter__(self) -> Iterator["NemoDatasetRow"]:
-        return self.__next__()
+        return iter(self.dataset)
 
     def extend(self, dataset):
         """
@@ -251,6 +437,25 @@ class NemoDataset:
         if not isinstance(row, NemoDatasetRow):
             row = NemoDatasetRow(**row)
         self.dataset.append(row)
+
+    def filter(self, predicate):
+        """Filter the dataset in-place, keeping only rows where predicate(row) is True.
+
+        Args:
+            predicate: a callable that takes a NemoDatasetRow and returns True to keep it.
+
+        Returns:
+            list: the removed rows.
+        """
+        kept = []
+        removed = []
+        for row in self.dataset:
+            if predicate(row):
+                kept.append(row)
+            else:
+                removed.append(row)
+        self.dataset = kept
+        return removed
 
     def kaldi_to_nemo(self, kaldi_dataset):
         for row in tqdm(kaldi_dataset, desc="Converting kaldi to nemo"):
@@ -399,6 +604,16 @@ class NemoDataset:
             elif force_set_context:
                 row.turns[0] = new_turn
     
+    def update_audio_paths(self, old_prefix, new_prefix):
+        """Replace old_prefix with new_prefix in all audio turn values. Returns count of changes."""
+        count = 0
+        for row in self:
+            for turn in row.get_audio_turns():
+                if old_prefix in turn.value:
+                    turn.value = turn.value.replace(old_prefix, new_prefix)
+                    count += 1
+        return count
+
     def extract_one_segment_per_audio(
         self,
         output_wavs_folder,
@@ -446,8 +661,7 @@ class NemoDataset:
                     new_path = new_folder / new_name
             else:
                 raise ValueError("New folder must be specified for audio conversion")
-            # if not new_path.exists():
-            if True:
+            if not new_path.exists():
                 if not audio_path.exists():
                     raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
                 duration = turn.duration
@@ -535,8 +749,8 @@ class NemoDataset:
         if len(updated_audio_paths) > 0:
             for row in self.dataset:
                 for turn in row.turns:
-                    if turn.turn_type=="audio":
-                        turn.value = updated_audio_paths.get(row.audio_filepath, row.audio_filepath)
+                    if turn.turn_type == "audio":
+                        turn.value = updated_audio_paths.get(turn.value, turn.value)
         if errors:
             new_dataset = []
             removed_lines = []
