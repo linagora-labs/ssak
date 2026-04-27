@@ -11,17 +11,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def update_paths(manifest_files, old_prefix, new_prefix):
-    """Replace old_prefix with new_prefix in audio paths across manifests."""
-    for mf in manifest_files:
-        dataset = NemoDataset()
-        data_type = dataset.load(str(mf))
-        count = dataset.update_audio_paths(old_prefix, new_prefix)
-        if count > 0:
-            dataset.save(str(mf), data_type=data_type)
-            logger.info(f"Updated {count} audio path(s) in {mf}")
-
-
 def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_run=False, max_samples=None):
     """Rsync audio files referenced in manifests to destination."""
     audio_paths = set()
@@ -150,24 +139,21 @@ def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_r
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Rsync audio files / manifests and/or update audio paths in NeMo manifests",
+        description="Rsync audio files and/or manifest JSONL files referenced in NeMo manifests.",
         epilog="""Examples:
-  # Pure path update:
-  %(prog)s manifests/ --update-paths --old-prefix /old/path --new-prefix /new/path
+  # Rsync audios referenced in manifests:
+  %(prog)s manifests/ --rsync-audios /dest --relative-to /data/raw
 
-  # Rsync audios + update paths:
-  %(prog)s manifests/ --rsync-audios /dest --relative-to /data/raw --update-paths --old-prefix /old --new-prefix /new
-
-  # Rsync manifest files + update paths:
-  %(prog)s ds1.jsonl ds2.jsonl --rsync-manifests /local/data --rsync-source user@host:/data --old-prefix /remote/audio --new-prefix /local/audio
+  # Rsync manifest files from a remote machine:
+  %(prog)s ds1.jsonl ds2.jsonl --rsync-manifests /local/data --rsync-source user@host:/data
 
   # Rsync manifests AND their referenced audios from a remote machine:
-  # (--old-prefix/--new-prefix inferred from --relative-to and --rsync-audios)
-  %(prog)s nemo/asr/train.jsonl nemo/asr/test.jsonl --rsync-manifests /local/data --rsync-audios /local/data --rsync-source user@host:/data --relative-to /data/audio --update-paths
+  %(prog)s nemo/asr/train.jsonl nemo/asr/test.jsonl --rsync-manifests /local/data --rsync-audios /local/data --rsync-source user@host:/data --relative-to /data/audio
 
-  # Push a local dataset folder to a remote machine (local -> remote).
-  # --rsync-manifests / --rsync-audios are roots; --relative-to controls the layout under them.
+  # Push a local dataset folder to a remote machine (local -> remote):
   %(prog)s /data/audio/nemo/asr/MyDataset --rsync-manifests host:/lustre/audio/ --rsync-audios host:/lustre/audio/ --relative-to /data/audio/ --dry-run
+
+  # To update audio paths inside manifests after rsyncing, use tools/nemo/update_paths.py
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -176,11 +162,6 @@ if __name__ == "__main__":
     action = parser.add_argument_group("Actions (at least one required)")
     action.add_argument("--rsync-audios", metavar="DEST", help="Rsync audio files referenced in manifests to this destination")
     action.add_argument("--rsync-manifests", metavar="DEST", help="Rsync manifest JSONL files to this destination")
-    action.add_argument("--update-paths", action="store_true", help="Update audio paths in manifests (requires --old-prefix and --new-prefix)")
-
-    paths = parser.add_argument_group("Path replacement")
-    paths.add_argument("--old-prefix", help="String to find in audio paths")
-    paths.add_argument("--new-prefix", help="String to replace with")
 
     rsync_opts = parser.add_argument_group("Rsync options")
     rsync_opts.add_argument("--rsync-source", default="/", help="Rsync source prefix (default: /)")
@@ -194,28 +175,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.update_paths and args.relative_to and args.rsync_audios:
-        if not args.old_prefix:
-            args.old_prefix = args.relative_to.rstrip("/") + "/"
-            logger.info(f"Inferred --old-prefix from --relative-to: {args.old_prefix}")
-        if not args.new_prefix:
-            args.new_prefix = args.rsync_audios.rstrip("/") + "/"
-            logger.info(f"Inferred --new-prefix from --rsync-audios: {args.new_prefix}")
-
-    has_path_update = args.update_paths and args.old_prefix and args.new_prefix
-
-    if not args.rsync_audios and not args.rsync_manifests and not (args.old_prefix and args.new_prefix):
-        parser.error("Specify at least one action: --rsync-audios, --rsync-manifests, or --old-prefix/--new-prefix")
-    if args.update_paths and not (args.old_prefix and args.new_prefix):
-        parser.error("--update-paths requires --old-prefix and --new-prefix (or --relative-to + --rsync-audios to infer them)")
-
-    remote_dest = False
-    if args.rsync_manifests and ":" in args.rsync_manifests:
-        remote_dest = True
-    if args.rsync_audios and ":" in args.rsync_audios:
-        remote_dest = True
-    if has_path_update and remote_dest:
-        parser.error("--update-paths cannot be used when rsyncing to a remote destination (manifests won't be local). Run --update-paths on the destination machine instead.")
+    if not args.rsync_audios and not args.rsync_manifests:
+        parser.error("Specify at least one action: --rsync-audios or --rsync-manifests")
 
     local_manifests = None
     if args.rsync_manifests:
@@ -234,19 +195,10 @@ if __name__ == "__main__":
         else:
             manifest_files = resolve_manifest_paths(args.inputs, pattern=args.pattern, recursive=args.recursive)
         if manifest_files:
-            processed = rsync_audios(
+            rsync_audios(
                 manifest_files, args.rsync_audios,
                 source=args.rsync_source, relative_to=args.relative_to,
                 dry_run=args.dry_run, max_samples=args.max_samples,
             )
-            local_manifests = processed
-
-    if has_path_update and not args.dry_run:
-        if local_manifests is not None:
-            manifest_files = local_manifests
-        else:
-            manifest_files = resolve_manifest_paths(args.inputs, pattern=args.pattern, recursive=args.recursive)
-        if manifest_files:
-            update_paths(manifest_files, args.old_prefix, args.new_prefix)
 
     logger.info("Done")
