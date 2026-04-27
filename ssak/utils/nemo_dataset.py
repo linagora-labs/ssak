@@ -26,6 +26,23 @@ def _resolve_oc_env(path_str):
     return re.sub(r'\$\{oc\.env:([^}]+)\}', replacer, path_str)
 
 
+_NEMO_RANGE_RE = re.compile(r'__OP_(\d+)\.\.(\d+)_CL_')
+
+
+def _expand_nemo_range(path_str):
+    """Expand a NeMo shard glob like 'prefix__OP_0..N_CL_.jsonl' into concrete shard paths.
+
+    The shard naming convention (see shard_manifest.py) is '{stem}_{i}.jsonl', so the
+    '__OP_N..M_CL_' segment is replaced with '_{i}' for each i in [N, M].
+    Returns the original string in a list if no pattern is present.
+    """
+    m = _NEMO_RANGE_RE.search(path_str)
+    if not m:
+        return [path_str]
+    start, end = int(m.group(1)), int(m.group(2))
+    return [path_str[:m.start()] + f"_{i}" + path_str[m.end():] for i in range(start, end + 1)]
+
+
 def _extract_manifest_paths_from_yaml(cfg):
     """Recursively extract manifest_filepath values from a nested input_cfg structure."""
     paths = []
@@ -58,6 +75,17 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
             result.extend(resolve_manifest_paths(p, pattern=pattern, recursive=recursive))
         return sorted(set(result))
 
+    input_str = str(input_path)
+    if _NEMO_RANGE_RE.search(input_str):
+        resolved = []
+        for p in _expand_nemo_range(input_str):
+            pp = Path(p)
+            if pp.exists():
+                resolved.append(pp)
+            else:
+                logger.warning(f"Shard not found: {pp}")
+        return sorted(resolved)
+
     path = Path(input_path)
 
     if path.is_file() and path.suffix == ".jsonl":
@@ -72,11 +100,12 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
         for p in raw_paths:
             try:
                 resolved_str = _resolve_oc_env(p)
-                resolved_path = Path(resolved_str)
-                if resolved_path.exists():
-                    resolved.append(resolved_path)
-                else:
-                    logger.warning(f"Manifest not found: {resolved_str}")
+                for expanded in _expand_nemo_range(resolved_str):
+                    expanded_path = Path(expanded)
+                    if expanded_path.exists():
+                        resolved.append(expanded_path)
+                    else:
+                        logger.warning(f"Manifest not found: {expanded}")
             except ValueError as e:
                 logger.warning(str(e))
         return sorted(resolved)

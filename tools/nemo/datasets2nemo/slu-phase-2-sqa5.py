@@ -14,9 +14,12 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 MANIFEST_PATH = Path("/data-server/datasets/audio/raw/misc/en/context/slu-phase-2-sqa5")
-AUDIO_PATH    = Path("/data-server/datasets/audio/raw/misc/en/slu-phase-2-sqa5/audios")
-DATASET_NAME  = "slue-phase-2 - SQA5"
-SPLITS        = ["train", "validation", "test", "verified_test"]
+MANIFEST_PATH_AUDIOQ_TEXTC = Path("/data-server/datasets/audio/nemo/question-answering/qa_audio-question-text-context/en/slu-phase-2-sqa5")
+MANIFEST_PATH_AUDIOQ_AUDIOC = Path("/data-server/datasets/audio/nemo/question-answering/qa_audio-question-audio-context/en/slu-phase-2-sqa5")
+MANIFEST_PATH_TEXTQ_AUDIOC = Path("/data-server/datasets/audio/nemo/question-answering/qa_audio-context-text-question/en/slu-phase-2-sqa5")
+AUDIO_PATH = Path("/data-server/datasets/audio/raw/misc/en/slu-phase-2-sqa5/audios")
+DATASET_NAME = "slue-phase-2 - SQA5"
+SPLITS = ["train", "validation", "test", "verified_test"]
 
 
 def sanitize(s: str) -> str:
@@ -52,7 +55,8 @@ def recover_cased_answer(answer_spans: dict, word2time: dict) -> str:
         cased = " ".join(
             w for w, s in zip(words[i0:i1 + 1], starts[i0:i1 + 1]) if s != -1
         )
-        if cased and cased.lower() == answer.lower():
+        norm = lambda s: re.sub(r"[^\w]", "", s).lower()
+        if cased and norm(cased) == norm(answer):
             return cased
         logger.warning(f"Casing recovery mismatch: {cased!r} vs {answer!r}")
     except (StopIteration, KeyError, IndexError):
@@ -75,10 +79,13 @@ def main():
                         help="HF datasets cache dir (reuses files already downloaded via load_dataset).")
     parser.add_argument("--from-disk", type=str, default=None,
                         help="Path to a dataset saved via save_to_disk (takes precedence over --cache-dir).")
+    parser.add_argument("--force", action="store_true",
+                        help="Overwrite existing manifest .jsonl files instead of skipping them.")
     args = parser.parse_args()
 
     AUDIO_PATH.mkdir(parents=True, exist_ok=True)
-    MANIFEST_PATH.mkdir(parents=True, exist_ok=True)
+    for p in (MANIFEST_PATH, MANIFEST_PATH_AUDIOQ_TEXTC, MANIFEST_PATH_AUDIOQ_AUDIOC, MANIFEST_PATH_TEXTQ_AUDIOC):
+        p.mkdir(parents=True, exist_ok=True)
 
     ds = load_source_dataset(args.cache_dir, args.from_disk)
 
@@ -86,15 +93,26 @@ def main():
         if split not in ds:
             logger.info(f"Split {split!r} not in dataset, skipping")
             continue
-        manifest_file = MANIFEST_PATH / f"{split}.jsonl"
-        if manifest_file.exists():
-            logger.info(f"[{split}] manifest already exists, skipping: {manifest_file}")
+
+        targets = {
+            "full":           MANIFEST_PATH               / f"{split}.jsonl",
+            "audioQ_textC":   MANIFEST_PATH_AUDIOQ_TEXTC  / f"{split}.jsonl",
+            "audioQ_audioC":  MANIFEST_PATH_AUDIOQ_AUDIOC / f"{split}.jsonl",
+            "textQ_audioC":   MANIFEST_PATH_TEXTQ_AUDIOC  / f"{split}.jsonl",
+        }
+        pending = {k: v for k, v in targets.items() if args.force or not v.exists()}
+        if not pending:
+            logger.info(f"[{split}] all manifests already exist, skipping")
             continue
+        for k, v in targets.items():
+            if k not in pending:
+                logger.info(f"[{split}] {k} already exists, will skip save: {v}")
 
         subset = ds[split]
         logger.info(f"[{split}] total={len(subset)}")
 
-        out = NemoDataset(name=DATASET_NAME)
+        outs = {k: NemoDataset(name=DATASET_NAME) for k in pending}
+
         for row in tqdm(subset, desc=split):
             uid = f"{row['question_id']}-{row['question_speaker_id']}-{row['document_speaker_id']}"
 
@@ -108,36 +126,72 @@ def main():
             )
             answer = recover_cased_answer(row["answer_spans"], row.get("word2time") or {})
 
-            out.append(NemoDatasetRow(
-                id=uid,
-                dataset_name=DATASET_NAME,
-                split=split,
-                language="en",
-                turns=[
-                    NemoTurn(role="User",      value=row["raw_question_text"],  turn_type="text"),
-                    NemoTurn(role="User",      value=str(doc_audio["path"]),    turn_type="audio",
-                             duration=round(doc_audio["duration"], 3)),
-                    NemoTurn(role="Assistant", value=answer,                    turn_type="text"),
-                ],
-                custom_metadata={
-                    "question_id":              row["question_id"],
-                    "document_id":              row["document_id"],
-                    "question-source":          row["question_id"].split("-")[0],
-                    "question_speaker_id":      row["question_speaker_id"],
-                    "document_speaker_id":      row["document_speaker_id"],
-                    "raw_question_text":        row["raw_question_text"],
-                    "normalized_question_text": row.get("normalized_question_text"),
-                    "raw_document_text":        row.get("raw_document_text"),
-                    "normalized_document_text": row.get("normalized_document_text"),
-                    "question_audio_filepath":  str(q_audio["path"]),
-                    "question_audio_duration":  round(q_audio["duration"], 3),
-                    "answer_spans":             {k: list(v) for k, v in row["answer_spans"].items()},
-                    "word2time":                {k: list(v) for k, v in (row.get("word2time") or {}).items()},
-                },
-            ))
+            doc_audio_turn = NemoTurn(role="User", value=str(doc_audio["path"]), turn_type="audio",
+                                      duration=round(doc_audio["duration"], 3))
+            q_audio_turn   = NemoTurn(role="User", value=str(q_audio["path"]),   turn_type="audio",
+                                      duration=round(q_audio["duration"], 3))
+            q_text_turn    = NemoTurn(role="User",      value=row["raw_question_text"], turn_type="text")
+            answer_turn    = NemoTurn(role="Assistant", value=answer,                    turn_type="text")
 
-        out.save(manifest_file)
-        logger.info(f"[{split}] wrote {len(out)} rows → {manifest_file}")
+            if "full" in outs:
+                outs["full"].append(NemoDatasetRow(
+                    id=uid,
+                    dataset_name=DATASET_NAME,
+                    split=split,
+                    language="en",
+                    turns=[q_text_turn, doc_audio_turn, answer_turn],
+                    custom_metadata={
+                        "question_id":              row["question_id"],
+                        "document_id":              row["document_id"],
+                        "question-source":          row["question_id"].split("-")[0],
+                        "question_speaker_id":      row["question_speaker_id"],
+                        "document_speaker_id":      row["document_speaker_id"],
+                        "raw_question_text":        row["raw_question_text"],
+                        "normalized_question_text": row.get("normalized_question_text"),
+                        "raw_document_text":        row.get("raw_document_text"),
+                        "normalized_document_text": row.get("normalized_document_text"),
+                        "question_audio_filepath":  str(q_audio["path"]),
+                        "question_audio_duration":  round(q_audio["duration"], 3),
+                        "answer_spans":             {k: list(v) for k, v in row["answer_spans"].items()},
+                        "word2time":                {k: list(v) for k, v in (row.get("word2time") or {}).items()},
+                    },
+                ))
+
+            if "audioQ_textC" in outs:
+                outs["audioQ_textC"].append(NemoDatasetRow(
+                    id=uid,
+                    dataset_name=DATASET_NAME,
+                    split=split,
+                    language="en",
+                    turns=[
+                        q_audio_turn,
+                        NemoTurn(role="User", value=row.get("raw_document_text"), turn_type="text"),
+                        answer_turn,
+                    ],
+                ))
+
+            if "audioQ_audioC" in outs:
+                outs["audioQ_audioC"].append(NemoDatasetRow(
+                    id=uid,
+                    dataset_name=DATASET_NAME,
+                    split=split,
+                    language="en",
+                    turns=[q_audio_turn, doc_audio_turn, answer_turn],
+                ))
+
+            if "textQ_audioC" in outs:
+                outs["textQ_audioC"].append(NemoDatasetRow(
+                    id=uid,
+                    dataset_name=DATASET_NAME,
+                    split=split,
+                    language="en",
+                    turns=[q_text_turn, doc_audio_turn, answer_turn],
+                ))
+
+        for key, out in outs.items():
+            manifest_file = targets[key]
+            out.save(manifest_file)
+            logger.info(f"[{split}] {key}: wrote {len(out)} rows → {manifest_file}")
 
 
 if __name__ == "__main__":
