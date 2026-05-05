@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(TqdmHandler())
 
-STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "invalid_field", "wrong_last_turn", "long_text", "ok")
+STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "wrong_channels", "wrong_sample_rate", "invalid_field", "wrong_last_turn", "long_text", "ok")
+
+EXPECTED_SAMPLE_RATE = 16000
+EXPECTED_CHANNELS = 1
 
 
 def empty_stats():
@@ -180,7 +183,8 @@ def _iter_rows(manifest_path, num_rows, label=None):
                 logger.warning(f"{label} line {i+1} ({line}): could not parse JSON: {e}")
 
 
-def check_manifest(manifest_path, num_rows=None, check_metadata=False,
+def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
+                   disable_channel_check=False, disable_rate_check=False,
                    duration_tolerance=0.5, num_threads=1, label=None,
                    max_text_length=None):
     manifest_path = Path(manifest_path)
@@ -204,18 +208,21 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
     stats["total"] = total
 
     # Pass 2: Probe unique audio files → metadata cache
-    if check_metadata:
-        probe_fn, probe_desc = probe_file, f"Probing {label}"
+    if disable_audio_check:
+        file_info = {}
     else:
-        probe_fn = lambda p: (p, {"status": "ok"} if Path(p).exists() else {"status": "missing"})
-        probe_desc = f"Checking {label}"
-    file_info = {p: info for p, info in parallel_map(probe_fn, list(unique_paths), num_threads, probe_desc)}
+        file_info = {p: info for p, info in parallel_map(
+            probe_file, list(unique_paths), num_threads, f"Probing {label}"
+        )}
 
     # Pass 3: Check each row's audio entries against file_info, collect bad rows
     bad_rows = []
     for row, audio_entries, row_errors in row_infos:
         row_error_types = set(row_errors)
         for path, expected_dur, expected_offset in audio_entries:
+            if disable_audio_check:
+                stats["ok"] += 1
+                continue
             info = file_info[path]
             if info["status"] != "ok":
                 stats[info["status"]] += 1
@@ -224,9 +231,10 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
                     err_entry["error"] = info["error"]
                 stats["errors"].append(err_entry)
                 row_error_types.add(info["status"])
-            elif not check_metadata:
-                stats["ok"] += 1
-            elif expected_offset is not None:
+                continue
+
+            entry_ok = True
+            if expected_offset is not None:
                 offset = expected_offset
                 if (offset + (expected_dur or 0)) > info["duration"] + duration_tolerance:
                     segment_end = offset + (expected_dur or 0)
@@ -237,8 +245,7 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
                         "actual": round(info["duration"], 3),
                     })
                     row_error_types.add("segment_out_of_bounds")
-                else:
-                    stats["ok"] += 1
+                    entry_ok = False
             elif expected_dur is not None and expected_dur > info["duration"] + duration_tolerance:
                 stats["duration_mismatch"] += 1
                 stats["errors"].append({
@@ -246,7 +253,27 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
                     "expected": expected_dur, "actual": round(info["duration"], 3),
                 })
                 row_error_types.add("duration_mismatch")
-            else:
+                entry_ok = False
+
+            if not disable_channel_check and info.get("channels") != EXPECTED_CHANNELS:
+                stats["wrong_channels"] += 1
+                stats["errors"].append({
+                    "status": "wrong_channels", "path": path,
+                    "expected": EXPECTED_CHANNELS, "actual": info.get("channels"),
+                })
+                row_error_types.add("wrong_channels")
+                entry_ok = False
+
+            if not disable_rate_check and info.get("sample_rate") != EXPECTED_SAMPLE_RATE:
+                stats["wrong_sample_rate"] += 1
+                stats["errors"].append({
+                    "status": "wrong_sample_rate", "path": path,
+                    "expected": EXPECTED_SAMPLE_RATE, "actual": info.get("sample_rate"),
+                })
+                row_error_types.add("wrong_sample_rate")
+                entry_ok = False
+
+            if entry_ok:
                 stats["ok"] += 1
 
         if row_error_types:
@@ -263,18 +290,23 @@ def check_manifest(manifest_path, num_rows=None, check_metadata=False,
     if stats["long_text"]:
         extra += f", {stats['long_text']} long texts"
 
-    if check_metadata:
+    if disable_audio_check:
         logger.info(
+            f"{label}: {stats['total']} audio refs ({len(unique_paths)} unique) — "
+            f"audio checks disabled{extra}"
+        )
+    else:
+        msg = (
             f"{label}: {stats['total']} audio refs ({len(unique_paths)} unique) — "
             f"{stats['missing']} missing, {stats['unreadable']} unreadable, "
             f"{stats['duration_mismatch']} duration mismatches, "
-            f"{stats['segment_out_of_bounds']} segments OOB{extra}"
+            f"{stats['segment_out_of_bounds']} segments OOB"
         )
-    else:
-        logger.info(
-            f"{label}: {stats['total']} audio refs ({len(unique_paths)} unique) — "
-            f"{stats['missing']} missing{extra}"
-        )
+        if not disable_channel_check:
+            msg += f", {stats['wrong_channels']} wrong channels"
+        if not disable_rate_check:
+            msg += f", {stats['wrong_sample_rate']} wrong sample rate"
+        logger.info(msg + extra)
     return stats
 
 
@@ -314,6 +346,8 @@ ERROR_FMT = {
     "unreadable": lambda e: f"  UNREADABLE: {e['path']} ({e.get('error', '')})",
     "duration_mismatch": lambda e: f"  DURATION MISMATCH: {e['path']} (expected={e['expected']}s, actual={e['actual']}s)",
     "segment_out_of_bounds": lambda e: f"  SEGMENT OOB: {e['path']} (segment_end={e['expected']}, file_duration={e['actual']}s)",
+    "wrong_channels": lambda e: f"  WRONG CHANNELS: {e['path']} (expected={e['expected']}, actual={e['actual']})",
+    "wrong_sample_rate": lambda e: f"  WRONG SAMPLE RATE: {e['path']} (expected={e['expected']}, actual={e['actual']})",
     "long_text": lambda e: f"  LONG TEXT: {e['path']} (length={e['actual']}, expected {e['expected']})",
 
 }
@@ -328,6 +362,7 @@ def print_summary(overall):
     print(f"OK:                   {overall['ok']}")
     for key, label in [("missing", "Missing files"), ("unreadable", "Unreadable files"),
                        ("duration_mismatch", "Duration mismatches"), ("segment_out_of_bounds", "Segments OOB"),
+                       ("wrong_channels", "Wrong channels"), ("wrong_sample_rate", "Wrong sample rate"),
                        ("invalid_field", "Invalid fields"),
                        ("wrong_last_turn", "Wrong last turn"),
                        ("long_text", "Long texts")]:
@@ -348,15 +383,20 @@ def print_summary(overall):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Check audio files referenced in NeMo YAML training configs or JSONL manifests.\n\n"
-                    "By default, checks all rows.\n"
-                    "  --rows             Check only 1 row\n"
-                    "  --rows N           Check N rows\n"
-                    "  --check_metadata   Also validate readability + duration/offset",
+                    "By default, checks all rows and validates audio (existence, readability,\n"
+                    "duration/offset, mono channel, 16kHz sample rate).\n"
+                    "  --rows                    Check only 1 row\n"
+                    "  --rows N                  Check N rows\n"
+                    "  --disable_audio_check     Skip all audio file checks\n"
+                    "  --disable_channel_check   Skip mono-channel check\n"
+                    "  --disable_rate_check      Skip 16kHz sample-rate check",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("input_paths", nargs="+", help="YAML configs, JSONL manifests, or directories.")
     parser.add_argument("--rows", nargs="?", const=1, type=int, default=None, help="Limit rows to check. No flag = all rows, --rows = 1 row, --rows N = N rows.")
-    parser.add_argument("--check_metadata", action="store_true", default=False, help="Validate readability and duration/offset.")
+    parser.add_argument("--disable_audio_check", action="store_true", default=False, help="Disable all audio file checks (existence, readability, duration, channels, sample rate).")
+    parser.add_argument("--disable_channel_check", action="store_true", default=False, help=f"Disable check that audio files are mono ({EXPECTED_CHANNELS} channel).")
+    parser.add_argument("--disable_rate_check", action="store_true", default=False, help=f"Disable check that audio files have sample rate {EXPECTED_SAMPLE_RATE} Hz.")
     parser.add_argument("--recursive", action="store_true", default=False, help="Recursively search directories for JSONL files.")
     parser.add_argument("--duration_tolerance", type=float, default=0.5, help="Tolerance in seconds for duration checks (default: 0.5).")
     parser.add_argument("--num_threads", type=int, default=1, help="Number of threads for parallel checking.")
@@ -367,7 +407,9 @@ if __name__ == "__main__":
 
     check_kwargs = dict(
         num_rows=args.rows,
-        check_metadata=args.check_metadata,
+        disable_audio_check=args.disable_audio_check,
+        disable_channel_check=args.disable_channel_check,
+        disable_rate_check=args.disable_rate_check,
         duration_tolerance=args.duration_tolerance,
         num_threads=args.num_threads,
         max_text_length=args.max_text_length,
