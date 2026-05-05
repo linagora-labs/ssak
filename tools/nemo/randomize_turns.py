@@ -8,7 +8,6 @@ import random
 import re
 import signal
 import sys
-import tempfile
 
 
 def find_train_jsonl(root):
@@ -75,13 +74,12 @@ def process_file(filepath):
     seed = deterministic_seed(filepath)
     rng = random.Random(seed)
 
-    fd, tmppath = tempfile.mkstemp(
-        dir=os.path.dirname(outpath),
-        prefix=".tmp_randomorder_",
-        suffix=".jsonl",
+    tmppath = os.path.join(
+        os.path.dirname(outpath),
+        f".tmp_randomorder_{os.getpid()}_{os.path.basename(outpath)}",
     )
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as out, open(
+        with open(tmppath, "w", encoding="utf-8") as out, open(
             filepath, encoding="utf-8"
         ) as inp:
             for line in inp:
@@ -94,6 +92,11 @@ def process_file(filepath):
                         entry["conversations"], rng
                     )
                 out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        try:
+            src_gid = os.stat(filepath).st_gid
+            os.chown(tmppath, -1, src_gid)
+        except (OSError, PermissionError):
+            pass
         os.replace(tmppath, outpath)
         return True
     except BaseException:
