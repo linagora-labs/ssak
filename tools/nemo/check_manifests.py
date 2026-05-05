@@ -31,6 +31,10 @@ def empty_stats():
     return {k: 0 for k in STAT_KEYS} | {"errors": []}
 
 
+def total_errors(stats):
+    return sum(stats[k] for k in STAT_KEYS if k not in ("total", "ok"))
+
+
 def empty_overall():
     return empty_stats() | {"manifests_checked": 0, "manifests_missing": 0}
 
@@ -186,18 +190,22 @@ def _iter_rows(manifest_path, num_rows, label=None):
 def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
                    disable_channel_check=False, disable_rate_check=False,
                    duration_tolerance=0.5, num_threads=1, label=None,
-                   max_text_length=None):
+                   max_text_length=None, max_errors=10):
     manifest_path = Path(manifest_path)
     label = label or str(manifest_path)
     if not manifest_path.exists():
         logger.error(f"Manifest not found: {label}")
         return empty_stats()
 
+    def hit_error_limit():
+        return max_errors and max_errors > 0 and total_errors(stats) >= max_errors
+
     # Pass 1: Read rows, row-level checks, collect unique audio paths
     stats = empty_stats()
     row_infos = []  # (row_dict, audio_entries, row_errors)
     unique_paths = set()
     total = 0
+    stopped_early = False
     for row in _iter_rows(manifest_path, num_rows, label):
         row_errors = check_row(row, stats, max_text_length=max_text_length)
         audio_entries = extract_audio_entries(row)
@@ -205,6 +213,10 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
             unique_paths.add(path)
             total += 1
         row_infos.append((row, audio_entries, row_errors))
+        if hit_error_limit():
+            logger.warning(f"{label}: reached --max_errors={max_errors}, stopping checks for this manifest")
+            stopped_early = True
+            break
     stats["total"] = total
 
     # Pass 2: Probe unique audio files → metadata cache
@@ -218,6 +230,11 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
     # Pass 3: Check each row's audio entries against file_info, collect bad rows
     bad_rows = []
     for row, audio_entries, row_errors in row_infos:
+        if hit_error_limit():
+            if not stopped_early:
+                logger.warning(f"{label}: reached --max_errors={max_errors}, stopping checks for this manifest")
+                stopped_early = True
+            break
         row_error_types = set(row_errors)
         for path, expected_dur, expected_offset in audio_entries:
             if disable_audio_check:
@@ -402,6 +419,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_threads", type=int, default=1, help="Number of threads for parallel checking.")
     parser.add_argument("--output_errors", type=str, default=None, help="Write problematic rows to this JSONL file.")
     parser.add_argument("--max_text_length", type=int, default=5000, help="Flag rows whose text exceeds this many characters (default: 5000). Set to 0 to disable. Checks `text` for ASR rows and text-type turns in conversations.")
+    parser.add_argument("--max_errors", type=int, default=10, help="Stop checking a manifest once this many errors have been found (default: 10). Set to 0 to disable.")
 
     args = parser.parse_args()
 
@@ -413,6 +431,7 @@ if __name__ == "__main__":
         duration_tolerance=args.duration_tolerance,
         num_threads=args.num_threads,
         max_text_length=args.max_text_length,
+        max_errors=args.max_errors,
     )
 
     combined = empty_overall()
