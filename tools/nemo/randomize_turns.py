@@ -14,7 +14,9 @@ def find_train_jsonl(root):
     """Find all train*jsonl files under root, skipping paths containing 'nocontext'."""
     results = []
     for dirpath, dirnames, filenames in os.walk(root):
-        if "/nocontext/" in dirpath + "/" or "/Nvidia/" in dirpath + "/" or "/old/" in dirpath + "/" or "Multitask-National-Speech-Corpus" in dirpath:
+        if "/nocontext/" in dirpath + "/" or "/old/" in dirpath + "/" or "Multitask-National-Speech-Corpus" in dirpath:
+            continue
+        if dirpath.endswith("_shards") or "_shards_" in os.path.basename(dirpath):
             continue
         for f in filenames:
             if f.endswith("_orig.jsonl"):
@@ -133,8 +135,10 @@ def main():
     for filepath in files:
         outpath = output_path_for(filepath)
         if os.path.exists(outpath) and not args.overwrite:
-            skipped += 1
-            continue
+            if os.path.getmtime(outpath) >= os.path.getmtime(filepath):
+                skipped += 1
+                continue
+            print(f"STALE: {outpath} is older than {filepath}, regenerating")
         try:
             process_file(filepath)
             processed += 1
