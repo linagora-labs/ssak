@@ -51,7 +51,7 @@ def randomize_conversations(conversations, rng):
         if (
             a.get("from") == "User"
             and b.get("from") == "User"
-            and {a.get("type"), b.get("type")} == {"text", "audio"}
+            # and {a.get("type"), b.get("type")} == {"text", "audio"}
         ):
             if rng.random() < 0.5:
                 result[i], result[i + 1] = result[i + 1], result[i]
