@@ -52,17 +52,6 @@ def merge_overall(dst, src):
     dst["manifests_missing"] += src.get("manifests_missing", 0)
 
 
-def resolve_oc_env(path_str):
-    """Resolve ${oc.env:VAR_NAME} patterns using environment variables."""
-    def replacer(match):
-        var_name = match.group(1)
-        value = os.environ.get(var_name)
-        if value is None:
-            raise ValueError(f"Environment variable '{var_name}' is not set (needed for path: {path_str})")
-        return value
-    return re.sub(r'\$\{oc\.env:([^}]+)\}', replacer, path_str)
-
-
 def extract_manifest_paths(cfg):
     """Recursively extract all manifest_filepath values from a nested input_cfg structure."""
     paths = []

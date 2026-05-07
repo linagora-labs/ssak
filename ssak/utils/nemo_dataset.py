@@ -98,7 +98,7 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
         raw_paths = _extract_manifest_paths_from_yaml(cfg)
         resolved = []
         for p in raw_paths:
-            try:
+            # try:
                 resolved_str = _resolve_oc_env(p)
                 for expanded in _expand_nemo_range(resolved_str):
                     expanded_path = Path(expanded)
@@ -106,8 +106,8 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
                         resolved.append(expanded_path)
                     else:
                         logger.warning(f"Manifest not found: {expanded}")
-            except ValueError as e:
-                logger.warning(str(e))
+            # except ValueError as e:
+            #     logger.warning(str(e))
         return sorted(resolved)
 
     if path.is_dir():
