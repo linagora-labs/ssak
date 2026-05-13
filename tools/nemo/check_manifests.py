@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(TqdmHandler())
 
-STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "wrong_channels", "wrong_sample_rate", "invalid_field", "wrong_last_turn", "long_text", "ok")
+STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "wrong_channels", "wrong_sample_rate", "invalid_field", "wrong_last_turn", "long_text", "invalid_json", "ok")
 
 EXPECTED_SAMPLE_RATE = 16000
 EXPECTED_CHANNELS = 1
@@ -162,8 +162,9 @@ def probe_file(audio_path):
         return audio_path, {"status": "unreadable", "error": str(e)}
 
 
-def _iter_rows(manifest_path, num_rows, label=None):
-    """Yield parsed JSON rows from a manifest. num_rows=None means all rows."""
+def _iter_rows(manifest_path, num_rows, label=None, stats=None):
+    """Yield parsed JSON rows from a manifest. num_rows=None means all rows.
+    Stops at the first invalid JSON line, recording it as an error in stats."""
     label = label or manifest_path
     with open(manifest_path, "r", encoding="utf-8") as f:
         lines = itertools.islice(f, num_rows)
@@ -173,7 +174,14 @@ def _iter_rows(manifest_path, num_rows, label=None):
             try:
                 yield json.loads(line)
             except json.JSONDecodeError as e:
-                logger.warning(f"{label} line {i+1} ({line}): could not parse JSON: {e}")
+                logger.warning(f"{label} line {i+1} ({line.strip()}): could not parse JSON: {e}")
+                if stats is not None:
+                    stats["invalid_json"] += 1
+                    stats["errors"].append({
+                        "status": "invalid_json", "path": f"{label}:{i+1}",
+                        "error": str(e),
+                    })
+                return
 
 
 def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
@@ -195,7 +203,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
     unique_paths = set()
     total = 0
     stopped_early = False
-    for row in _iter_rows(manifest_path, num_rows, label):
+    for row in _iter_rows(manifest_path, num_rows, label, stats=stats):
         row_errors = check_row(row, stats, max_text_length=max_text_length)
         audio_entries = extract_audio_entries(row)
         for path, dur, offset in audio_entries:
@@ -355,6 +363,7 @@ ERROR_FMT = {
     "wrong_channels": lambda e: f"  WRONG CHANNELS: {e['path']} (expected={e['expected']}, actual={e['actual']})",
     "wrong_sample_rate": lambda e: f"  WRONG SAMPLE RATE: {e['path']} (expected={e['expected']}, actual={e['actual']})",
     "long_text": lambda e: f"  LONG TEXT: {e['path']} (length={e['actual']}, expected {e['expected']})",
+    "invalid_json": lambda e: f"  INVALID JSON: {e['path']} ({e.get('error', '')})",
 
 }
 
@@ -371,7 +380,8 @@ def print_summary(overall):
                        ("wrong_channels", "Wrong channels"), ("wrong_sample_rate", "Wrong sample rate"),
                        ("invalid_field", "Invalid fields"),
                        ("wrong_last_turn", "Wrong last turn"),
-                       ("long_text", "Long texts")]:
+                       ("long_text", "Long texts"),
+                       ("invalid_json", "Invalid JSON lines")]:
         if overall[key] > 0:
             print(f"{label + ':':22}{overall[key]}")
 
