@@ -49,6 +49,26 @@ def detect_subset(source_path: str) -> str | None:
     return None
 
 
+def detect_voxceleb_split(source_path: str) -> str | None:
+    """Return 'dev' or 'test' if path contains voxceleb{1,2}/{dev,test}/."""
+    parts = [p.lower() for p in Path(source_path).parts]
+    for i, p in enumerate(parts[:-1]):
+        if p in {"voxceleb1", "voxceleb2"} and parts[i + 1] in {"dev", "test"}:
+            return parts[i + 1]
+    return None
+
+
+def route_split(current_split: str, subset: str, source_path: str) -> str:
+    """Map a sample to its target FCaps split based on voxceleb's own dev/test layout."""
+    if subset in {"voxceleb1", "voxceleb2"}:
+        vox_split = detect_voxceleb_split(source_path)
+        if vox_split == "test":
+            return "test"
+        if vox_split == "dev":
+            return current_split if current_split == "dev" else "train"
+    return current_split
+
+
 def resolve_audio_path(source: str, input_root: Path) -> Path:
     """Resolve a Lhotse source path against the FCaps root (paths typically start with 'download/')."""
     p = Path(source)
@@ -72,32 +92,32 @@ CAPTION_FIELDS = ("global_captions", "finegrained_captions")
 def build_row(cut: dict, input_root: Path, caption_field: str):
     sources = cut.get("recording", {}).get("sources", [])
     if not sources:
-        return None, None
+        return None, None, None
     source = sources[0].get("source")
     if not source:
-        return None, None
+        return None, None, None
 
     subset = detect_subset(source)
     if subset is None or subset not in ALLOWED_SUBSETS:
-        return None, None
+        return None, None, None
 
     supervisions = cut.get("supervisions", [])
     if not supervisions:
-        return None, None
+        return None, None, None
     sup = supervisions[0]
     custom = sup.get("custom", {}) or {}
 
     captions = custom.get(caption_field) or []
     if not captions:
-        return None, None
+        return None, None, None
     caption = random.choice(captions) if len(captions) > 1 else captions[0]
     if not caption or not caption.strip():
-        return None, None
+        return None, None, None
 
     audio_path = resolve_audio_path(source, input_root)
     duration = cut.get("duration")
     if duration is None:
-        return None, None
+        return None, None, None
 
     offset = float(cut.get("start", 0.0) or 0.0)
 
@@ -130,20 +150,21 @@ def build_row(cut: dict, input_root: Path, caption_field: str):
         speaker=sup.get("speaker"),
         custom_metadata=metadata,
     )
-    return row, subset
+    return row, subset, source
 
 
-def process_split(jsonl_gz: Path, input_root: Path):
-    datasets = {field: NemoDataset() for field in CAPTION_FIELDS}
+def process_split(jsonl_gz: Path, input_root: Path, current_split: str, datasets):
+    """Append rows into datasets[target_split][field], routing voxceleb dev/test."""
     kept = {field: 0 for field in CAPTION_FIELDS}
     skipped = 0
     for idx, cut in enumerate(iter_jsonl_gz(jsonl_gz)):
         any_kept = False
         for field in CAPTION_FIELDS:
-            row, _subset = build_row(cut, input_root, field)
+            row, subset, source = build_row(cut, input_root, field)
             if row is None:
                 continue
-            datasets[field].append(row)
+            target_split = route_split(current_split, subset, source)
+            datasets[target_split][field].append(row)
             kept[field] += 1
             any_kept = True
         if not any_kept:
@@ -151,7 +172,6 @@ def process_split(jsonl_gz: Path, input_root: Path):
         if (idx + 1) % 10000 == 0:
             logger.info(f"  {jsonl_gz.name}: read {idx + 1}, kept {kept}, skipped {skipped}")
     logger.info(f"Done {jsonl_gz.name}: kept {kept}, skipped {skipped}")
-    return datasets
 
 
 if __name__ == "__main__":
@@ -180,18 +200,14 @@ if __name__ == "__main__":
     data_dir = input_root / "data"
 
     output_root = Path(args.output)
-    nocontext_out = output_root / "nocontext" / "FCaps"
-    context_out = output_root / "context" / "FCaps"
-    nocontext_out.mkdir(parents=True, exist_ok=True)
-    context_out.mkdir(parents=True, exist_ok=True)
 
     prompts_by_field = {
         "global_captions": GLOBAL_PROMPTS,
         "finegrained_captions": FINEGRAINED_PROMPTS,
     }
-    suffix_by_field = {
-        "global_captions": "",
-        "finegrained_captions": "_finegrained",
+    subfolder_by_field = {
+        "global_captions": "short_captions",
+        "finegrained_captions": "finegrained",
     }
 
     splits = {
@@ -200,20 +216,31 @@ if __name__ == "__main__":
         "test": data_dir / "fcaps-test.jsonl.gz",
     }
 
+    datasets = {
+        split_name: {field: NemoDataset() for field in CAPTION_FIELDS}
+        for split_name in splits
+    }
+
     for split_name, jsonl_gz in splits.items():
         if not jsonl_gz.exists():
             logger.warning(f"Missing split file: {jsonl_gz} -- skipping {split_name}")
             continue
         logger.info(f"Processing split '{split_name}' from {jsonl_gz}")
-        datasets = process_split(jsonl_gz, input_root)
-        for field, dataset in datasets.items():
+        process_split(jsonl_gz, input_root, split_name, datasets)
+
+    for split_name, by_field in datasets.items():
+        for field, dataset in by_field.items():
             if len(dataset) == 0:
                 continue
-            suffix = suffix_by_field[field]
-            # dataset.save(nocontext_out / f"{split_name}{suffix}.jsonl")
+            subfolder = subfolder_by_field[field]
+            nocontext_out = output_root / "nocontext" / "FCaps" / subfolder
+            context_out = output_root / "context" / "FCaps" / subfolder
+            nocontext_out.mkdir(parents=True, exist_ok=True)
+            dataset.save(nocontext_out / f"{split_name}.jsonl")
             if not args.no_context:
                 dataset.set_context_if_none(prompts_by_field[field])
-                # dataset.save(context_out / f"{split_name}{suffix}.jsonl")
-                print(dataset[0])
+                context_out.mkdir(parents=True, exist_ok=True)
+                dataset.save(context_out / f"{split_name}.jsonl")
+                print(split_name, field, len(dataset), dataset[0])
 
     logger.info("Done")
