@@ -139,10 +139,11 @@ def parallel_map(func, items, num_threads, desc):
     if num_threads > 1 and len(items) > 1:
         with ThreadPoolExecutor(max_workers=num_threads) as executor:
             futures = {executor.submit(func, item): item for item in items}
-            for future in tqdm(as_completed(futures), total=len(futures), desc=desc, leave=False):
+            for future in tqdm(as_completed(futures), total=len(futures), desc=desc, leave=False, position=1):
                 yield future.result()
     else:
-        yield from (func(item) for item in items)
+        for item in tqdm(items, desc=desc, leave=False, position=1):
+            yield func(item)
 
 
 def probe_file(audio_path):
@@ -162,6 +163,13 @@ def probe_file(audio_path):
         return audio_path, {"status": "unreadable", "error": str(e)}
 
 
+def probe_file_exists(audio_path):
+    """Existence-only check; no header read."""
+    if os.path.exists(audio_path):
+        return audio_path, {"status": "ok"}
+    return audio_path, {"status": "missing"}
+
+
 def _iter_rows(manifest_path, num_rows, label=None, stats=None):
     """Yield parsed JSON rows from a manifest. num_rows=None means all rows.
     Stops at the first invalid JSON line, recording it as an error in stats."""
@@ -169,7 +177,7 @@ def _iter_rows(manifest_path, num_rows, label=None, stats=None):
     with open(manifest_path, "r", encoding="utf-8") as f:
         lines = itertools.islice(f, num_rows)
         if num_rows is None:
-            lines = tqdm(f, desc=f"Reading {label}", leave=False)
+            lines = tqdm(f, desc=f"Reading {label}", leave=False, position=1)
         for i, line in enumerate(lines):
             try:
                 yield json.loads(line)
@@ -187,7 +195,7 @@ def _iter_rows(manifest_path, num_rows, label=None, stats=None):
 def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
                    disable_channel_check=False, disable_rate_check=False,
                    duration_tolerance=0.5, num_threads=1, label=None,
-                   max_text_length=None, max_errors=10):
+                   max_text_length=None, max_errors=10, existence_only=False):
     manifest_path = Path(manifest_path)
     label = label or str(manifest_path)
     if not manifest_path.exists():
@@ -220,8 +228,9 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
     if disable_audio_check:
         file_info = {}
     else:
+        probe_fn = probe_file_exists if existence_only else probe_file
         file_info = {p: info for p, info in parallel_map(
-            probe_file, list(unique_paths), num_threads, f"Probing {label}"
+            probe_fn, list(unique_paths), num_threads, f"Probing {label}"
         )}
 
     # Pass 3: Check each row's audio entries against file_info, collect bad rows
@@ -248,6 +257,9 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
                 continue
 
             entry_ok = True
+            if existence_only:
+                stats["ok"] += 1
+                continue
             if expected_offset is not None:
                 offset = expected_offset
                 if (offset + (expected_dur or 0)) > info["duration"] + duration_tolerance:
@@ -340,7 +352,7 @@ def process_path(path, recursive=False, **kwargs):
     base = os.path.commonpath(str_paths) if len(str_paths) > 1 else None
 
     overall = empty_overall()
-    pbar = tqdm(manifests, desc="Manifests", unit="file")
+    pbar = tqdm(manifests, desc="Manifests", unit="file", position=0)
     for mf in pbar:
         label = os.path.relpath(mf, base) if base else str(mf)
         pbar.set_postfix_str(label)
@@ -413,6 +425,7 @@ if __name__ == "__main__":
     parser.add_argument("--disable_audio_check", action="store_true", default=False, help="Disable all audio file checks (existence, readability, duration, channels, sample rate).")
     parser.add_argument("--disable_channel_check", action="store_true", default=False, help=f"Disable check that audio files are mono ({EXPECTED_CHANNELS} channel).")
     parser.add_argument("--disable_rate_check", action="store_true", default=False, help=f"Disable check that audio files have sample rate {EXPECTED_SAMPLE_RATE} Hz.")
+    parser.add_argument("--existence_only", action="store_true", default=False, help="Only check that audio files exist (os.path.exists); skip header read, duration/channel/rate checks. Much faster on slow disks.")
     parser.add_argument("--recursive", action="store_true", default=False, help="Recursively search directories for JSONL files.")
     parser.add_argument("--duration_tolerance", type=float, default=0.5, help="Tolerance in seconds for duration checks (default: 0.5).")
     parser.add_argument("--num_threads", type=int, default=1, help="Number of threads for parallel checking.")
@@ -431,6 +444,7 @@ if __name__ == "__main__":
         num_threads=args.num_threads,
         max_text_length=args.max_text_length,
         max_errors=args.max_errors,
+        existence_only=args.existence_only,
     )
 
     combined = empty_overall()
