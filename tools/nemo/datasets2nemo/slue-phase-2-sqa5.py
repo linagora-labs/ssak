@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -13,11 +14,6 @@ from ssak.utils.nemo_dataset import NemoDataset, NemoDatasetRow, NemoTurn
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-MANIFEST_PATH = Path("/data-server/datasets/audio/raw/misc/en/context/slu-phase-2-sqa5")
-MANIFEST_PATH_AUDIOQ_TEXTC = Path("/data-server/datasets/audio/nemo/question-answering/qa_audio-question-text-context/en/slu-phase-2-sqa5")
-MANIFEST_PATH_AUDIOQ_AUDIOC = Path("/data-server/datasets/audio/nemo/question-answering/qa_audio-question-audio-context/en/slu-phase-2-sqa5")
-MANIFEST_PATH_TEXTQ_AUDIOC = Path("/data-server/datasets/audio/nemo/question-answering/qa_audio-context-text-question/en/slu-phase-2-sqa5")
-AUDIO_PATH = Path("/data-server/datasets/audio/raw/misc/en/slu-phase-2-sqa5/audios")
 DATASET_NAME = "slue-phase-2 - SQA5"
 SPLITS = ["train", "validation", "test", "verified_test"]
 
@@ -81,7 +77,34 @@ def main():
                         help="Path to a dataset saved via save_to_disk (takes precedence over --cache-dir).")
     parser.add_argument("--force", action="store_true",
                         help="Overwrite existing manifest .jsonl files instead of skipping them.")
+    parser.add_argument("--manifest-path", type=str, default=None,
+                        help="Override raw manifest output folder.")
+    parser.add_argument("--manifest-audioq-textc", type=str, default=None,
+                        help="Override NeMo manifest folder for audio-question + text-context.")
+    parser.add_argument("--manifest-audioq-audioc", type=str, default=None,
+                        help="Override NeMo manifest folder for audio-question + audio-context.")
+    parser.add_argument("--manifest-textq-audioc", type=str, default=None,
+                        help="Override NeMo manifest folder for text-question + audio-context.")
+    parser.add_argument("--audio-path", type=str, default=None,
+                        help="Override raw audio output folder.")
     args = parser.parse_args()
+
+    if args.manifest_path is None:
+        args.manifest_path = f"{os.environ['DATA_DIR']}/raw/misc/en/context/slue-phase-2-sqa5"
+    if args.manifest_audioq_textc is None:
+        args.manifest_audioq_textc = f"{os.environ['DATA_DIR']}/nemo/question-answering/qa_audio-question-text-context/en/slue-phase-2-sqa5"
+    if args.manifest_audioq_audioc is None:
+        args.manifest_audioq_audioc = f"{os.environ['DATA_DIR']}/nemo/question-answering/qa_audio-question-audio-context/en/slue-phase-2-sqa5"
+    if args.manifest_textq_audioc is None:
+        args.manifest_textq_audioc = f"{os.environ['DATA_DIR']}/nemo/question-answering/qa_audio-context-text-question/en/slue-phase-2-sqa5"
+    if args.audio_path is None:
+        args.audio_path = f"{os.environ['DATA_DIR']}/raw/misc/en/slue-phase-2-sqa5/audios"
+
+    MANIFEST_PATH = Path(args.manifest_path)
+    MANIFEST_PATH_AUDIOQ_TEXTC = Path(args.manifest_audioq_textc)
+    MANIFEST_PATH_AUDIOQ_AUDIOC = Path(args.manifest_audioq_audioc)
+    MANIFEST_PATH_TEXTQ_AUDIOC = Path(args.manifest_textq_audioc)
+    AUDIO_PATH = Path(args.audio_path)
 
     AUDIO_PATH.mkdir(parents=True, exist_ok=True)
     for p in (MANIFEST_PATH, MANIFEST_PATH_AUDIOQ_TEXTC, MANIFEST_PATH_AUDIOQ_AUDIOC, MANIFEST_PATH_TEXTQ_AUDIOC):

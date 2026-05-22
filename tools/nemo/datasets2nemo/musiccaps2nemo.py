@@ -1,5 +1,7 @@
 
+import argparse
 import json
+import os
 import requests
 import librosa
 import random
@@ -28,14 +30,25 @@ prompts = [
 ]
 
 if __name__ == "__main__":
-    # Path to save audios
+    parser = argparse.ArgumentParser(description="Convert MusicCaps dataset to NeMo format")
+    parser.add_argument("--raw_output", type=str, default=None, help="Folder where raw audios are saved.")
+    parser.add_argument("--nemo_no_context", type=str, default=None, help="Output folder for the no-context NeMo manifests.")
+    parser.add_argument("--nemo_context", type=str, default=None, help="Output folder for the context NeMo manifests.")
+    args = parser.parse_args()
 
-    OUTPUT_FOLDER = Path("/data-server/datasets/audio/raw/music/MusicCaps")
+    if args.raw_output is None:
+        args.raw_output = f"{os.environ['DATA_DIR']}/raw/music/MusicCaps"
+    if args.nemo_no_context is None:
+        args.nemo_no_context = f"{os.environ['DATA_DIR']}/nemo/music/music-captioning/en/nocontext/MusicCaps"
+    if args.nemo_context is None:
+        args.nemo_context = f"{os.environ['DATA_DIR']}/nemo/music/music-captioning/en/context/MusicCaps"
+
+    OUTPUT_FOLDER = Path(args.raw_output)
     AUDIO_FOLDER = OUTPUT_FOLDER / "audios"
     AUDIO_FOLDER.mkdir(parents=True, exist_ok=True)
-    
-    nemo_no_context_folder = Path("/data-server/datasets/audio/nemo/music/music-captioning/en/nocontext/MusicCaps")
-    nemo_context_folder = Path("/data-server/datasets/audio/nemo/music/music-captioning/en/context/MusicCaps")
+
+    nemo_no_context_folder = Path(args.nemo_no_context)
+    nemo_context_folder = Path(args.nemo_context)
 
     train_dataset = NemoDataset()
     test_dataset = NemoDataset()

@@ -2,6 +2,7 @@ import argparse
 import gzip
 import json
 import logging
+import os
 import random
 from pathlib import Path
 
@@ -179,13 +180,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--input",
         type=str,
-        default="/data-server/datasets/audio/raw/misc/en/FCaps",
+        default=None,
         help="Root of the FCaps download (containing data/ and download/).",
     )
     parser.add_argument(
         "--output",
         type=str,
-        default="/data-server/datasets/audio/nemo/misc/en",
+        default=None,
         help="Output folder for the NeMo manifests.",
     )
     parser.add_argument(
@@ -194,6 +195,11 @@ if __name__ == "__main__":
         help="Skip writing the version with prompts.",
     )
     args = parser.parse_args()
+
+    if args.input is None:
+        args.input = f"{os.environ['DATA_DIR']}/raw/misc/en/FCaps"
+    if args.output is None:
+        args.output = f"{os.environ['DATA_DIR']}/nemo/misc/en"
 
     input_root = Path(args.input)
     download_dir = input_root / "download"
