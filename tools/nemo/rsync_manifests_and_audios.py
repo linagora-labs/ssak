@@ -1,5 +1,6 @@
 import argparse
 import logging
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -96,45 +97,93 @@ def _join_remote(prefix: str, rel: str) -> str:
     return prefix.rstrip("/") + "/" + rel
 
 
-def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_run=False):
+def _rewrite_manifest(src_local_path, dest_dir, old_prefix, new_prefix):
+    """Copy `src_local_path` into `dest_dir` (same basename) with audio paths re-prefixed.
+
+    Returns (new_path, count_changed). If no path matched `old_prefix`, count_changed is 0
+    but the file is still copied so the caller can always use `new_path`.
+    """
+    dataset = NemoDataset()
+    data_type = dataset.load(str(src_local_path))
+    count = dataset.update_audio_paths(old_prefix, new_prefix)
+    new_path = Path(dest_dir) / Path(src_local_path).name
+    dataset.save(str(new_path), data_type=data_type)
+    return new_path, count
+
+
+def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_run=False,
+                    update_old_prefix=None, update_new_prefix=None):
     """Rsync manifest JSONL files from source to destination.
 
     If `relative_to` is given, it is stripped from absolute inputs to compute
     the relative dataset path that is appended under `destination`. Otherwise
     inputs are treated as relative paths under `source` (legacy behavior).
+
+    If `update_old_prefix` and `update_new_prefix` are both provided, each manifest
+    is first rewritten to a temporary file with audio paths having `update_old_prefix`
+    replaced by `update_new_prefix`, and that temporary file is what gets rsynced.
+    The remote destination will hence reference the new audio location. Only works
+    when the source manifest is local (not when pulling from `host:/...`).
     """
-    for ds in manifest_paths:
-        ds = str(ds)
-        if relative_to:
-            prefix = relative_to.rstrip("/") + "/"
-            if ds.startswith(prefix):
-                rel = ds[len(prefix):]
-                src_path = ds
-            elif not ds.startswith("/"):
-                rel = ds
-                src_path = _join_remote(source, rel)
+    rewrite = bool(update_old_prefix and update_new_prefix)
+    tmp_dir = tempfile.mkdtemp(prefix="rsync_manifests_") if rewrite else None
+
+    try:
+        for ds in manifest_paths:
+            ds = str(ds)
+            if relative_to:
+                prefix = relative_to.rstrip("/") + "/"
+                if ds.startswith(prefix):
+                    rel = ds[len(prefix):]
+                    src_path = ds
+                elif not ds.startswith("/"):
+                    rel = ds
+                    src_path = _join_remote(source, rel)
+                else:
+                    logger.warning(f"{ds} does not start with --relative-to '{prefix}', skipping")
+                    continue
             else:
-                logger.warning(f"{ds} does not start with --relative-to '{prefix}', skipping")
-                continue
-        else:
-            rel = ds.lstrip("/")
-            src_path = _join_remote(source, rel)
+                rel = ds.lstrip("/")
+                src_path = _join_remote(source, rel)
 
-        rel_parent = str(Path(rel).parent)
-        if rel_parent in (".", ""):
-            dst_dir = destination.rstrip("/") + "/"
-        else:
-            dst_dir = destination.rstrip("/") + "/" + rel_parent + "/"
+            rel_parent = str(Path(rel).parent)
+            if rel_parent in (".", ""):
+                dst_dir = destination.rstrip("/") + "/"
+            else:
+                dst_dir = destination.rstrip("/") + "/" + rel_parent + "/"
 
-        cmd = ["rsync", "-rlDvz", "--size-only", "--mkpath"]
-        if dry_run:
-            cmd.append("--dry-run")
-        cmd += [src_path, dst_dir]
+            actual_src = src_path
+            if rewrite:
+                if ":" in src_path:
+                    logger.warning(
+                        f"Cannot rewrite paths in remote source {src_path}, sending original"
+                    )
+                elif not Path(src_path).exists():
+                    logger.warning(
+                        f"Cannot rewrite paths: {src_path} does not exist locally, sending original"
+                    )
+                else:
+                    new_path, count = _rewrite_manifest(
+                        src_path, tmp_dir, update_old_prefix, update_new_prefix,
+                    )
+                    actual_src = str(new_path)
+                    logger.info(
+                        f"Rewrote {count} audio path(s) in {Path(src_path).name} "
+                        f"({update_old_prefix!r} -> {update_new_prefix!r})"
+                    )
 
-        logger.info(f"Rsyncing: {' '.join(cmd)}")
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            logger.error(f"rsync failed for {ds} (exit code {result.returncode})")
+            cmd = ["rsync", "-rlDvz", "--size-only", "--mkpath"]
+            if dry_run:
+                cmd.append("--dry-run")
+            cmd += [actual_src, dst_dir]
+
+            logger.info(f"Rsyncing: {' '.join(cmd)}")
+            result = subprocess.run(cmd)
+            if result.returncode != 0:
+                logger.error(f"rsync failed for {ds} (exit code {result.returncode})")
+    finally:
+        if tmp_dir:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":
@@ -153,7 +202,11 @@ if __name__ == "__main__":
   # Push a local dataset folder to a remote machine (local -> remote):
   %(prog)s /data/audio/nemo/asr/MyDataset --rsync-manifests host:/lustre/audio/ --rsync-audios host:/lustre/audio/ --relative-to /data/audio/ --dry-run
 
-  # To update audio paths inside manifests after rsyncing, use tools/nemo/update_paths.py
+  # Push and rewrite the audio paths inside manifests on the fly so the remote copy
+  # references the new audio location (originals stay untouched):
+  %(prog)s /data/audio/nemo/asr/MyDataset --rsync-manifests host:/lustre/audio/ --rsync-audios host:/lustre/audio/ --relative-to /data/audio/ --update-old-prefix /data/audio/ --update-new-prefix /lustre/audio/
+
+  # To update audio paths inside local manifests (in place), use tools/nemo/update_paths.py
 """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -168,6 +221,8 @@ if __name__ == "__main__":
     rsync_opts.add_argument("--relative-to", help="Strip this prefix from audio paths to preserve directory structure")
     rsync_opts.add_argument("--dry-run", action="store_true", help="Pass --dry-run to rsync (preview only)")
     rsync_opts.add_argument("--max-samples", type=int, help="Max samples per manifest; creates downsampled version if exceeded")
+    rsync_opts.add_argument("--update-old-prefix", help="With --rsync-manifests: replace this prefix in audio paths inside each manifest before sending (originals are not modified; rewriting is done in a temporary file).")
+    rsync_opts.add_argument("--update-new-prefix", help="Replacement for --update-old-prefix (e.g. the remote audio destination).")
 
     discovery = parser.add_argument_group("Manifest discovery")
     discovery.add_argument("--pattern", default="*.jsonl", help="Glob pattern for manifest files (default: *.jsonl)")
@@ -178,11 +233,16 @@ if __name__ == "__main__":
     if not args.rsync_audios and not args.rsync_manifests:
         parser.error("Specify at least one action: --rsync-audios or --rsync-manifests")
 
+    if bool(args.update_old_prefix) != bool(args.update_new_prefix):
+        parser.error("--update-old-prefix and --update-new-prefix must be given together")
+
     local_manifests = None
     if args.rsync_manifests:
         rsync_manifests(
             args.inputs, args.rsync_source, args.rsync_manifests,
             relative_to=args.relative_to, dry_run=args.dry_run,
+            update_old_prefix=args.update_old_prefix,
+            update_new_prefix=args.update_new_prefix,
         )
         # Find the rsynced manifests locally (only meaningful for local destinations)
         if ":" not in args.rsync_manifests:
