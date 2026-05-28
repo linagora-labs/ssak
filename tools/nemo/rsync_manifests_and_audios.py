@@ -1,5 +1,7 @@
 import argparse
 import logging
+import os
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -10,6 +12,27 @@ from ssak.utils.nemo_dataset import NemoDataset, resolve_manifest_paths
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _list_remote_files(host, remote_dir):
+    """Return the set of file/symlink paths existing under `host:remote_dir`, relative to it.
+
+    One ssh+find call. Returns an empty set if the remote directory doesn't exist (rc != 0),
+    and None if ssh itself failed so the caller can skip the optimization.
+    """
+    remote_dir = remote_dir.rstrip("/") or "/"
+    cmd = [
+        "ssh", host,
+        f"find {shlex.quote(remote_dir)} \\( -type f -o -type l \\) -printf '%P\\n' 2>/dev/null",
+    ]
+    print(f"Running remote file listing command: {' '.join(cmd)}")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+    except FileNotFoundError:
+        return None
+    if result.returncode not in (0, 1):  # find returns 1 if root missing — treat as "nothing there"
+        return None
+    return {line for line in result.stdout.splitlines() if line}
 
 
 def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_run=False, max_samples=None):
@@ -54,14 +77,46 @@ def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_
         src = source.rstrip("/") + "/"
 
     # Skip files that already exist at destination
-    dest_dir = Path(destination)
     filtered_paths = []
     skipped = 0
-    for fp in tqdm(file_paths, desc="Checking for existing files"):
-        if (dest_dir / fp).exists():
-            skipped += 1
+    if ":" in destination:
+        host, remote_dir = destination.split(":", 1)
+        # Narrow the remote scan to the deepest directory that is a common ancestor
+        # of all relative file paths — listing only that subtree on the remote.
+        try:
+            common_subdir = os.path.commonpath([os.path.dirname(fp) for fp in file_paths])
+        except ValueError:
+            common_subdir = ""
+        scan_root = remote_dir.rstrip("/")
+        if common_subdir:
+            scan_root = scan_root + "/" + common_subdir.lstrip("/")
+        logger.info(f"Listing existing files at {host}:{scan_root} via ssh+find...")
+        existing_under_scan = _list_remote_files(host, scan_root)
+        if existing_under_scan is None:
+            logger.warning(
+                f"Could not list {host}:{scan_root} remotely; sending the full list "
+                f"(rsync --size-only will still skip unchanged files)"
+            )
+            filtered_paths = list(file_paths)
         else:
-            filtered_paths.append(fp)
+            # Returned paths are relative to scan_root; re-prefix so they match `file_paths`.
+            if common_subdir:
+                prefix = common_subdir.strip("/") + "/"
+                existing = {prefix + p for p in existing_under_scan}
+            else:
+                existing = existing_under_scan
+            for fp in file_paths:
+                if fp in existing:
+                    skipped += 1
+                else:
+                    filtered_paths.append(fp)
+    else:
+        dest_dir = Path(destination)
+        for fp in tqdm(file_paths, desc="Checking for existing files"):
+            if (dest_dir / fp).exists():
+                skipped += 1
+            else:
+                filtered_paths.append(fp)
     if skipped:
         logger.info(f"Skipped {skipped} files already present at destination")
 
@@ -76,7 +131,11 @@ def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_
         tmp_path = tmp.name
 
     try:
-        cmd = f"rsync -rlDvz --size-only --copy-links --files-from={tmp_path} {src} {destination}"
+        # -K (--keep-dirlinks): when the destination contains a symlinked directory at a
+        # path where rsync is writing files, follow it instead of replacing the symlink
+        # with a real directory. Without -K, rsync's default is to overwrite destination
+        # dir symlinks with real dirs, which silently breaks pre-existing layouts.
+        cmd = f"rsync -rlDvzK --size-only --copy-links --files-from={tmp_path} {src} {destination}"
         if dry_run:
             cmd += " --dry-run"
         logger.info(f"Running: {cmd}")
