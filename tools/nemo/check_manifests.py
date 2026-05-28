@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(TqdmHandler())
 
-STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "wrong_channels", "wrong_sample_rate", "invalid_field", "wrong_last_turn", "long_text", "invalid_json", "ok")
+STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "wrong_channels", "wrong_sample_rate", "invalid_field", "wrong_last_turn", "long_text", "invalid_json", "manifest_not_found", "ok")
 
 EXPECTED_SAMPLE_RATE = 16000
 EXPECTED_CHANNELS = 1
@@ -200,7 +200,10 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
     label = label or str(manifest_path)
     if not manifest_path.exists():
         logger.error(f"Manifest not found: {label}")
-        return empty_stats()
+        stats = empty_stats()
+        stats["manifest_not_found"] += 1
+        stats["errors"].append({"status": "manifest_not_found", "path": label})
+        return stats
 
     def hit_error_limit():
         return max_errors and max_errors > 0 and total_errors(stats) >= max_errors
@@ -342,8 +345,9 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
 
 def process_path(path, recursive=False, **kwargs):
     """Resolve input path (file, dir, or YAML) and check all found manifests."""
-    manifests = resolve_manifest_paths(path, recursive=recursive)
-    if not manifests:
+    missing_manifests = []
+    manifests = resolve_manifest_paths(path, recursive=recursive, missing_out=missing_manifests)
+    if not manifests and not missing_manifests:
         logger.warning(f"No manifest files found for: {path}")
         return None
 
@@ -352,6 +356,11 @@ def process_path(path, recursive=False, **kwargs):
     base = os.path.commonpath(str_paths) if len(str_paths) > 1 else None
 
     overall = empty_overall()
+    for mp in missing_manifests:
+        logger.error(f"Manifest not found: {mp}")
+        overall["manifest_not_found"] += 1
+        overall["errors"].append({"status": "manifest_not_found", "path": str(mp)})
+
     pbar = tqdm(manifests, desc="Manifests", unit="file", position=0)
     for mf in pbar:
         label = os.path.relpath(mf, base) if base else str(mf)
@@ -376,6 +385,7 @@ ERROR_FMT = {
     "wrong_sample_rate": lambda e: f"  WRONG SAMPLE RATE: {e['path']} (expected={e['expected']}, actual={e['actual']})",
     "long_text": lambda e: f"  LONG TEXT: {e['path']} (length={e['actual']}, expected {e['expected']})",
     "invalid_json": lambda e: f"  INVALID JSON: {e['path']} ({e.get('error', '')})",
+    "manifest_not_found": lambda e: f"  MANIFEST NOT FOUND: {e['path']}",
 
 }
 
@@ -393,7 +403,8 @@ def print_summary(overall):
                        ("invalid_field", "Invalid fields"),
                        ("wrong_last_turn", "Wrong last turn"),
                        ("long_text", "Long texts"),
-                       ("invalid_json", "Invalid JSON lines")]:
+                       ("invalid_json", "Invalid JSON lines"),
+                       ("manifest_not_found", "Manifests not found")]:
         if overall[key] > 0:
             print(f"{label + ':':22}{overall[key]}")
 
