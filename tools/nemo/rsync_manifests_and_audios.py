@@ -35,8 +35,13 @@ def _list_remote_files(host, remote_dir):
     return {line for line in result.stdout.splitlines() if line}
 
 
-def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_run=False, max_samples=None):
-    """Rsync audio files referenced in manifests to destination."""
+def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_run=False, max_samples=None, chmod=None):
+    """Rsync audio files referenced in manifests to destination.
+
+    If `chmod` is provided, the rsync `--chmod=<chmod>` option is added along with `-p`,
+    so that both new and pre-existing destination files have their permissions set.
+    Pass an empty string / None to leave permissions to rsync's default.
+    """
     audio_paths = set()
     processed_manifests = []
 
@@ -136,6 +141,10 @@ def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_
         # with a real directory. Without -K, rsync's default is to overwrite destination
         # dir symlinks with real dirs, which silently breaks pre-existing layouts.
         cmd = f"rsync -rlDvzK --size-only --copy-links --files-from={tmp_path} {src} {destination}"
+        if chmod:
+            # -p (preserve permissions) makes --chmod also affect files that already exist
+            # on the destination, not only newly created ones.
+            cmd += f" -p --chmod={shlex.quote(chmod)}"
         if dry_run:
             cmd += " --dry-run"
         logger.info(f"Running: {cmd}")
@@ -171,7 +180,7 @@ def _rewrite_manifest(src_local_path, dest_dir, old_prefix, new_prefix):
 
 
 def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_run=False,
-                    update_old_prefix=None, update_new_prefix=None):
+                    update_old_prefix=None, update_new_prefix=None, chmod=None):
     """Rsync manifest JSONL files from source to destination.
 
     If `relative_to` is given, it is stripped from absolute inputs to compute
@@ -232,6 +241,9 @@ def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_r
                     )
 
             cmd = ["rsync", "-rlDvz", "--size-only", "--mkpath"]
+            if chmod:
+                # -p makes --chmod also affect already-present destination files.
+                cmd += ["-p", f"--chmod={chmod}"]
             if dry_run:
                 cmd.append("--dry-run")
             cmd += [actual_src, dst_dir]
@@ -282,6 +294,7 @@ if __name__ == "__main__":
     rsync_opts.add_argument("--max-samples", type=int, help="Max samples per manifest; creates downsampled version if exceeded")
     rsync_opts.add_argument("--update-old-prefix", help="With --rsync-manifests: replace this prefix in audio paths inside each manifest before sending (originals are not modified; rewriting is done in a temporary file).")
     rsync_opts.add_argument("--update-new-prefix", help="Replacement for --update-old-prefix (e.g. the remote audio destination).")
+    rsync_opts.add_argument("--chmod", default="u=rwX,g=rwX,o=", help="Permissions applied to synced files via rsync --chmod (default: 'u=rwX,g=rwX,o=' → dirs rwxrwx---, files rw-rw----). Combined with -p so existing destination files are also updated. Pass an empty string to keep rsync's default behavior.")
 
     discovery = parser.add_argument_group("Manifest discovery")
     discovery.add_argument("--pattern", default="*.jsonl", help="Glob pattern for manifest files (default: *.jsonl)")
@@ -302,6 +315,7 @@ if __name__ == "__main__":
             relative_to=args.relative_to, dry_run=args.dry_run,
             update_old_prefix=args.update_old_prefix,
             update_new_prefix=args.update_new_prefix,
+            chmod=args.chmod,
         )
         # Find the rsynced manifests locally (only meaningful for local destinations)
         if ":" not in args.rsync_manifests:
@@ -318,6 +332,7 @@ if __name__ == "__main__":
                 manifest_files, args.rsync_audios,
                 source=args.rsync_source, relative_to=args.relative_to,
                 dry_run=args.dry_run, max_samples=args.max_samples,
+                chmod=args.chmod,
             )
 
     logger.info("Done")
