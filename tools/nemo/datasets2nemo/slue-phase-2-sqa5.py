@@ -60,10 +60,7 @@ def recover_cased_answer(answer_spans: dict, word2time: dict) -> str:
     return answer
 
 
-def load_source_dataset(cache_dir: str | None, from_disk: str | None):
-    if from_disk:
-        logger.info(f"Loading dataset from disk: {from_disk}")
-        return datasets.load_from_disk(from_disk)
+def load_source_dataset(cache_dir: str | None):
     logger.info(f"Loading asapp/slue-phase-2 (sqa5)"
                 + (f" from cache_dir={cache_dir}" if cache_dir else ""))
     return datasets.load_dataset("asapp/slue-phase-2", "sqa5", cache_dir=cache_dir)
@@ -73,8 +70,6 @@ def main():
     parser = argparse.ArgumentParser(description="Convert slue-phase-2 sqa5 to NeMo manifest")
     parser.add_argument("--cache-dir", type=str, default=None,
                         help="HF datasets cache dir (reuses files already downloaded via load_dataset).")
-    parser.add_argument("--from-disk", type=str, default=None,
-                        help="Path to a dataset saved via save_to_disk (takes precedence over --cache-dir).")
     parser.add_argument("--force", action="store_true",
                         help="Overwrite existing manifest .jsonl files instead of skipping them.")
     parser.add_argument("--manifest-path", type=str, default=None,
@@ -110,7 +105,7 @@ def main():
     for p in (MANIFEST_PATH, MANIFEST_PATH_AUDIOQ_TEXTC, MANIFEST_PATH_AUDIOQ_AUDIOC, MANIFEST_PATH_TEXTQ_AUDIOC):
         p.mkdir(parents=True, exist_ok=True)
 
-    ds = load_source_dataset(args.cache_dir, args.from_disk)
+    ds = load_source_dataset(args.cache_dir)
 
     for split in SPLITS:
         if split not in ds:
