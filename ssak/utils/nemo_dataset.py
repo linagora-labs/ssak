@@ -56,7 +56,7 @@ def _extract_manifest_paths_from_yaml(cfg):
     return paths
 
 
-def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
+def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False, missing_out=None):
     """Resolve input path(s) to a list of JSONL manifest file paths.
 
     Supports:
@@ -66,13 +66,18 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
     - directory: globs for pattern (recursively if recursive=True)
     - list of paths: resolves each one and flattens the result
 
+    Args:
+        missing_out: Optional list. If provided, paths that were referenced
+            (from a YAML or NeMo range) but do not exist on disk are appended
+            to it as Path objects, allowing callers to report them as errors.
+
     Returns:
-        Sorted list of Path objects pointing to .jsonl files.
+        Sorted list of Path objects pointing to existing .jsonl files.
     """
     if isinstance(input_path, (list, tuple)):
         result = []
         for p in input_path:
-            result.extend(resolve_manifest_paths(p, pattern=pattern, recursive=recursive))
+            result.extend(resolve_manifest_paths(p, pattern=pattern, recursive=recursive, missing_out=missing_out))
         return sorted(set(result))
 
     input_str = str(input_path)
@@ -84,6 +89,8 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
                 resolved.append(pp)
             else:
                 logger.warning(f"Shard not found: {pp}")
+                if missing_out is not None:
+                    missing_out.append(pp)
         return sorted(resolved)
 
     path = Path(input_path)
@@ -106,6 +113,8 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False):
                         resolved.append(expanded_path)
                     else:
                         logger.warning(f"Manifest not found: {expanded}")
+                        if missing_out is not None:
+                            missing_out.append(expanded_path)
             # except ValueError as e:
             #     logger.warning(str(e))
         return sorted(resolved)
