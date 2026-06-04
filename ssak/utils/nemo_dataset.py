@@ -87,10 +87,10 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False, missi
             pp = Path(p)
             if pp.exists():
                 resolved.append(pp)
+            elif missing_out is not None:
+                missing_out.append(pp)
             else:
                 logger.warning(f"Shard not found: {pp}")
-                if missing_out is not None:
-                    missing_out.append(pp)
         return sorted(resolved)
 
     path = Path(input_path)
@@ -111,10 +111,10 @@ def resolve_manifest_paths(input_path, pattern="*.jsonl", recursive=False, missi
                     expanded_path = Path(expanded)
                     if expanded_path.exists():
                         resolved.append(expanded_path)
+                    elif missing_out is not None:
+                        missing_out.append(expanded_path)
                     else:
                         logger.warning(f"Manifest not found: {expanded}")
-                        if missing_out is not None:
-                            missing_out.append(expanded_path)
             # except ValueError as e:
             #     logger.warning(str(e))
         return sorted(resolved)
