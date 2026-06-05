@@ -43,6 +43,14 @@ def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
     def all_same(values):
         return len(set(str(v) for v in values)) == 1
 
+    def fmt_value(value, indent):
+        """Wrap multi-line values in quotes so their boundaries are clear."""
+        text = str(value)
+        if "\n" in text:
+            inner = text.replace("\n", "\n" + indent)
+            return f'"""\n{indent}{inner}\n{indent}"""'
+        return text
+
     while current_index < total_items:
         end_index = min(current_index + batch_size, total_items)
 
@@ -110,7 +118,7 @@ def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
                     if all_same(only_values) and (len(only_values)>1 or number_of_comparison==1):
                         value = only_values[0]
                         print(f"  {field}:")
-                        print(f"    {value}")
+                        print(f"    {fmt_value(value, '    ')}")
 
                     # ---- Different → show manifest ----------------------------
                     else:
@@ -118,7 +126,7 @@ def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
                         for m, v in values:
                             label = manifest_display[m]
                             print(f"    [{label}]")
-                            print(f"      {v}")
+                            print(f"      {fmt_value(v, '      ')}")
 
         print("\n" + "=" * 100)
 
@@ -137,7 +145,11 @@ def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
             print(f"\n✓ Stop displaying. {current_index}/{total_items} items were displayed.")
             break
         elif user_input == "p":
-            audio_paths = extract_audio_paths_from_item(items)
+            audio_paths = []
+            for json_row in items.values():
+                for path in extract_audio_paths_from_item(json_row):
+                    if path not in audio_paths:
+                        audio_paths.append(path)
             if not audio_paths:
                 print("\n⚠ No audio turns found in this item.")
                 continue
@@ -157,13 +169,17 @@ def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
                 current_index += batch_size
 
 # Utilisation
-def process_path(paths):
+def build_merged_data(paths):
+    """Load one or more manifests and merge their rows by item id.
+
+    Returns a dict: id -> {manifest_path: json_row}.
+    """
     manifests = dict()
     for path in paths:
         dataset = NemoDataset()
         dataset.load(path)
         manifests[path] = dataset
-    
+
     merged_data = dict()
     for manifest, data in manifests.items():
         for row in data:
@@ -172,6 +188,10 @@ def process_path(paths):
                  merged_data[json_row["id"]]= dict()
             merged_data[json_row["id"]][manifest] = json_row
 
+    return merged_data
+
+def process_path(paths):
+    merged_data = build_merged_data(paths)
     display_data_interactive(merged_data, number_of_comparison=len(paths), batch_size=1)
 
 if __name__ == "__main__":
