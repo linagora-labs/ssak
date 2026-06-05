@@ -10,9 +10,12 @@ Expected layout (matches the standard `ami_public_manual_*.zip` + `amicorpus` do
         annotations/segments/<MEETING>.<SPEAKER>.segments.xml
         annotations/corpusResources/meetings.xml          (optional, for speaker→channel mapping)
 
-Produces two manifest families:
-  - summary/  : one row per meeting (Mix-Headset.wav + abstractive summary text)
-  - asr/      : one row per segment   (per-speaker headset .wav + transcript)
+Produces three manifest families (each opt-in via a flag):
+  - summary/      : one row per meeting (Mix-Headset.wav + abstractive summary text)
+  - asr/          : one row per segment   (per-speaker headset .wav + transcript)
+  - diarization/  : windowed "who spoke when" rows in asr/timestamps/timestamps_asr
+                    variants, several output formats (RTTM, SRT, VTT, ...) and
+                    with/without backchannels (written under a diarization-specific root)
 """
 
 import argparse
@@ -1158,7 +1161,8 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
                     max_dur: float, min_turns: int, min_dur: float,
                     max_turns: int | None = None, split: str | None = None,
                     format_variety: bool = True, backchannel_versions: bool = True,
-                    generic_ratio: float = 0.4, backchannel_ratio: float = 0.5) -> dict:
+                    generic_ratio: float = 0.4, backchannel_ratio: float = 0.5,
+                    mixed_variants: tuple | None = None) -> dict:
     """Build diarization rows for every variant from one shared windowing.
 
     For each (window, variant, version) a prompt style is chosen: with probability
@@ -1176,6 +1180,8 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
     if split is None:
         split = split_for(meeting_id)
     out: dict[str, list] = {v: [] for v in DIAR_VARIANTS}
+    if mixed_variants:
+        out["mixed"] = []
     for i, window in enumerate(window_turns(units, max_dur, max_turns)):
         if len(window) < min_turns:
             continue
@@ -1211,6 +1217,7 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
                 "end": round(p["end"], 3),
                 "text": p["text"],
             } for p in pieces]
+            built: dict[str, NemoDatasetRow] = {}
             for variant in DIAR_VARIANTS:
                 formats = _DIAR_FORMATS[variant]
                 rng = random.Random(f"{meeting_id}.{i}.{variant}.{tag}")
@@ -1234,14 +1241,22 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
                 }
                 if include_bc is not None:
                     md["backchannels"] = include_bc
-                out[variant].append(NemoDatasetRow(
+                row = NemoDatasetRow(
                     id=f"{meeting_id}.diar.{i}.{tag}",
                     dataset_name=DATASET_NAME,
                     split=split,
                     language="en",
                     turns=[audio_turn, target_turn],
                     custom_metadata=md,
-                ))
+                )
+                out[variant].append(row)
+                built[variant] = row
+            # 'mixed': one row per window, rendered as a single randomly-chosen variant.
+            if mixed_variants:
+                pool = [v for v in mixed_variants if v in built]
+                if pool:
+                    rng_m = random.Random(f"{meeting_id}.{i}.{tag}.mixed")
+                    out["mixed"].append(built[rng_m.choice(pool)])
     return out
 
 
@@ -1346,6 +1361,14 @@ def main():
     diar_group.add_argument("--diar-backchannel-ratio", type=float, default=0.5,
                             help="When a window contains backchannels, the probability of also "
                                  "emitting its backchannel-included version.")
+    diar_group.add_argument("--diar-mixed", action=argparse.BooleanOptionalAction, default=True,
+                            help="Also emit a 'mixed/' folder where each window is a single row "
+                                 "rendered as one randomly-chosen variant (sampled from "
+                                 "--diar-mixed-variants).")
+    diar_group.add_argument("--diar-mixed-variants", nargs="+", choices=list(DIAR_VARIANTS),
+                            default=list(DIAR_VARIANTS),
+                            help="Pool of variants to sample from for the 'mixed' folder "
+                                 "(default: all three; pass two for a 2-of-3 mix).")
     diar_group.add_argument("--diar-merge-gap", type=float, default=1.0,
                             help="Merge consecutive same-speaker turns separated by <= this "
                                  "many seconds. Negative disables merging.")
@@ -1410,8 +1433,9 @@ def main():
     if args.asr:
         (raw_root / "asr").mkdir(parents=True, exist_ok=True)
         (out_root / "asr").mkdir(parents=True, exist_ok=True)
+    diar_outputs = list(DIAR_VARIANTS) + (["mixed"] if (args.diarization and args.diar_mixed) else [])
     if args.diarization:
-        for v in DIAR_VARIANTS:
+        for v in diar_outputs:
             (diar_raw_root / v).mkdir(parents=True, exist_ok=True)
             (diar_out_root / v).mkdir(parents=True, exist_ok=True)
 
@@ -1429,7 +1453,7 @@ def main():
     summary_per_split: dict[str, tuple[NemoDataset, NemoDataset]] = {}
     asr_per_split: dict[str, tuple[NemoDataset, NemoDataset]] = {}
     diar_buckets: dict[str, dict[str, tuple[NemoDataset, NemoDataset]]] = {
-        v: {} for v in DIAR_VARIANTS
+        v: {} for v in diar_outputs
     }
 
     def get(buckets, split):
@@ -1549,6 +1573,7 @@ def main():
                         backchannel_versions=args.diar_backchannel_versions,
                         generic_ratio=args.diar_generic_prompt_ratio,
                         backchannel_ratio=args.diar_backchannel_ratio,
+                        mixed_variants=tuple(args.diar_mixed_variants) if args.diar_mixed else None,
                     )
                     for variant, rows in per_variant.items():
                         if not rows:
@@ -1577,7 +1602,7 @@ def main():
     if args.asr:
         dump(asr_per_split, "asr")
     if args.diarization:
-        for variant in DIAR_VARIANTS:
+        for variant in diar_outputs:
             dump(diar_buckets[variant], variant,
                  raw_base=diar_raw_root, out_base=diar_out_root)
 
