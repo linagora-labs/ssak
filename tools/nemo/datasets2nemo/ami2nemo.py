@@ -110,29 +110,246 @@ _SECTION_PROMPTS = {
     ],
 }
 
-# Prompts for the three diarization target variants (see build_diar_rows).
-_DIAR_PROMPTS = {
+DIAR_VARIANTS = ("asr", "timestamps", "timestamps_asr")
+
+# Each diarization variant can be rendered in several output formats. A row picks
+# one format, renders its target in that format, and is paired with a prompt drawn
+# from that same format's prompt list — so the prompt teaches the model which
+# format to produce. The first format of each variant is the "default": its prompt
+# list also contains generic, format-agnostic instructions, so "no format
+# specified" maps to the default rendering. `seg` fields: n (speaker number, 1..),
+# s/e (start/end seconds, relative to the clip), text (words).
+
+def _r_asr_speaker_colon(segs, meeting):
+    return "\n".join(f"Speaker {s['n']}: {s['text']}" for s in segs if s["text"])
+
+def _r_asr_num_colon(segs, meeting):
+    return "\n".join(f"{s['n']}: {s['text']}" for s in segs if s["text"])
+
+def _r_asr_dash(segs, meeting):
+    return "\n".join(f"Speaker {s['n']} - {s['text']}" for s in segs if s["text"])
+
+def _r_asr_letter(segs, meeting):
+    return "\n".join(f"Speaker {chr(ord('A') + s['n'] - 1)}: {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_ts_plain(segs, meeting):
+    return "\n".join(f"Speaker {s['n']} {s['s']:.2f} {s['e']:.2f}" for s in segs)
+
+def _r_ts_rttm(segs, meeting):
+    # Classic NIST RTTM: SPEAKER <uri> <chan> <onset> <dur> <NA> <NA> <spk> <NA> <NA>
+    return "\n".join(
+        f"SPEAKER {meeting} 1 {s['s']:.2f} {s['e'] - s['s']:.2f} <NA> <NA> Speaker_{s['n']} <NA> <NA>"
+        for s in segs)
+
+def _r_ts_bracket(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f} - {s['e']:.2f}] Speaker {s['n']}" for s in segs)
+
+def _r_tsa_bracket_colon(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f}-{s['e']:.2f}] Speaker {s['n']}: {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_tsa_inline(segs, meeting):
+    return "\n".join(f"Speaker {s['n']} ({s['s']:.2f}-{s['e']:.2f}): {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_tsa_arrow(segs, meeting):
+    return "\n".join(f"{s['s']:.2f} --> {s['e']:.2f}  Speaker {s['n']}: {s['text']}"
+                     for s in segs if s["text"])
+
+def _hms(t, sep):
+    """Seconds -> 'HH:MM:SS<sep>mmm' (sep is ',' for SRT, '.' for WebVTT)."""
+    ms = int(round(t * 1000))
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d}{sep}{ms:03d}"
+
+def _r_tsa_srt(segs, meeting):
+    blocks, idx = [], 1
+    for s in segs:
+        if not s["text"]:
+            continue
+        blocks.append(f"{idx}\n{_hms(s['s'], ',')} --> {_hms(s['e'], ',')}\n"
+                      f"Speaker {s['n']}: {s['text']}")
+        idx += 1
+    return "\n\n".join(blocks)
+
+def _r_tsa_vtt(segs, meeting):
+    cues = [f"{_hms(s['s'], '.')} --> {_hms(s['e'], '.')}\nSpeaker {s['n']}: {s['text']}"
+            for s in segs if s["text"]]
+    return "WEBVTT\n\n" + "\n\n".join(cues)
+
+
+# Generic prompts: no format specified / no example. They map to the variant's
+# DEFAULT format (the first one below), teaching the model its default behaviour.
+_DIAR_GENERIC_PROMPTS = {
     "asr": [
         "Transcribe this conversation, labeling each speaker turn.",
         "Who said what in this recording? Provide a speaker-labeled transcript.",
         "Write the dialogue with one line per speaker turn.",
         "Produce a speaker-attributed transcript of this audio.",
+        "Transcribe the audio and label each speaker.",
     ],
     "timestamps": [
         "Identify who spoke when in this recording.",
-        "Give each speaker turn with its start and end time in seconds.",
         "Perform speaker diarization on this audio.",
         "List the speaker segments with their start and end times.",
+        "Give each speaker turn with its start and end time.",
     ],
     "timestamps_asr": [
         "Transcribe this conversation with speaker labels and timestamps.",
         "Provide a time-stamped, speaker-attributed transcript of this audio.",
         "For each speaker turn, give the time span, the speaker, and what was said.",
-        "Write the dialogue with start/end times and speaker labels.",
+        "Transcribe the audio with timestamps and speaker labels.",
     ],
 }
 
-DIAR_VARIANTS = ("asr", "timestamps", "timestamps_asr")
+# Per-format prompts: each explicitly specifies that format (with an example), so the
+# default format is reachable both generically (above) and explicitly (here).
+_DIAR_FORMATS = {
+    "asr": {
+        "speaker_colon": {
+            "render": _r_asr_speaker_colon,
+            "prompts": [
+                "Transcribe the dialogue. Use the format 'Speaker N: <words>' for each turn.",
+                "Write each turn as 'Speaker N: <words>'.",
+            ],
+        },
+        "num_colon": {
+            "render": _r_asr_num_colon,
+            "prompts": [
+                "Transcribe the dialogue. Follow this format - 'N: <words>' "
+                "where N is the speaker number.",
+                "Write each turn as '<speaker number>: <words>'.",
+            ],
+        },
+        "dash": {
+            "render": _r_asr_dash,
+            "prompts": [
+                "Transcribe with speaker labels using the format 'Speaker N - <words>'.",
+                "Separate each speaker label and their words with a dash: 'Speaker N - <words>'.",
+            ],
+        },
+        "letter": {
+            "render": _r_asr_letter,
+            "prompts": [
+                "Transcribe the dialogue. Use the format 'Speaker A: <words>' "
+                "(label speakers A, B, C, ...).",
+                "Write each turn as 'Speaker X: <words>', using letters A, B, C for speakers.",
+            ],
+        },
+    },
+    "timestamps": {
+        "plain": {
+            "render": _r_ts_plain,
+            "prompts": [
+                "Output one line per turn as 'Speaker N <start> <end>' in seconds.",
+                "For each turn, give 'Speaker N <start> <end>' (times in seconds).",
+            ],
+        },
+        "rttm": {
+            "render": _r_ts_rttm,
+            "prompts": [
+                "Perform speaker diarization and output the result in RTTM format.",
+                "Give the diarization as standard RTTM (SPEAKER ...) lines.",
+                "Diarize this audio and return RTTM-format lines.",
+                "Diarize this audio, following the RTTM format.",
+                "Perform speaker diarization following the RTTM format.",
+            ],
+        },
+        "bracket": {
+            "render": _r_ts_bracket,
+            "prompts": [
+                "List each segment as '[start - end] Speaker N' in seconds.",
+                "For each speaker turn, give '[<start> - <end>] Speaker N'.",
+            ],
+        },
+    },
+    "timestamps_asr": {
+        "bracket_colon": {
+            "render": _r_tsa_bracket_colon,
+            "prompts": [
+                "Format each turn as '[start-end] Speaker N: <words>' in seconds.",
+                "Write each turn as '[<start>-<end>] Speaker N: <words>'.",
+            ],
+        },
+        "inline": {
+            "render": _r_tsa_inline,
+            "prompts": [
+                "Transcribe with timestamps using the format 'Speaker N (start-end): <words>'.",
+                "Write each turn as 'Speaker N (<start>-<end>): <words>'.",
+            ],
+        },
+        "arrow": {
+            "render": _r_tsa_arrow,
+            "prompts": [
+                "Transcribe with timestamps. Use the format '<start> --> <end>  Speaker N: <words>'.",
+                "Use simple cues: '<start> --> <end>  Speaker N: <words>'.",
+            ],
+        },
+        "srt": {
+            "render": _r_tsa_srt,
+            "prompts": [
+                "Transcribe with timestamps as SRT subtitles.",
+                "Produce SubRip (.srt) subtitles with speaker labels.",
+                "Output the transcript as SRT: numbered cues, 'HH:MM:SS,mmm' times, "
+                "and 'Speaker N: <words>'.",
+                "Transcribe this audio, following the SRT format.",
+                "Transcribe the speakers following the SRT subtitle format.",
+            ],
+        },
+        "vtt": {
+            "render": _r_tsa_vtt,
+            "prompts": [
+                "Transcribe with timestamps as WebVTT (.vtt) subtitles.",
+                "Output the transcript in WebVTT format with speaker labels.",
+                "Produce WEBVTT cues ('HH:MM:SS.mmm' times) with 'Speaker N: <words>'.",
+                "Transcribe this audio, following the WebVTT format.",
+                "Transcribe the speakers following the WebVTT (.vtt) format.",
+            ],
+        },
+    },
+}
+
+# First key of each variant is its default format (used by generic prompts).
+DIAR_DEFAULT_FORMAT = {v: next(iter(fmts)) for v, fmts in _DIAR_FORMATS.items()}
+
+# Backchannels / acknowledgements / fillers. A turn whose every lexical token is
+# one of these is treated as a backchannel and dropped from the "clean" version.
+_BACKCHANNEL_WORDS = {
+    "mm", "mmm", "mhm", "mm-hmm", "mmhmm", "mm-hm", "hmm", "hm", "hmmm",
+    "uh-huh", "uhhuh", "uh", "uhh", "uhm", "um", "umm", "er", "erm",
+    "ah", "aha", "oh", "ooh", "huh", "mm-mm", "hm-mm", "mm-mmm",
+    "yeah", "yep", "yup", "nah", "kay", "okay", "ok", "right", "sure",
+}
+_BC_EDGE = re.compile(r"^[^\w']+|[^\w']+$")
+
+# Appended to the prompt of the backchannel-included version of a row.
+_DIAR_BACKCHANNEL_SUFFIXES = [
+    "Include backchannels, acknowledgements and disfluencies (e.g. 'mm-hmm', 'yeah', 'uh').",
+    "Keep all backchannels and acknowledgements such as 'mm', 'hmm', 'uh-huh'.",
+    "Include every utterance, even short backchannels and fillers.",
+    "Do not omit backchannels or filler words like 'mm', 'uh' and 'yeah'.",
+    "Transcribe everything, including acknowledgements and hesitations.",
+    "Keep the backchannels, fillers and disfluencies in the output.",
+]
+
+
+def _is_backchannel(text: str) -> bool:
+    """True if every lexical token in `text` is a backchannel/acknowledgement/filler."""
+    toks = text.split()
+    if not toks or len(toks) > 4:
+        return False
+    has_word = False
+    for t in toks:
+        w = _BC_EDGE.sub("", t).lower().strip("'")
+        if not w:  # pure punctuation token
+            continue
+        has_word = True
+        if w not in _BACKCHANNEL_WORDS:
+            return False
+    return has_word
 
 
 def parse_abstractive_summary(xml_path: Path) -> dict:
@@ -920,44 +1137,42 @@ def window_turns(units: list[dict], max_dur: float,
     return windows
 
 
-def _window_labels(window: list[dict]) -> dict:
-    """Map each speaker letter to 'Speaker 1', 'Speaker 2', ... in order of first
-    appearance in the window."""
-    mapping: dict[str, str] = {}
-    for p in window:
-        if p["speaker"] not in mapping:
-            mapping[p["speaker"]] = f"Speaker {len(mapping) + 1}"
-    return mapping
-
-
-def render_diar_target(window: list[dict], variant: str, win_start: float,
-                       labels: dict) -> str:
-    """Render the Assistant target text for one window in the given variant."""
-    lines = []
-    for p in window:
-        lbl = labels[p["speaker"]]
-        rs = round(p["start"] - win_start, 2)
-        re_ = round(p["end"] - win_start, 2)
-        if variant == "asr":
-            if not p["text"]:
-                continue
-            lines.append(f"{lbl}: {p['text']}")
-        elif variant == "timestamps":
-            lines.append(f"{lbl} {rs:.2f} {re_:.2f}")
-        elif variant == "timestamps_asr":
-            if not p["text"]:
-                continue
-            lines.append(f"[{rs:.2f}-{re_:.2f}] {lbl}: {p['text']}")
-    return "\n".join(lines)
+def _pieces_to_segs(pieces: list[dict], win_start: float):
+    """Render a list of turn pieces into (segs, labels), numbering speakers 1, 2, ...
+    by order of first appearance among *these* pieces."""
+    labels: dict[str, int] = {}
+    segs = []
+    for p in pieces:
+        if p["speaker"] not in labels:
+            labels[p["speaker"]] = len(labels) + 1
+        segs.append({
+            "n": labels[p["speaker"]],
+            "s": round(p["start"] - win_start, 2),
+            "e": round(p["end"] - win_start, 2),
+            "text": p["text"],
+        })
+    return segs, labels
 
 
 def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
                     max_dur: float, min_turns: int, min_dur: float,
-                    max_turns: int | None = None, split: str | None = None) -> dict:
+                    max_turns: int | None = None, split: str | None = None,
+                    format_variety: bool = True, backchannel_versions: bool = True,
+                    generic_ratio: float = 0.4, backchannel_ratio: float = 0.5) -> dict:
     """Build diarization rows for every variant from one shared windowing.
 
-    Returns {variant: [NemoDatasetRow, ...]}. Windows with fewer than min_turns
-    turns or shorter than min_dur seconds are dropped."""
+    For each (window, variant, version) a prompt style is chosen: with probability
+    generic_ratio a generic, no-format prompt paired with the variant's DEFAULT
+    format; otherwise an explicit format-specifying prompt paired with a random
+    format. The choice (format + prompt_style) is stored in custom_metadata so
+    make_diar_lean_row can pick a matching prompt.
+
+    When backchannel_versions, each window yields a "clean" version
+    (backchannels/acknowledgements removed, default prompt); if it also contained
+    backchannels, a "full" version (kept, prompt asks to include them) is emitted
+    with probability backchannel_ratio. Windows entirely of backchannels yield
+    only the full version. Windows with fewer than min_turns turns or shorter than
+    min_dur seconds are dropped. The audio clip is identical across versions."""
     if split is None:
         split = split_for(meeting_id)
     out: dict[str, list] = {v: [] for v in DIAR_VARIANTS}
@@ -969,45 +1184,82 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
         dur = win_end - win_start
         if dur < min_dur or dur <= 0:
             continue
-        labels = _window_labels(window)
-        seg_meta = [{
-            "speaker_letter": p["speaker"],
-            "label": labels[p["speaker"]],
-            "start": round(p["start"], 3),
-            "end": round(p["end"], 3),
-            "text": p["text"],
-        } for p in window]
-        for variant in DIAR_VARIANTS:
-            target = render_diar_target(window, variant, win_start, labels)
-            if not target.strip():
+
+        # (tag, pieces, include_backchannels). Audio window is unchanged; only text differs.
+        if backchannel_versions:
+            clean = [p for p in window if not _is_backchannel(p["text"])]
+            versions = []
+            if clean:
+                versions.append(("clean", clean, False))
+            if not clean:
+                versions.append(("full", window, True))
+            elif len(clean) < len(window):
+                rng_bc = random.Random(f"{meeting_id}.{i}.bc")
+                if rng_bc.random() < backchannel_ratio:
+                    versions.append(("full", window, True))
+        else:
+            versions = [("all", window, None)]
+
+        for tag, pieces, include_bc in versions:
+            segs, labels = _pieces_to_segs(pieces, win_start)
+            if not segs:
                 continue
-            audio_turn = NemoTurn(role="User", value=str(mix_audio), turn_type="audio",
-                                  duration=round(dur, 3), offset=round(win_start, 3))
-            target_turn = NemoTurn(role="Assistant", value=target, turn_type="text")
-            out[variant].append(NemoDatasetRow(
-                id=f"{meeting_id}.diar.{i}",
-                dataset_name=DATASET_NAME,
-                split=split,
-                language="en",
-                turns=[audio_turn, target_turn],
-                custom_metadata={
+            seg_meta = [{
+                "speaker_letter": p["speaker"],
+                "label": f"Speaker {labels[p['speaker']]}",
+                "start": round(p["start"], 3),
+                "end": round(p["end"], 3),
+                "text": p["text"],
+            } for p in pieces]
+            for variant in DIAR_VARIANTS:
+                formats = _DIAR_FORMATS[variant]
+                rng = random.Random(f"{meeting_id}.{i}.{variant}.{tag}")
+                if format_variety and rng.random() >= generic_ratio:
+                    fmt, prompt_style = rng.choice(list(formats)), "explicit"
+                else:
+                    fmt, prompt_style = DIAR_DEFAULT_FORMAT[variant], "generic"
+                target = formats[fmt]["render"](segs, meeting_id)
+                if not target.strip():
+                    continue
+                audio_turn = NemoTurn(role="User", value=str(mix_audio), turn_type="audio",
+                                      duration=round(dur, 3), offset=round(win_start, 3))
+                target_turn = NemoTurn(role="Assistant", value=target, turn_type="text")
+                md = {
                     "meeting": meeting_id,
                     "variant": variant,
+                    "format": fmt,
+                    "prompt_style": prompt_style,
                     "num_speakers": len(labels),
                     "segments": seg_meta,
-                },
-            ))
+                }
+                if include_bc is not None:
+                    md["backchannels"] = include_bc
+                out[variant].append(NemoDatasetRow(
+                    id=f"{meeting_id}.diar.{i}.{tag}",
+                    dataset_name=DATASET_NAME,
+                    split=split,
+                    language="en",
+                    turns=[audio_turn, target_turn],
+                    custom_metadata=md,
+                ))
     return out
 
 
 def make_diar_lean_row(r: NemoDatasetRow) -> NemoDatasetRow:
-    """Lean training row: prepend a variant-appropriate prompt, drop custom_metadata."""
-    variant = (r.custom_metadata or {}).get("variant")
+    """Lean training row: prepend a prompt matching the row's prompt_style/format (and,
+    for the backchannel-included version, asking to keep them); drop metadata."""
+    md = r.custom_metadata or {}
+    variant, fmt, style = md.get("variant"), md.get("format"), md.get("prompt_style")
     turns = list(r.turns)
-    if variant in _DIAR_PROMPTS:
-        prompt = NemoTurn(role="User", value=random.choice(_DIAR_PROMPTS[variant]),
-                          turn_type="text")
-        turns = [prompt] + turns
+    if style == "generic":
+        prompts = _DIAR_GENERIC_PROMPTS.get(variant)
+    else:
+        prompts = (_DIAR_FORMATS.get(variant, {}).get(fmt) or {}).get("prompts")
+    if prompts:
+        prompt = random.choice(prompts)
+        if md.get("backchannels"):
+            prompt = prompt + " " + random.choice(_DIAR_BACKCHANNEL_SUFFIXES)
+        turns = [NemoTurn(role="User", value=prompt, turn_type="text")] + turns
     return NemoDatasetRow(
         id=r.id, dataset_name=r.dataset_name,
         split=r.split, language=r.language, turns=turns,
@@ -1074,6 +1326,26 @@ def main():
                             help="Fold non-scenario meetings (EN*, IB*, ...) into the train "
                                  "split instead of a separate non_scenario.jsonl "
                                  "(--no-diar-fold-non-scenario to keep them separate).")
+    diar_group.add_argument("--diar-format-variety", action=argparse.BooleanOptionalAction,
+                            default=True,
+                            help="Vary the output format per row (RTTM, 'N: words', bracketed "
+                                 "times, ...) with a prompt that specifies it, to teach "
+                                 "format-following. --no-diar-format-variety forces the default "
+                                 "format for every row.")
+    diar_group.add_argument("--diar-generic-prompt-ratio", type=float, default=0.5,
+                            help="Fraction of rows that use a generic, no-format prompt "
+                                 "(rendered in the default format) instead of an explicit "
+                                 "format-specifying prompt.")
+    diar_group.add_argument("--diar-backchannel-versions", action=argparse.BooleanOptionalAction,
+                            default=True,
+                            help="Emit two versions per window: one without "
+                                 "backchannels/acknowledgements (default prompt) and, when the "
+                                 "window has any, one with them (prompt asks to include them). "
+                                 "--no-diar-backchannel-versions keeps every utterance in a "
+                                 "single version.")
+    diar_group.add_argument("--diar-backchannel-ratio", type=float, default=0.5,
+                            help="When a window contains backchannels, the probability of also "
+                                 "emitting its backchannel-included version.")
     diar_group.add_argument("--diar-merge-gap", type=float, default=1.0,
                             help="Merge consecutive same-speaker turns separated by <= this "
                                  "many seconds. Negative disables merging.")
@@ -1273,7 +1545,10 @@ def main():
                         meeting_id, mix_diar, units,
                         args.diar_max_duration, args.diar_min_turns, args.diar_min_duration,
                         max_turns=None if args.diar_max_turns <= 0 else args.diar_max_turns,
-                        split=diar_split,
+                        split=diar_split, format_variety=args.diar_format_variety,
+                        backchannel_versions=args.diar_backchannel_versions,
+                        generic_ratio=args.diar_generic_prompt_ratio,
+                        backchannel_ratio=args.diar_backchannel_ratio,
                     )
                     for variant, rows in per_variant.items():
                         if not rows:
