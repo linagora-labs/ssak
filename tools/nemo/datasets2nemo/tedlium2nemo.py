@@ -157,7 +157,7 @@ def main():
 
     tarball_dir = Path(args.tarball_dir)
     extract_cache = Path(args.extract_cache) if args.extract_cache else tarball_dir / "_extracted"
-    data_dir = os.environ["DATA_DIR"]
+    data_dir = os.environ["DATA_FOLDER"]
 
     for release in args.release:
         logger.info(f"=== Processing {release} ===")

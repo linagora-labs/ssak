@@ -25,7 +25,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.output is None:
-        args.output = f"{os.environ['DATA_DIR']}/nemo/asr/{args.language}/nocontext/FLEURS"
+        args.output = f"{os.environ['DATA_FOLDER']}/nemo/asr/{args.language}/nocontext/FLEURS"
     
     language = f"{args.language}_{args.language}"
     if args.language == "pt":
@@ -38,7 +38,7 @@ if __name__ == "__main__":
         language = "en_us"
     
     if args.input is None:
-        args.input = f"{os.environ['DATA_DIR']}/raw/transcript/{language}/FLEURS"
+        args.input = f"{os.environ['DATA_FOLDER']}/raw/transcript/{language}/FLEURS"
 
     input_dataset = args.input
     output_path = Path(args.output)

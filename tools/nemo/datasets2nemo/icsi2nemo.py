@@ -772,7 +772,7 @@ def main():
     args = parser.parse_args()
 
     if args.root is None:
-        args.root = f"{os.environ['DATA_DIR']}/raw/summary/en/icsi"
+        args.root = f"{os.environ['DATA_FOLDER']}/raw/summary/en/icsi"
         print(f"Input path not specified, using default: {args.root}")
     root = Path(args.root)
     signals_dir = root / "Signals"
@@ -788,14 +788,14 @@ def main():
         if not d.is_dir():
             parser.error(f"Missing directory: {d}")
 
-    data_dir = os.environ.get("DATA_DIR")
+    data_dir = os.environ.get("DATA_FOLDER")
     if args.raw_manifest_path is None:
         if not data_dir:
-            parser.error("--raw-manifest-path not set and DATA_DIR env var is missing")
+            parser.error("--raw-manifest-path not set and DATA_FOLDER env var is missing")
         args.raw_manifest_path = f"{data_dir}/raw/summary/en/icsi"
     if args.manifest_path is None:
         if not data_dir:
-            parser.error("--manifest-path not set and DATA_DIR env var is missing")
+            parser.error("--manifest-path not set and DATA_FOLDER env var is missing")
         args.manifest_path = f"{data_dir}/nemo/summary/en/icsi"
 
     raw_root = Path(args.raw_manifest_path)

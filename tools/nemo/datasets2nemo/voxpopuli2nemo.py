@@ -19,10 +19,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.input is None:
-        args.input = f"{os.environ['DATA_DIR']}/raw/transcript/multilang/VoxPopuli_labelled/data/{args.language}"
+        args.input = f"{os.environ['DATA_FOLDER']}/raw/transcript/multilang/VoxPopuli_labelled/data/{args.language}"
         print(f"Input path not specified, using default: {args.input}")
     if args.output is None:
-        args.output = f"{os.environ['DATA_DIR']}/nemo/asr/{args.language}/nocontext/VoxPopuli"
+        args.output = f"{os.environ['DATA_FOLDER']}/nemo/asr/{args.language}/nocontext/VoxPopuli"
         print(f"Output path not specified, using default: {args.output}")
 
     input_dataset = args.input
