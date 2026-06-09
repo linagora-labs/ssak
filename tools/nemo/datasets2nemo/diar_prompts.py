@@ -142,6 +142,67 @@ def _r_tsa_vtt(segs, meeting):
     return "WEBVTT\n\n" + "\n\n".join(cues)
 
 
+# Whole-word label-casing styles. French (Locuteur/LOCUTEUR/locuteur) back the
+# French-only formats in `_LANG_EXTRA_FORMATS["fr"]`; English SPEAKER/speaker are
+# base formats (distinct from the zero-padded 'SPEAKER_00' style).
+def _r_asr_locuteur_colon(segs, meeting):
+    return "\n".join(f"Locuteur {s['n']}: {s['text']}" for s in segs if s["text"])
+
+def _r_asr_locuteur_dash(segs, meeting):
+    return "\n".join(f"Locuteur {s['n']} - {s['text']}" for s in segs if s["text"])
+
+def _r_asr_locuteur_caps(segs, meeting):
+    return "\n".join(f"LOCUTEUR {s['n']}: {s['text']}" for s in segs if s["text"])
+
+def _r_asr_locuteur_lower(segs, meeting):
+    return "\n".join(f"locuteur {s['n']}: {s['text']}" for s in segs if s["text"])
+
+def _r_asr_speaker_caps(segs, meeting):
+    return "\n".join(f"SPEAKER {s['n']}: {s['text']}" for s in segs if s["text"])
+
+def _r_asr_speaker_lower(segs, meeting):
+    return "\n".join(f"speaker {s['n']}: {s['text']}" for s in segs if s["text"])
+
+def _r_ts_locuteur_bracket(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f} - {s['e']:.2f}] Locuteur {s['n']}" for s in segs)
+
+def _r_ts_locuteur_caps(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f} - {s['e']:.2f}] LOCUTEUR {s['n']}" for s in segs)
+
+def _r_ts_locuteur_lower(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f} - {s['e']:.2f}] locuteur {s['n']}" for s in segs)
+
+def _r_ts_speaker_caps(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f} - {s['e']:.2f}] SPEAKER {s['n']}" for s in segs)
+
+def _r_ts_speaker_lower(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f} - {s['e']:.2f}] speaker {s['n']}" for s in segs)
+
+def _r_tsa_locuteur_bracket_colon(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f}-{s['e']:.2f}] Locuteur {s['n']}: {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_tsa_locuteur_inline(segs, meeting):
+    return "\n".join(f"Locuteur {s['n']} ({s['s']:.2f}-{s['e']:.2f}): {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_tsa_locuteur_caps(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f}-{s['e']:.2f}] LOCUTEUR {s['n']}: {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_tsa_locuteur_lower(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f}-{s['e']:.2f}] locuteur {s['n']}: {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_tsa_speaker_caps(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f}-{s['e']:.2f}] SPEAKER {s['n']}: {s['text']}"
+                     for s in segs if s["text"])
+
+def _r_tsa_speaker_lower(segs, meeting):
+    return "\n".join(f"[{s['s']:.2f}-{s['e']:.2f}] speaker {s['n']}: {s['text']}"
+                     for s in segs if s["text"])
+
+
 # --------------------------------------------------------------------------- #
 # Output formats: language-independent. Maps variant -> format key -> renderer. #
 # The first format key of each variant is its default (used by generic prompts).#
@@ -154,6 +215,8 @@ _DIAR_FORMATS = {
         "speaker_upper": {"render": _r_asr_speaker_upper},
         "dash":          {"render": _r_asr_dash},
         "letter":        {"render": _r_asr_letter},
+        "speaker_caps":  {"render": _r_asr_speaker_caps},
+        "speaker_lower": {"render": _r_asr_speaker_lower},
     },
     "timestamps": {
         "plain":         {"render": _r_ts_plain},
@@ -162,6 +225,8 @@ _DIAR_FORMATS = {
         "bare_letter":   {"render": _r_ts_bare_letter},
         "s_num":         {"render": _r_ts_s_num},
         "speaker_upper": {"render": _r_ts_speaker_upper},
+        "speaker_caps":  {"render": _r_ts_speaker_caps},
+        "speaker_lower": {"render": _r_ts_speaker_lower},
     },
     "timestamps_asr": {
         "bracket_colon": {"render": _r_tsa_bracket_colon},
@@ -172,11 +237,54 @@ _DIAR_FORMATS = {
         "arrow":         {"render": _r_tsa_arrow},
         "srt":           {"render": _r_tsa_srt},
         "vtt":           {"render": _r_tsa_vtt},
+        "speaker_caps":  {"render": _r_tsa_speaker_caps},
+        "speaker_lower": {"render": _r_tsa_speaker_lower},
     },
 }
 
 # First key of each variant is its default format (used by generic prompts).
 DIAR_DEFAULT_FORMAT = {v: next(iter(fmts)) for v, fmts in _DIAR_FORMATS.items()}
+
+
+# --------------------------------------------------------------------------- #
+# Language-specific EXTRA formats, merged on top of `_DIAR_FORMATS` only for    #
+# rows in that language (see `formats_for`). These are NOT in the base table,   #
+# so they never appear in other languages' output and are not subject to the    #
+# English-completeness check; instead `_validate_prompts` checks each extra     #
+# format has prompts in its own language. Format keys must not collide with the #
+# base ones. The default format (generic prompts) stays the base default.       #
+# --------------------------------------------------------------------------- #
+_LANG_EXTRA_FORMATS = {
+    "fr": {
+        "asr": {
+            "locuteur_colon": {"render": _r_asr_locuteur_colon},
+            "locuteur_dash":  {"render": _r_asr_locuteur_dash},
+            "locuteur_caps":  {"render": _r_asr_locuteur_caps},
+            "locuteur_lower": {"render": _r_asr_locuteur_lower},
+        },
+        "timestamps": {
+            "locuteur_bracket": {"render": _r_ts_locuteur_bracket},
+            "locuteur_caps":    {"render": _r_ts_locuteur_caps},
+            "locuteur_lower":   {"render": _r_ts_locuteur_lower},
+        },
+        "timestamps_asr": {
+            "locuteur_bracket_colon": {"render": _r_tsa_locuteur_bracket_colon},
+            "locuteur_inline":        {"render": _r_tsa_locuteur_inline},
+            "locuteur_caps":          {"render": _r_tsa_locuteur_caps},
+            "locuteur_lower":         {"render": _r_tsa_locuteur_lower},
+        },
+    },
+}
+
+
+def formats_for(language, variant):
+    """Return the format dict for (language, variant): the base formats plus any
+    language-specific extras. Use this instead of `_DIAR_FORMATS[variant]` when
+    picking/rendering a format so French rows can also draw 'Locuteur' formats."""
+    base = dict(_DIAR_FORMATS[variant])
+    extra = _LANG_EXTRA_FORMATS.get(language, {}).get(variant, {})
+    base.update(extra)
+    return base
 
 
 # --------------------------------------------------------------------------- #
@@ -288,6 +396,22 @@ _DIAR_PROMPTS = {
                     "Give the transcript with turns as 'Speaker A: <words>', 'Speaker B: <words>', ...",
                     "Label speakers with letters and write each turn as 'Speaker A: <words>'.",
                 ],
+                "speaker_caps": [
+                    "Transcribe the dialogue. Use the format 'SPEAKER N: <words>' "
+                    "(the word SPEAKER in all caps).",
+                    "Write each turn as 'SPEAKER N: <words>' with SPEAKER in uppercase.",
+                    "Transcribe this audio, prefixing each turn with 'SPEAKER 1:', 'SPEAKER 2:', etc.",
+                    "Give the transcript with turns as 'SPEAKER N: <words>', SPEAKER fully capitalised.",
+                    "Label each turn 'SPEAKER N: <words>' using the uppercase word SPEAKER.",
+                ],
+                "speaker_lower": [
+                    "Transcribe the dialogue. Use the format 'speaker N: <words>' "
+                    "(the word speaker in lowercase).",
+                    "Write each turn as 'speaker N: <words>' with speaker in lowercase.",
+                    "Transcribe this audio, prefixing each turn with 'speaker 1:', 'speaker 2:', etc.",
+                    "Give the transcript with turns as 'speaker N: <words>', speaker in lowercase.",
+                    "Label each turn 'speaker N: <words>' using the lowercase word speaker.",
+                ],
             },
             "timestamps": {
                 "plain": [
@@ -344,6 +468,22 @@ _DIAR_PROMPTS = {
                     "'[<start> - <end>] SPEAKER_01', ...",
                     "Give each turn as '[start - end] SPEAKER_NN', labeling SPEAKER_00, SPEAKER_01, ...",
                     "Diarise this recording, one line per turn as '[start - end] SPEAKER_00'.",
+                ],
+                "speaker_caps": [
+                    "List each segment as '[start - end] SPEAKER N' in seconds "
+                    "(the word SPEAKER in all caps).",
+                    "For each speaker turn, give '[<start> - <end>] SPEAKER N', SPEAKER uppercase.",
+                    "Diarize this audio, one line per turn as '[start - end] SPEAKER 1'.",
+                    "Output the speaker turns as '[<start> - <end>] SPEAKER 1', '[<start> - <end>] SPEAKER 2', ...",
+                    "Give each turn as '[start - end] SPEAKER N' using the uppercase word SPEAKER.",
+                ],
+                "speaker_lower": [
+                    "List each segment as '[start - end] speaker N' in seconds "
+                    "(the word speaker in lowercase).",
+                    "For each speaker turn, give '[<start> - <end>] speaker N', speaker lowercase.",
+                    "Diarize this audio, one line per turn as '[start - end] speaker 1'.",
+                    "Output the speaker turns as '[<start> - <end>] speaker 1', '[<start> - <end>] speaker 2', ...",
+                    "Give each turn as '[start - end] speaker N' using the lowercase word speaker.",
                 ],
             },
             "timestamps_asr": {
@@ -422,6 +562,22 @@ _DIAR_PROMPTS = {
                     "Generate WebVTT subtitles with each cue labeled by speaker.",
                     "Diarise this audio and write the transcript as WebVTT subtitles.",
                 ],
+                "speaker_caps": [
+                    "Format each turn as '[start-end] SPEAKER N: <words>' in seconds "
+                    "(the word SPEAKER in all caps).",
+                    "Write each turn as '[<start>-<end>] SPEAKER N: <words>', SPEAKER uppercase.",
+                    "Transcribe with timestamps, each turn as '[start-end] SPEAKER 1: <words>'.",
+                    "Give a timed transcript with turns as '[<start>-<end>] SPEAKER N: <words>', SPEAKER capitalised.",
+                    "Output each turn as '[start-end] SPEAKER N: <words>' using the uppercase word SPEAKER.",
+                ],
+                "speaker_lower": [
+                    "Format each turn as '[start-end] speaker N: <words>' in seconds "
+                    "(the word speaker in lowercase).",
+                    "Write each turn as '[<start>-<end>] speaker N: <words>', speaker lowercase.",
+                    "Transcribe with timestamps, each turn as '[start-end] speaker 1: <words>'.",
+                    "Give a timed transcript with turns as '[<start>-<end>] speaker N: <words>', speaker in lowercase.",
+                    "Output each turn as '[start-end] speaker N: <words>' using the lowercase word speaker.",
+                ],
             },
         },
         # Appended to the prompt of the backchannel-included version of a row.
@@ -434,7 +590,387 @@ _DIAR_PROMPTS = {
             "Keep the backchannels, fillers and disfluencies in the output.",
         ],
     },
-    # "fr": { ... }  # add French here, mirroring the "en" structure above.
+    "fr": {
+        # Generic prompts: no format specified / no example. They map to each
+        # variant's DEFAULT format, teaching the model its default behaviour.
+        "generic": {
+            "asr": [
+                "Transcris cette conversation en indiquant chaque tour de parole.",
+                "Qui dit quoi dans cet enregistrement ? Fournis une transcription avec les locuteurs.",
+                "Écris le dialogue avec une ligne par tour de parole.",
+                "Produis une transcription attribuée aux locuteurs de cet audio.",
+                "Transcris l'audio et identifie chaque locuteur.",
+                "Écris ce qui est dit en indiquant qui parle à chaque fois.",
+                "Fournis une transcription et distingue les différents locuteurs.",
+                "Transcris cet enregistrement en le séparant par locuteur.",
+                "Donne-moi la transcription complète avec les étiquettes de locuteur.",
+                "Transcris l'audio et attribue chaque énoncé à un locuteur.",
+                "Transcris et segmente cette conversation par locuteur.",
+                "Effectue la diarisation de cet audio et transcris les paroles de chaque locuteur.",
+                "Transcris cet enregistrement avec diarisation des locuteurs.",
+                "Identifie les locuteurs et écris ce que dit chacun d'eux.",
+            ],
+            "timestamps": [
+                "Identifie qui a parlé et quand dans cet enregistrement.",
+                "Effectue la diarisation des locuteurs sur cet audio.",
+                "Liste les segments de parole avec leurs temps de début et de fin.",
+                "Donne chaque tour de parole avec son temps de début et de fin.",
+                "Quand chaque locuteur a-t-il parlé ? Donne les intervalles de temps.",
+                "Segmente cet audio par locuteur, avec le minutage de chaque tour.",
+                "Délimite les tours de parole et leurs temps de début et de fin.",
+                "Effectue la diarisation et indique les intervalles de temps par locuteur.",
+                "Pour chaque locuteur, donne les intervalles pendant lesquels il parle.",
+                "Produis une chronologie des locuteurs avec les temps de début et de fin de chaque tour.",
+                "Effectue la diarisation de cet audio.",
+                "Effectue la diarisation et donne le minutage de chaque tour.",
+                "Diarise ce clip : donne chaque tour de parole avec son intervalle de temps.",
+                "Lance la diarisation des locuteurs et restitue les segments de parole.",
+            ],
+            "timestamps_asr": [
+                "Transcris cette conversation avec les étiquettes de locuteur et les horodatages.",
+                "Fournis une transcription horodatée et attribuée aux locuteurs de cet audio.",
+                "Pour chaque tour de parole, donne l'intervalle de temps, le locuteur et ce qui est dit.",
+                "Transcris l'audio avec les horodatages et les étiquettes de locuteur.",
+                "Identifie qui a parlé et quand, et qui a dit quoi.",
+                "Transcris et diarise cet audio.",
+                "Donne une transcription et une diarisation complètes de ce clip.",
+                "Donne une transcription avec, pour chaque tour, les temps, le locuteur et les paroles.",
+                "Écris le dialogue avec le minutage et les étiquettes de locuteur sur chaque tour.",
+                "Produis une transcription horodatée et attribuée aux locuteurs de cet enregistrement.",
+                "Transcris tout, en notant quand chaque locuteur parle et ce qu'il dit.",
+                "Transcris et diarise cet enregistrement, avec les horodatages de chaque tour.",
+                "Effectue la diarisation et transcris chaque tour avec son intervalle de temps.",
+                "Diarise cet audio et produis une transcription horodatée de chaque tour de parole.",
+            ],
+        },
+        # Per-format prompts: each explicitly specifies that format (with an
+        # example). The example tokens (Speaker N, RTTM, SRT, ...) are
+        # language-independent because the renderers output them verbatim.
+        "formats": {
+            "asr": {
+                "speaker_colon": [
+                    "Transcris le dialogue. Utilise le format 'Speaker N: <paroles>' pour chaque tour.",
+                    "Écris chaque tour sous la forme 'Speaker N: <paroles>'.",
+                    "Produis une transcription par locuteur, une ligne par tour, au format 'Speaker N: <paroles>'.",
+                    "Transcris cet audio en préfixant chaque tour par 'Speaker N:'.",
+                    "Donne la transcription avec chaque tour au format 'Speaker N: <paroles>'.",
+                ],
+                "bare_letter": [
+                    "Transcris le dialogue. Utilise le format 'A: <paroles>' "
+                    "(étiquette les locuteurs A, B, C, ...).",
+                    "Écris chaque tour sous la forme 'X: <paroles>', avec des lettres A, B, C pour les locuteurs.",
+                    "Transcris cet audio en préfixant chaque tour par une lettre de locuteur : 'A: <paroles>'.",
+                    "Donne la transcription avec les tours sous la forme 'A: <paroles>', 'B: <paroles>', etc.",
+                    "Étiquette les locuteurs par une seule lettre et écris chaque tour 'A: <paroles>'.",
+                ],
+                "s_num": [
+                    "Transcris le dialogue. Utilise le format 'S1: <paroles>' "
+                    "(étiquette les locuteurs S1, S2, S3, ...).",
+                    "Écris chaque tour sous la forme 'SN: <paroles>' où N est le numéro du locuteur.",
+                    "Transcris cet audio en préfixant chaque tour par 'S1:', 'S2:', etc.",
+                    "Donne la transcription avec les tours sous la forme 'S1: <paroles>', 'S2: <paroles>', etc.",
+                    "Étiquette les locuteurs S1, S2, S3, ... et écris chaque tour 'SN: <paroles>'.",
+                ],
+                "speaker_upper": [
+                    "Transcris le dialogue. Utilise le format 'SPEAKER_00: <paroles>' "
+                    "(étiquette les locuteurs SPEAKER_00, SPEAKER_01, ...).",
+                    "Écris chaque tour sous la forme 'SPEAKER_NN: <paroles>' avec des indices à partir de 00.",
+                    "Transcris cet audio en préfixant chaque tour par 'SPEAKER_00:', 'SPEAKER_01:', etc.",
+                    "Donne la transcription avec les tours 'SPEAKER_00: <paroles>', 'SPEAKER_01: <paroles>', ...",
+                    "Étiquette les locuteurs SPEAKER_00, SPEAKER_01, ... et écris chaque tour 'SPEAKER_NN: <paroles>'.",
+                ],
+                "dash": [
+                    "Transcris avec les étiquettes de locuteur au format 'Speaker N - <paroles>'.",
+                    "Sépare l'étiquette du locuteur et ses paroles par un tiret : 'Speaker N - <paroles>'.",
+                    "Écris chaque tour sous la forme 'Speaker N - <paroles>'.",
+                    "Donne la transcription avec chaque tour 'Speaker N - <paroles>'.",
+                    "Transcris cet audio en formatant chaque tour 'Speaker N - <paroles>'.",
+                ],
+                "letter": [
+                    "Transcris le dialogue. Utilise le format 'Speaker A: <paroles>' "
+                    "(étiquette les locuteurs A, B, C, ...).",
+                    "Écris chaque tour sous la forme 'Speaker X: <paroles>', avec des lettres A, B, C.",
+                    "Transcris cet audio en préfixant chaque tour par 'Speaker A:', 'Speaker B:', etc.",
+                    "Donne la transcription avec les tours 'Speaker A: <paroles>', 'Speaker B: <paroles>', ...",
+                    "Étiquette les locuteurs par des lettres et écris chaque tour 'Speaker A: <paroles>'.",
+                ],
+                "locuteur_colon": [
+                    "Transcris le dialogue. Utilise le format 'Locuteur N: <paroles>' pour chaque tour.",
+                    "Écris chaque tour sous la forme 'Locuteur N: <paroles>'.",
+                    "Produis une transcription par locuteur, une ligne par tour, au format 'Locuteur N: <paroles>'.",
+                    "Transcris cet audio en préfixant chaque tour par 'Locuteur N:'.",
+                    "Donne la transcription avec chaque tour au format 'Locuteur N: <paroles>'.",
+                ],
+                "locuteur_dash": [
+                    "Transcris avec les étiquettes de locuteur au format 'Locuteur N - <paroles>'.",
+                    "Sépare l'étiquette du locuteur et ses paroles par un tiret : 'Locuteur N - <paroles>'.",
+                    "Écris chaque tour sous la forme 'Locuteur N - <paroles>'.",
+                    "Donne la transcription avec chaque tour 'Locuteur N - <paroles>'.",
+                    "Transcris cet audio en formatant chaque tour 'Locuteur N - <paroles>'.",
+                ],
+                "locuteur_caps": [
+                    "Transcris le dialogue. Utilise le format 'LOCUTEUR N: <paroles>' "
+                    "(le mot LOCUTEUR en majuscules).",
+                    "Écris chaque tour sous la forme 'LOCUTEUR N: <paroles>', LOCUTEUR en majuscules.",
+                    "Transcris cet audio en préfixant chaque tour par 'LOCUTEUR 1:', 'LOCUTEUR 2:', etc.",
+                    "Donne la transcription avec chaque tour 'LOCUTEUR N: <paroles>', LOCUTEUR tout en majuscules.",
+                    "Étiquette chaque tour 'LOCUTEUR N: <paroles>' avec le mot LOCUTEUR en majuscules.",
+                ],
+                "locuteur_lower": [
+                    "Transcris le dialogue. Utilise le format 'locuteur N: <paroles>' "
+                    "(le mot locuteur en minuscules).",
+                    "Écris chaque tour sous la forme 'locuteur N: <paroles>', locuteur en minuscules.",
+                    "Transcris cet audio en préfixant chaque tour par 'locuteur 1:', 'locuteur 2:', etc.",
+                    "Donne la transcription avec chaque tour 'locuteur N: <paroles>', locuteur en minuscules.",
+                    "Étiquette chaque tour 'locuteur N: <paroles>' avec le mot locuteur en minuscules.",
+                ],
+                "speaker_caps": [
+                    "Transcris le dialogue. Utilise le format 'SPEAKER N: <paroles>' "
+                    "(le mot SPEAKER en majuscules).",
+                    "Écris chaque tour sous la forme 'SPEAKER N: <paroles>', SPEAKER en majuscules.",
+                    "Transcris cet audio en préfixant chaque tour par 'SPEAKER 1:', 'SPEAKER 2:', etc.",
+                    "Donne la transcription avec chaque tour 'SPEAKER N: <paroles>', SPEAKER tout en majuscules.",
+                    "Étiquette chaque tour 'SPEAKER N: <paroles>' avec le mot SPEAKER en majuscules.",
+                ],
+                "speaker_lower": [
+                    "Transcris le dialogue. Utilise le format 'speaker N: <paroles>' "
+                    "(le mot speaker en minuscules).",
+                    "Écris chaque tour sous la forme 'speaker N: <paroles>', speaker en minuscules.",
+                    "Transcris cet audio en préfixant chaque tour par 'speaker 1:', 'speaker 2:', etc.",
+                    "Donne la transcription avec chaque tour 'speaker N: <paroles>', speaker en minuscules.",
+                    "Étiquette chaque tour 'speaker N: <paroles>' avec le mot speaker en minuscules.",
+                ],
+            },
+            "timestamps": {
+                "plain": [
+                    "Produis une ligne par tour sous la forme 'Speaker N <début> <fin>' en secondes.",
+                    "Pour chaque tour, donne 'Speaker N <début> <fin>' (temps en secondes).",
+                    "Diarise cet audio, une ligne par tour 'Speaker N <début> <fin>'.",
+                    "Liste les tours de parole 'Speaker N <début> <fin>', temps en secondes.",
+                    "Donne chaque tour 'Speaker N <début> <fin>' avec début et fin en secondes.",
+                    "Diarise cet enregistrement, une ligne par tour 'Speaker N <début> <fin>'.",
+                ],
+                "rttm": [
+                    "Effectue la diarisation et restitue le résultat au format RTTM.",
+                    "Donne la diarisation sous forme de lignes RTTM standard (SPEAKER ...).",
+                    "Diarise cet audio et renvoie des lignes au format RTTM.",
+                    "Diarise cet audio en suivant le format RTTM.",
+                    "Effectue la diarisation des locuteurs en suivant le format RTTM.",
+                    "Restitue la segmentation des locuteurs sous forme de lignes RTTM (NIST).",
+                    "Diarise cet audio et renvoie le résultat sous forme de lignes RTTM.",
+                ],
+                "bracket": [
+                    "Liste chaque segment sous la forme '[début - fin] Speaker N' en secondes.",
+                    "Pour chaque tour, donne '[<début> - <fin>] Speaker N'.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] Speaker N'.",
+                    "Restitue les tours sous la forme '[<début> - <fin>] Speaker N', temps en secondes.",
+                    "Donne chaque tour '[début - fin] Speaker N'.",
+                    "Diarise cet enregistrement, une ligne par tour '[début - fin] Speaker N'.",
+                ],
+                "bare_letter": [
+                    "Liste chaque segment sous la forme '[début - fin] A' en secondes "
+                    "(étiquette les locuteurs A, B, C, ...).",
+                    "Pour chaque tour, donne '[<début> - <fin>] X' avec des lettres A, B, C.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] A'.",
+                    "Restitue les tours '[<début> - <fin>] A', '[<début> - <fin>] B', ...",
+                    "Donne chaque tour '[début - fin] A', en étiquetant les locuteurs A, B, C, ...",
+                    "Diarise cet enregistrement, une ligne par tour '[début - fin] A'.",
+                ],
+                "s_num": [
+                    "Liste chaque segment sous la forme '[début - fin] S1' en secondes "
+                    "(étiquette les locuteurs S1, S2, S3, ...).",
+                    "Pour chaque tour, donne '[<début> - <fin>] SN'.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] S1'.",
+                    "Restitue les tours '[<début> - <fin>] S1', '[<début> - <fin>] S2', ...",
+                    "Donne chaque tour '[début - fin] SN', en étiquetant les locuteurs S1, S2, S3, ...",
+                    "Diarise cet enregistrement, une ligne par tour '[début - fin] S1'.",
+                ],
+                "speaker_upper": [
+                    "Liste chaque segment sous la forme '[début - fin] SPEAKER_00' en secondes "
+                    "(étiquette les locuteurs SPEAKER_00, SPEAKER_01, ...).",
+                    "Pour chaque tour, donne '[<début> - <fin>] SPEAKER_NN' avec des indices à partir de 00.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] SPEAKER_00'.",
+                    "Restitue les tours '[<début> - <fin>] SPEAKER_00', '[<début> - <fin>] SPEAKER_01', ...",
+                    "Donne chaque tour '[début - fin] SPEAKER_NN', en étiquetant SPEAKER_00, SPEAKER_01, ...",
+                    "Diarise cet enregistrement, une ligne par tour '[début - fin] SPEAKER_00'.",
+                ],
+                "locuteur_bracket": [
+                    "Liste chaque segment sous la forme '[début - fin] Locuteur N' en secondes.",
+                    "Pour chaque tour, donne '[<début> - <fin>] Locuteur N'.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] Locuteur N'.",
+                    "Restitue les tours sous la forme '[<début> - <fin>] Locuteur N', temps en secondes.",
+                    "Donne chaque tour '[début - fin] Locuteur N'.",
+                    "Diarise cet enregistrement, une ligne par tour '[début - fin] Locuteur N'.",
+                ],
+                "locuteur_caps": [
+                    "Liste chaque segment sous la forme '[début - fin] LOCUTEUR N' en secondes "
+                    "(le mot LOCUTEUR en majuscules).",
+                    "Pour chaque tour, donne '[<début> - <fin>] LOCUTEUR N', LOCUTEUR en majuscules.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] LOCUTEUR 1'.",
+                    "Restitue les tours '[<début> - <fin>] LOCUTEUR 1', '[<début> - <fin>] LOCUTEUR 2', ...",
+                    "Donne chaque tour '[début - fin] LOCUTEUR N', LOCUTEUR tout en majuscules.",
+                ],
+                "locuteur_lower": [
+                    "Liste chaque segment sous la forme '[début - fin] locuteur N' en secondes "
+                    "(le mot locuteur en minuscules).",
+                    "Pour chaque tour, donne '[<début> - <fin>] locuteur N', locuteur en minuscules.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] locuteur 1'.",
+                    "Restitue les tours '[<début> - <fin>] locuteur 1', '[<début> - <fin>] locuteur 2', ...",
+                    "Donne chaque tour '[début - fin] locuteur N', locuteur en minuscules.",
+                ],
+                "speaker_caps": [
+                    "Liste chaque segment sous la forme '[début - fin] SPEAKER N' en secondes "
+                    "(le mot SPEAKER en majuscules).",
+                    "Pour chaque tour, donne '[<début> - <fin>] SPEAKER N', SPEAKER en majuscules.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] SPEAKER 1'.",
+                    "Restitue les tours '[<début> - <fin>] SPEAKER 1', '[<début> - <fin>] SPEAKER 2', ...",
+                    "Donne chaque tour '[début - fin] SPEAKER N', SPEAKER tout en majuscules.",
+                ],
+                "speaker_lower": [
+                    "Liste chaque segment sous la forme '[début - fin] speaker N' en secondes "
+                    "(le mot speaker en minuscules).",
+                    "Pour chaque tour, donne '[<début> - <fin>] speaker N', speaker en minuscules.",
+                    "Diarise cet audio, une ligne par tour '[début - fin] speaker 1'.",
+                    "Restitue les tours '[<début> - <fin>] speaker 1', '[<début> - <fin>] speaker 2', ...",
+                    "Donne chaque tour '[début - fin] speaker N', speaker en minuscules.",
+                ],
+            },
+            "timestamps_asr": {
+                "bracket_colon": [
+                    "Formate chaque tour sous la forme '[début-fin] Speaker N: <paroles>' en secondes.",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] Speaker N: <paroles>'.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] Speaker N: <paroles>'.",
+                    "Donne une transcription horodatée avec les tours '[<début>-<fin>] Speaker N: <paroles>'.",
+                    "Restitue chaque tour '[début-fin] Speaker N: <paroles>', temps en secondes.",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] Speaker N: <paroles>'.",
+                ],
+                "bare_letter": [
+                    "Formate chaque tour sous la forme '[début-fin] A: <paroles>' en secondes "
+                    "(étiquette les locuteurs A, B, C, ...).",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] X: <paroles>' avec des lettres A, B, C.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] A: <paroles>'.",
+                    "Donne une transcription horodatée avec les tours '[<début>-<fin>] A: <paroles>', "
+                    "'[<début>-<fin>] B: <paroles>', ...",
+                    "Restitue chaque tour '[début-fin] A: <paroles>', en étiquetant les locuteurs A, B, C, ...",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] A: <paroles>'.",
+                ],
+                "s_num": [
+                    "Formate chaque tour sous la forme '[début-fin] S1: <paroles>' en secondes "
+                    "(étiquette les locuteurs S1, S2, S3, ...).",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] SN: <paroles>'.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] S1: <paroles>'.",
+                    "Donne une transcription horodatée avec les tours '[<début>-<fin>] S1: <paroles>', "
+                    "'[<début>-<fin>] S2: <paroles>', ...",
+                    "Restitue chaque tour '[début-fin] SN: <paroles>', en étiquetant les locuteurs S1, S2, S3, ...",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] S1: <paroles>'.",
+                ],
+                "speaker_upper": [
+                    "Formate chaque tour sous la forme '[début-fin] SPEAKER_00: <paroles>' en secondes "
+                    "(étiquette les locuteurs SPEAKER_00, SPEAKER_01, ...).",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] SPEAKER_NN: <paroles>' "
+                    "avec des indices à partir de 00.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] SPEAKER_00: <paroles>'.",
+                    "Donne une transcription horodatée avec les tours '[<début>-<fin>] SPEAKER_00: <paroles>', "
+                    "'[<début>-<fin>] SPEAKER_01: <paroles>', ...",
+                    "Restitue chaque tour '[début-fin] SPEAKER_NN: <paroles>', "
+                    "en étiquetant SPEAKER_00, SPEAKER_01, ...",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] SPEAKER_00: <paroles>'.",
+                ],
+                "inline": [
+                    "Transcris avec horodatage au format 'Speaker N (début-fin): <paroles>'.",
+                    "Écris chaque tour sous la forme 'Speaker N (<début>-<fin>): <paroles>'.",
+                    "Donne une transcription horodatée avec les tours 'Speaker N (début-fin): <paroles>'.",
+                    "Restitue chaque tour 'Speaker N (<début>-<fin>): <paroles>', temps en secondes.",
+                    "Transcris cet audio en formatant chaque tour 'Speaker N (début-fin): <paroles>'.",
+                    "Transcris et diarise cet audio, chaque tour 'Speaker N (début-fin): <paroles>'.",
+                ],
+                "arrow": [
+                    "Transcris avec horodatage. Utilise le format '<début> --> <fin>  Speaker N: <paroles>'.",
+                    "Utilise des repères simples : '<début> --> <fin>  Speaker N: <paroles>'.",
+                    "Donne une transcription horodatée avec les tours '<début> --> <fin>  Speaker N: <paroles>'.",
+                    "Restitue chaque tour '<début> --> <fin>  Speaker N: <paroles>', temps en secondes.",
+                    "Transcris cet audio en formatant chaque tour '<début> --> <fin>  Speaker N: <paroles>'.",
+                    "Transcris et diarise cet audio, chaque tour '<début> --> <fin>  Speaker N: <paroles>'.",
+                ],
+                "srt": [
+                    "Transcris avec horodatage sous forme de sous-titres SRT.",
+                    "Produis des sous-titres SubRip (.srt) avec les étiquettes de locuteur.",
+                    "Restitue la transcription au format SRT : repères numérotés, temps 'HH:MM:SS,mmm', "
+                    "et 'Speaker N: <paroles>'.",
+                    "Transcris cet audio en suivant le format SRT.",
+                    "Transcris les locuteurs en suivant le format de sous-titres SRT.",
+                    "Génère des sous-titres SRT avec chaque repère étiqueté par locuteur.",
+                    "Diarise cet audio et écris la transcription sous forme de sous-titres SRT.",
+                ],
+                "vtt": [
+                    "Transcris avec horodatage sous forme de sous-titres WebVTT (.vtt).",
+                    "Restitue la transcription au format WebVTT avec les étiquettes de locuteur.",
+                    "Produis des repères WEBVTT (temps 'HH:MM:SS.mmm') avec 'Speaker N: <paroles>'.",
+                    "Transcris cet audio en suivant le format WebVTT.",
+                    "Transcris les locuteurs en suivant le format WebVTT (.vtt).",
+                    "Génère des sous-titres WebVTT avec chaque repère étiqueté par locuteur.",
+                    "Diarise cet audio et écris la transcription sous forme de sous-titres WebVTT.",
+                ],
+                "locuteur_bracket_colon": [
+                    "Formate chaque tour sous la forme '[début-fin] Locuteur N: <paroles>' en secondes.",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] Locuteur N: <paroles>'.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] Locuteur N: <paroles>'.",
+                    "Donne une transcription horodatée avec les tours '[<début>-<fin>] Locuteur N: <paroles>'.",
+                    "Restitue chaque tour '[début-fin] Locuteur N: <paroles>', temps en secondes.",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] Locuteur N: <paroles>'.",
+                ],
+                "locuteur_inline": [
+                    "Transcris avec horodatage au format 'Locuteur N (début-fin): <paroles>'.",
+                    "Écris chaque tour sous la forme 'Locuteur N (<début>-<fin>): <paroles>'.",
+                    "Donne une transcription horodatée avec les tours 'Locuteur N (début-fin): <paroles>'.",
+                    "Restitue chaque tour 'Locuteur N (<début>-<fin>): <paroles>', temps en secondes.",
+                    "Transcris cet audio en formatant chaque tour 'Locuteur N (début-fin): <paroles>'.",
+                    "Transcris et diarise cet audio, chaque tour 'Locuteur N (début-fin): <paroles>'.",
+                ],
+                "locuteur_caps": [
+                    "Formate chaque tour sous la forme '[début-fin] LOCUTEUR N: <paroles>' en secondes "
+                    "(le mot LOCUTEUR en majuscules).",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] LOCUTEUR N: <paroles>', LOCUTEUR en majuscules.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] LOCUTEUR 1: <paroles>'.",
+                    "Restitue chaque tour '[début-fin] LOCUTEUR N: <paroles>', LOCUTEUR tout en majuscules.",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] LOCUTEUR N: <paroles>'.",
+                ],
+                "locuteur_lower": [
+                    "Formate chaque tour sous la forme '[début-fin] locuteur N: <paroles>' en secondes "
+                    "(le mot locuteur en minuscules).",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] locuteur N: <paroles>', locuteur en minuscules.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] locuteur 1: <paroles>'.",
+                    "Restitue chaque tour '[début-fin] locuteur N: <paroles>', locuteur en minuscules.",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] locuteur N: <paroles>'.",
+                ],
+                "speaker_caps": [
+                    "Formate chaque tour sous la forme '[début-fin] SPEAKER N: <paroles>' en secondes "
+                    "(le mot SPEAKER en majuscules).",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] SPEAKER N: <paroles>', SPEAKER en majuscules.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] SPEAKER 1: <paroles>'.",
+                    "Restitue chaque tour '[début-fin] SPEAKER N: <paroles>', SPEAKER tout en majuscules.",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] SPEAKER N: <paroles>'.",
+                ],
+                "speaker_lower": [
+                    "Formate chaque tour sous la forme '[début-fin] speaker N: <paroles>' en secondes "
+                    "(le mot speaker en minuscules).",
+                    "Écris chaque tour sous la forme '[<début>-<fin>] speaker N: <paroles>', speaker en minuscules.",
+                    "Transcris avec horodatage, chaque tour '[début-fin] speaker 1: <paroles>'.",
+                    "Restitue chaque tour '[début-fin] speaker N: <paroles>', speaker en minuscules.",
+                    "Transcris et diarise cet audio, chaque tour '[début-fin] speaker N: <paroles>'.",
+                ],
+            },
+        },
+        # Appended to the prompt of the backchannel-included version of a row.
+        "backchannel_suffixes": [
+            "Inclus les régulateurs, acquiescements et disfluences (par ex. 'mhm', 'ouais', 'euh').",
+            "Conserve tous les acquiescements et régulateurs comme 'mm', 'hmm', 'ouais'.",
+            "Inclus chaque énoncé, même les brefs acquiescements et mots de remplissage.",
+            "N'omets pas les régulateurs ni les mots de remplissage comme 'mm', 'euh' et 'ouais'.",
+            "Transcris tout, y compris les acquiescements et les hésitations.",
+            "Conserve les régulateurs, mots de remplissage et disfluences dans la sortie.",
+        ],
+    },
 }
 
 
@@ -448,6 +984,18 @@ def _validate_prompts():
             assert base["formats"].get(variant, {}).get(fmt), \
                 f"missing {DEFAULT_LANGUAGE!r} prompts for {variant!r}/{fmt!r}"
     assert base.get("backchannel_suffixes"), "missing backchannel suffixes"
+
+    # Each language's EXTRA formats must have prompts in that same language (they
+    # have no English fallback, being language-native), and must not shadow a base
+    # format key.
+    for lang, by_variant in _LANG_EXTRA_FORMATS.items():
+        lang_block = _DIAR_PROMPTS.get(lang, {})
+        for variant, fmts in by_variant.items():
+            for fmt in fmts:
+                assert fmt not in _DIAR_FORMATS[variant], \
+                    f"extra format {lang!r}/{variant!r}/{fmt!r} collides with a base format"
+                assert lang_block.get("formats", {}).get(variant, {}).get(fmt), \
+                    f"missing {lang!r} prompts for extra format {variant!r}/{fmt!r}"
 
 
 _validate_prompts()
@@ -474,17 +1022,37 @@ def _backchannel_suffixes_for(language):
 # --------------------------- backchannel detection --------------------------- #
 # Backchannels / acknowledgements / fillers. A turn whose every lexical token is
 # one of these is treated as a backchannel and dropped from the "clean" version.
-_BACKCHANNEL_WORDS = {
+# Keyed by language; the language-specific set is unioned with the universal
+# vocalic core (mm/hmm/ah/oh/...). English is the default.
+_BACKCHANNEL_CORE = {
     "mm", "mmm", "mhm", "mm-hmm", "mmhmm", "mm-hm", "hmm", "hm", "hmmm",
-    "uh-huh", "uhhuh", "uh", "uhh", "uhm", "um", "umm", "er", "erm",
-    "ah", "aha", "oh", "ooh", "huh", "mm-mm", "hm-mm", "mm-mmm",
-    "yeah", "yep", "yup", "nah", "kay", "okay", "ok", "right", "sure",
+    "ah", "aha", "oh", "ooh", "huh", "mm-mm", "hm-mm", "mm-mmm", "mh",
+}
+_BACKCHANNEL_WORDS_BY_LANG = {
+    "en": {
+        "uh-huh", "uhhuh", "uh", "uhh", "uhm", "um", "umm", "er", "erm",
+        "yeah", "yep", "yup", "nah", "kay", "okay", "ok", "right", "sure",
+    },
+    "fr": {
+        # acquiescements / régulateurs / hésitations courants à l'oral
+        "ouais", "oui", "ouaip", "non", "nan", "voilà", "voila",
+        "d'accord", "daccord", "ok", "okay", "hein", "bah", "ben", "beh",
+        "euh", "heu", "hum", "humhum", "mhmh", "mmh", "mouais", "ouf",
+        "ah-ouais", "ah-oui", "ah-bon", "bon-ben",
+    },
 }
 _BC_EDGE = re.compile(r"^[^\w']+|[^\w']+$")
 
 
-def _is_backchannel(text: str) -> bool:
-    """True if every lexical token in `text` is a backchannel/acknowledgement/filler."""
+def _backchannel_words_for(language):
+    lang = language if language in _BACKCHANNEL_WORDS_BY_LANG else DEFAULT_LANGUAGE
+    return _BACKCHANNEL_CORE | _BACKCHANNEL_WORDS_BY_LANG[lang]
+
+
+def _is_backchannel(text: str, language: str = DEFAULT_LANGUAGE) -> bool:
+    """True if every lexical token in `text` is a backchannel/acknowledgement/filler
+    in the given language (falling back to the default language's set)."""
+    words = _backchannel_words_for(language)
     toks = text.split()
     if not toks or len(toks) > 4:
         return False
@@ -494,7 +1062,7 @@ def _is_backchannel(text: str) -> bool:
         if not w:  # pure punctuation token
             continue
         has_word = True
-        if w not in _BACKCHANNEL_WORDS:
+        if w not in words:
             return False
     return has_word
 
