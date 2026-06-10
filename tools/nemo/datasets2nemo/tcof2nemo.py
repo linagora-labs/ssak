@@ -47,7 +47,7 @@ from diar_prompts import (
     DIAR_VARIANTS,
     DIAR_DEFAULT_FORMAT,
     formats_for,
-    _is_backchannel,
+    clean_window_pieces,
     make_diar_lean_row,
 )
 
@@ -398,7 +398,7 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
 
         # (tag, pieces, include_backchannels). Audio window is unchanged; only text differs.
         if backchannel_versions:
-            clean = [p for p in window if not _is_backchannel(p["text"], LANGUAGE)]
+            clean = clean_window_pieces(window, LANGUAGE)
             versions = []
             if clean:
                 versions.append(("clean", clean, False))
@@ -525,6 +525,10 @@ def main():
                                  "it. --no-diar-format-variety forces the default format.")
     diar_group.add_argument("--diar-generic-prompt-ratio", type=float, default=0.5,
                             help="Fraction of rows using a generic, no-format prompt.")
+    diar_group.add_argument("--diar-cross-lingual-prompt-ratio", type=float, default=0.05,
+                            help="Probability of drawing the prompt from a different language than "
+                                 "the audio (e.g. a French prompt on English data and vice versa); "
+                                 "only formats defined in both languages are eligible.")
     diar_group.add_argument("--diar-backchannel-versions", action=argparse.BooleanOptionalAction,
                             default=True,
                             help="Emit two versions per window: one without "
@@ -638,7 +642,7 @@ def main():
                     continue
                 lean = get(diar_buckets[variant], split)
                 for r in rows:
-                    lean.append(make_diar_lean_row(r))
+                    lean.append(make_diar_lean_row(r, args.diar_cross_lingual_prompt_ratio))
 
     if args.prefer_converted:
         logger.info(f"Used converted audio for {n_converted}/{len(recordings)} recordings")

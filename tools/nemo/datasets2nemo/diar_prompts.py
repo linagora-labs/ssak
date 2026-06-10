@@ -581,14 +581,24 @@ _DIAR_PROMPTS = {
             },
         },
         # Appended to the prompt of the backchannel-included version of a row.
-        "backchannel_suffixes": [
-            "Include backchannels, acknowledgements and disfluencies (e.g. 'mm-hmm', 'yeah', 'uh').",
-            "Keep all backchannels and acknowledgements such as 'mm', 'hmm', 'uh-huh'.",
-            "Include every utterance, even short backchannels and fillers.",
-            "Do not omit backchannels or filler words like 'mm', 'uh' and 'yeah'.",
-            "Transcribe everything, including acknowledgements and hesitations.",
-            "Keep the backchannels, fillers and disfluencies in the output.",
-        ],
+        "backchannel_suffixes": {
+            # Variants that emit words (asr, timestamps_asr): talk about transcribing them.
+            "transcribed": [
+                "Include backchannels, acknowledgements and disfluencies (e.g. 'mm-hmm', 'yeah', 'uh').",
+                "Keep all backchannels and acknowledgements such as 'mm', 'hmm', 'uh-huh'.",
+                "Include every utterance, even short backchannels and fillers.",
+                "Do not omit backchannels or filler words like 'mm', 'uh' and 'yeah'.",
+                "Transcribe everything, including acknowledgements and hesitations.",
+                "Keep the backchannels, fillers and disfluencies in the output.",
+            ],
+            # Timestamps-only (who-spoke-when, no words): talk about keeping the segments.
+            "timestamps": [
+                "Include short backchannel turns (e.g. 'mm-hmm', 'yeah') as separate segments.",
+                "Keep every turn, even brief backchannels and acknowledgements.",
+                "Do not drop short backchannel or filler turns; segment them too.",
+                "Include all turns, including momentary backchannels and fillers.",
+            ],
+        },
     },
     "fr": {
         # Generic prompts: no format specified / no example. They map to each
@@ -962,14 +972,22 @@ _DIAR_PROMPTS = {
             },
         },
         # Appended to the prompt of the backchannel-included version of a row.
-        "backchannel_suffixes": [
-            "Inclus les régulateurs, acquiescements et disfluences (par ex. 'mhm', 'ouais', 'euh').",
-            "Conserve tous les acquiescements et régulateurs comme 'mm', 'hmm', 'ouais'.",
-            "Inclus chaque énoncé, même les brefs acquiescements et mots de remplissage.",
-            "N'omets pas les régulateurs ni les mots de remplissage comme 'mm', 'euh' et 'ouais'.",
-            "Transcris tout, y compris les acquiescements et les hésitations.",
-            "Conserve les régulateurs, mots de remplissage et disfluences dans la sortie.",
-        ],
+        "backchannel_suffixes": {
+            "transcribed": [
+                "Inclus les régulateurs, acquiescements et disfluences (par ex. 'mhm', 'ouais', 'euh').",
+                "Conserve tous les acquiescements et régulateurs comme 'mm', 'hmm', 'ouais'.",
+                "Inclus chaque énoncé, même les brefs acquiescements et mots de remplissage.",
+                "N'omets pas les régulateurs ni les mots de remplissage comme 'mm', 'euh' et 'ouais'.",
+                "Transcris tout, y compris les acquiescements et les hésitations.",
+                "Conserve les régulateurs, mots de remplissage et disfluences dans la sortie.",
+            ],
+            "timestamps": [
+                "Inclus les brefs tours de régulation (par ex. 'mhm', 'ouais') comme segments distincts.",
+                "Conserve chaque tour, même les brefs acquiescements et régulateurs.",
+                "N'omets pas les courts tours de régulation ou de remplissage ; segmente-les aussi.",
+                "Inclus tous les tours, y compris les brefs régulateurs et hésitations.",
+            ],
+        },
     },
 }
 
@@ -983,7 +1001,11 @@ def _validate_prompts():
         for fmt in fmts:
             assert base["formats"].get(variant, {}).get(fmt), \
                 f"missing {DEFAULT_LANGUAGE!r} prompts for {variant!r}/{fmt!r}"
-    assert base.get("backchannel_suffixes"), "missing backchannel suffixes"
+    for lang, block in _DIAR_PROMPTS.items():
+        suffixes = block.get("backchannel_suffixes")
+        assert isinstance(suffixes, dict), f"{lang!r} backchannel_suffixes must be a dict"
+        for key in ("transcribed", "timestamps"):
+            assert suffixes.get(key), f"{lang!r} missing {key!r} backchannel suffixes"
 
     # Each language's EXTRA formats must have prompts in that same language (they
     # have no English fallback, being language-native), and must not shadow a base
@@ -1014,9 +1036,14 @@ def _prompts_for(language, variant, fmt, style):
     return prompts
 
 
-def _backchannel_suffixes_for(language):
+def _backchannel_suffixes_for(language, variant):
+    """Backchannel-version suffix list for a language/variant. The 'timestamps'
+    variant emits no words, so it uses segment-oriented wording; 'asr' and
+    'timestamps_asr' use transcription-oriented wording."""
     block = _DIAR_PROMPTS.get(language) or _DIAR_PROMPTS[DEFAULT_LANGUAGE]
-    return block.get("backchannel_suffixes") or _DIAR_PROMPTS[DEFAULT_LANGUAGE]["backchannel_suffixes"]
+    suffixes = block.get("backchannel_suffixes") or _DIAR_PROMPTS[DEFAULT_LANGUAGE]["backchannel_suffixes"]
+    key = "timestamps" if variant == "timestamps" else "transcribed"
+    return suffixes.get(key) or _DIAR_PROMPTS[DEFAULT_LANGUAGE]["backchannel_suffixes"][key]
 
 
 # --------------------------- backchannel detection --------------------------- #
@@ -1067,19 +1094,90 @@ def _is_backchannel(text: str, language: str = DEFAULT_LANGUAGE) -> bool:
     return has_word
 
 
-def make_diar_lean_row(r: NemoDatasetRow) -> NemoDatasetRow:
+# Non-lexical hesitation/filler sounds. Unlike the acknowledgement words above
+# (oui/non/voilà/...), these carry no meaning and are safe to remove *anywhere* in
+# a turn — so the "clean" (no-backchannel) version strips them in-line, while the
+# "full" version keeps them. Lexical acknowledgements are only dropped when they
+# form a whole turn (see _is_backchannel), never mid-sentence.
+_FILLER_WORDS = {
+    # English
+    "uh", "uhh", "uhm", "um", "umm", "er", "erm", "uh-huh", "uhhuh",
+    # French
+    "euh", "heu", "heum", "euhm", "heuh", "ben-euh",
+    # cross-lingual vocalic hesitations
+    "hum", "humhum", "hmm", "hmmm", "hm", "mh", "mm", "mmm", "mmh", "mhm", "mhmh",
+}
+
+
+def strip_fillers(text: str, language: str = DEFAULT_LANGUAGE) -> str:
+    """Remove in-line filler/hesitation tokens (euh, uh, hum, mh, ...) from `text`,
+    leaving real words — including lexical acknowledgements like oui/non/voilà —
+    untouched. Collapses the whitespace left behind."""
+    out = []
+    for t in text.split():
+        w = _BC_EDGE.sub("", t).lower().strip("'")
+        if w in _FILLER_WORDS:
+            continue
+        out.append(t)
+    return " ".join(out)
+
+
+def clean_window_pieces(window, language: str = DEFAULT_LANGUAGE):
+    """Build the 'clean' (no-backchannel) view of a window: drop turns that are
+    entirely backchannels/fillers, and strip in-line fillers from the rest. Returns
+    new piece dicts (the originals, used by the verbatim 'full' view, are
+    untouched). Turns that become empty after filler removal are dropped."""
+    out = []
+    for p in window:
+        text = p.get("text", "")
+        if _is_backchannel(text, language):
+            continue
+        stripped = strip_fillers(text, language)
+        if not stripped.strip():
+            continue
+        out.append({**p, "text": stripped})
+    return out
+
+
+def _defines_prompt(language, variant, fmt, style) -> bool:
+    """True if `language` defines a prompt for (variant, fmt, style) itself, without
+    falling back to DEFAULT_LANGUAGE."""
+    block = _DIAR_PROMPTS.get(language)
+    if not block:
+        return False
+    if style == "generic":
+        return bool(block.get("generic", {}).get(variant))
+    return bool(block.get("formats", {}).get(variant, {}).get(fmt))
+
+
+def make_diar_lean_row(r: NemoDatasetRow, cross_lingual_ratio: float = 0.0) -> NemoDatasetRow:
     """Lean training row: prepend a prompt matching the row's prompt_style/format,
     in the row's language (falling back to DEFAULT_LANGUAGE), and — for the
-    backchannel-included version — asking to keep them; drop metadata."""
+    backchannel-included version — asking to keep them; drop metadata.
+
+    With probability `cross_lingual_ratio` the prompt is instead drawn from a
+    different language (prompt-language augmentation: a French prompt on English
+    audio and vice versa). Only languages that define a prompt for the row's exact
+    (variant, format, style) are eligible — so French-only formats (e.g. the
+    'Locuteur' styles) never get an English prompt. The row's `language` field is
+    left unchanged; only the instruction wording differs."""
     md = r.custom_metadata or {}
     variant, fmt, style = md.get("variant"), md.get("format"), md.get("prompt_style")
     language = r.language or DEFAULT_LANGUAGE
+
+    prompt_language = language
+    if cross_lingual_ratio and random.random() < cross_lingual_ratio:
+        others = [lang for lang in _DIAR_PROMPTS
+                  if lang != language and _defines_prompt(lang, variant, fmt, style)]
+        if others:
+            prompt_language = random.choice(others)
+
     turns = list(r.turns)
-    prompts = _prompts_for(language, variant, fmt, style)
+    prompts = _prompts_for(prompt_language, variant, fmt, style)
     if prompts:
         prompt = random.choice(prompts)
         if md.get("backchannels"):
-            prompt = prompt + " " + random.choice(_backchannel_suffixes_for(language))
+            prompt = prompt + " " + random.choice(_backchannel_suffixes_for(prompt_language, variant))
         turns = [NemoTurn(role="User", value=prompt, turn_type="text")] + turns
     return NemoDatasetRow(
         id=r.id, dataset_name=r.dataset_name,
