@@ -40,24 +40,55 @@ def deterministic_seed(filepath):
 
 
 def randomize_conversations(conversations, rng):
-    """Randomly swap consecutive User text/audio turn pairs (50% chance).
+    """Randomly reorder maximal runs of consecutive User turns (50% chance per run).
+
+    For each maximal run of consecutive User turns of length >= 2, one
+    `rng.random()` call is made; if it is < 0.5 the run is "flipped":
+    the run is split into maximal contiguous same-type chunks and the
+    order of chunks is reversed while order within each chunk is kept.
+    If the whole run shares a single type, the elements themselves are
+    reversed instead (fallback that makes the length-2 same-type case
+    behave like a plain swap).
+
+    Examples (when flipped):
+      [text, audio]                  -> [audio, text]
+      [audio, audio]                 -> [audio_2, audio_1]
+      [text, audio_1, audio_2]       -> [audio_1, audio_2, text]
+      [audio_1, audio_2, text]       -> [text, audio_1, audio_2]
+
+    Length-2 runs consume one `rng.random()` call and either swap or not,
+    matching the previous implementation exactly so a given seed produces
+    the same output on datasets that only contain length-2 User runs.
 
     Returns a new list with turns possibly reordered.
     """
     result = list(conversations)
+    n = len(result)
     i = 0
-    while i < len(result) - 1:
-        a, b = result[i], result[i + 1]
-        if (
-            a.get("from") == "User"
-            and b.get("from") == "User"
-            # and {a.get("type"), b.get("type")} == {"text", "audio"}
-        ):
-            if rng.random() < 0.5:
-                result[i], result[i + 1] = result[i + 1], result[i]
-            i += 2
-        else:
+    while i < n:
+        if result[i].get("from") != "User":
             i += 1
+            continue
+        j = i
+        while j < n and result[j].get("from") == "User":
+            j += 1
+        if j - i >= 2 and rng.random() < 0.5:
+            # Split run [i:j] into maximal same-type chunks.
+            chunks = []
+            k = i
+            while k < j:
+                m = k + 1
+                while m < j and result[m].get("type") == result[k].get("type"):
+                    m += 1
+                chunks.append(result[k:m])
+                k = m
+            if len(chunks) > 1:
+                result[i:j] = [t for chunk in reversed(chunks) for t in chunk]
+            else:
+                # Single chunk (all same type): reverse the elements.
+                # For length 2 this is just a swap, matching the legacy behavior.
+                result[i:j] = list(reversed(result[i:j]))
+        i = j
     return result
 
 
