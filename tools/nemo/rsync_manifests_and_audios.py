@@ -14,6 +14,27 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _chmod_recursive(destination, subpath, chmod):
+    """Run `chmod -R <chmod>` on `destination[/subpath]`, handling remote (`host:/...`) and local.
+
+    Needed because rsync's `--chmod`/`-p` does not always update permissions of pre-existing
+    parent directories on the receiver (and `--size-only` causes rsync to skip files whose
+    size matches, so their permissions are not touched either).
+    """
+    target = destination.rstrip("/")
+    if subpath:
+        target = target + "/" + subpath.strip("/")
+    if ":" in destination:
+        host, remote_target = target.split(":", 1)
+        cmd = ["ssh", host, f"chmod -R {shlex.quote(chmod)} {shlex.quote(remote_target)}"]
+    else:
+        cmd = ["chmod", "-R", chmod, target]
+    logger.info(f"Setting permissions: {' '.join(cmd)}")
+    result = subprocess.run(cmd)
+    if result.returncode != 0:
+        logger.error(f"chmod -R failed on {target} (exit code {result.returncode})")
+
+
 def _list_remote_files(host, remote_dir):
     """Return the set of file/symlink paths existing under `host:remote_dir`, relative to it.
 
@@ -81,17 +102,18 @@ def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_
         file_paths = set(audio_paths)
         src = source.rstrip("/") + "/"
 
+    # Deepest directory that is a common ancestor of all relative file paths — used both
+    # to narrow the remote existence scan and to scope the post-rsync chmod.
+    try:
+        common_subdir = os.path.commonpath([os.path.dirname(fp) for fp in file_paths])
+    except ValueError:
+        common_subdir = ""
+
     # Skip files that already exist at destination
     filtered_paths = []
     skipped = 0
     if ":" in destination:
         host, remote_dir = destination.split(":", 1)
-        # Narrow the remote scan to the deepest directory that is a common ancestor
-        # of all relative file paths — listing only that subtree on the remote.
-        try:
-            common_subdir = os.path.commonpath([os.path.dirname(fp) for fp in file_paths])
-        except ValueError:
-            common_subdir = ""
         scan_root = remote_dir.rstrip("/")
         if common_subdir:
             scan_root = scan_root + "/" + common_subdir.lstrip("/")
@@ -127,6 +149,8 @@ def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_
 
     if not filtered_paths:
         logger.info("All files already synced, nothing to do")
+        if chmod and not dry_run:
+            _chmod_recursive(destination, common_subdir, chmod)
         return processed_manifests
 
     logger.info(f"Syncing {len(filtered_paths)} files")
@@ -153,6 +177,9 @@ def rsync_audios(manifest_files, destination, source="/", relative_to=None, dry_
             logger.error(f"rsync failed (exit code {result.returncode})")
     finally:
         Path(tmp_path).unlink()
+
+    if chmod and not dry_run:
+        _chmod_recursive(destination, common_subdir, chmod)
 
     return processed_manifests
 
@@ -252,6 +279,8 @@ def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_r
             result = subprocess.run(cmd)
             if result.returncode != 0:
                 logger.error(f"rsync failed for {ds} (exit code {result.returncode})")
+            elif chmod and not dry_run:
+                _chmod_recursive(destination, rel_parent if rel_parent not in (".", "") else "", chmod)
     finally:
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
