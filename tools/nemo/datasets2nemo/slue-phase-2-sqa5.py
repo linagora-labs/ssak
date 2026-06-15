@@ -85,15 +85,15 @@ def main():
     args = parser.parse_args()
 
     if args.manifest_path is None:
-        args.manifest_path = f"{os.environ['DATA_DIR']}/raw/misc/en/context/slue-phase-2-sqa5"
+        args.manifest_path = f"{os.environ['DATA_FOLDER']}/raw/misc/en/context/slue-phase-2-sqa5"
     if args.manifest_audioq_textc is None:
-        args.manifest_audioq_textc = f"{os.environ['DATA_DIR']}/nemo/question-answering/qa_audio-question-text-context/en/slue-phase-2-sqa5"
+        args.manifest_audioq_textc = f"{os.environ['DATA_FOLDER']}/nemo/question-answering/qa_audio-question-text-context/en/slue-phase-2-sqa5"
     if args.manifest_audioq_audioc is None:
-        args.manifest_audioq_audioc = f"{os.environ['DATA_DIR']}/nemo/question-answering/qa_audio-question-audio-context/en/slue-phase-2-sqa5"
+        args.manifest_audioq_audioc = f"{os.environ['DATA_FOLDER']}/nemo/question-answering/qa_audio-question-audio-context/en/slue-phase-2-sqa5"
     if args.manifest_textq_audioc is None:
-        args.manifest_textq_audioc = f"{os.environ['DATA_DIR']}/nemo/question-answering/qa_audio-context-text-question/en/slue-phase-2-sqa5"
+        args.manifest_textq_audioc = f"{os.environ['DATA_FOLDER']}/nemo/question-answering/qa_audio-context-text-question/en/slue-phase-2-sqa5"
     if args.audio_path is None:
-        args.audio_path = f"{os.environ['DATA_DIR']}/raw/misc/en/slue-phase-2-sqa5/audios"
+        args.audio_path = f"{os.environ['DATA_FOLDER']}/raw/misc/en/slue-phase-2-sqa5/audios"
 
     MANIFEST_PATH = Path(args.manifest_path)
     MANIFEST_PATH_AUDIOQ_TEXTC = Path(args.manifest_audioq_textc)

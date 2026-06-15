@@ -17,9 +17,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.input is None:
-        args.input = f"{os.environ['DATA_DIR']}/raw/sounds/clotho_aqa"
+        args.input = f"{os.environ['DATA_FOLDER']}/raw/sounds/clotho_aqa"
     if args.output is None:
-        args.output = f"{os.environ['DATA_DIR']}/nemo/sounds/audio-question-answering/en/clotho_aqa"
+        args.output = f"{os.environ['DATA_FOLDER']}/nemo/sounds/audio-question-answering/en/clotho_aqa"
 
     input_dataset = args.input
 

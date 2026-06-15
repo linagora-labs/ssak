@@ -37,11 +37,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.raw_output is None:
-        args.raw_output = f"{os.environ['DATA_DIR']}/raw/music/MusicCaps"
+        args.raw_output = f"{os.environ['DATA_FOLDER']}/raw/music/MusicCaps"
     if args.nemo_no_context is None:
-        args.nemo_no_context = f"{os.environ['DATA_DIR']}/nemo/music/music-captioning/en/nocontext/MusicCaps"
+        args.nemo_no_context = f"{os.environ['DATA_FOLDER']}/nemo/music/music-captioning/en/nocontext/MusicCaps"
     if args.nemo_context is None:
-        args.nemo_context = f"{os.environ['DATA_DIR']}/nemo/music/music-captioning/en/context/MusicCaps"
+        args.nemo_context = f"{os.environ['DATA_FOLDER']}/nemo/music/music-captioning/en/context/MusicCaps"
 
     OUTPUT_FOLDER = Path(args.raw_output)
     AUDIO_FOLDER = OUTPUT_FOLDER / "audios"

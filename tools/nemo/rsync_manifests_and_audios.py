@@ -206,8 +206,30 @@ def _rewrite_manifest(src_local_path, dest_dir, old_prefix, new_prefix):
     return new_path, count
 
 
+def _expand_local_manifest_inputs(manifest_paths, pattern="*.jsonl", recursive=True):
+    """Expand inputs that are local directories/files into individual manifest files.
+
+    A directory is globbed for `pattern` (recursively by default), a local .jsonl/.yaml
+    file is resolved via `resolve_manifest_paths`. Inputs that don't exist locally
+    (e.g. relative paths to be pulled from a remote source) are passed through unchanged.
+    """
+    expanded = []
+    for ds in manifest_paths:
+        p = Path(str(ds))
+        if p.exists():
+            resolved = resolve_manifest_paths(p, pattern=pattern, recursive=recursive)
+            if resolved:
+                expanded.extend(str(r) for r in resolved)
+            else:
+                logger.warning(f"No manifest files matching '{pattern}' found under {ds}, skipping")
+        else:
+            expanded.append(str(ds))
+    return expanded
+
+
 def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_run=False,
-                    update_old_prefix=None, update_new_prefix=None, chmod=None):
+                    update_old_prefix=None, update_new_prefix=None, chmod=None,
+                    pattern="*.jsonl", recursive=True, skip_existing=False):
     """Rsync manifest JSONL files from source to destination.
 
     If `relative_to` is given, it is stripped from absolute inputs to compute
@@ -219,11 +241,31 @@ def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_r
     replaced by `update_new_prefix`, and that temporary file is what gets rsynced.
     The remote destination will hence reference the new audio location. Only works
     when the source manifest is local (not when pulling from `host:/...`).
+
+    If `skip_existing` is True, manifests whose destination file already exists are
+    skipped entirely — including the (potentially slow) load+rewrite step. This trades
+    correctness for speed: a manifest whose content changed but whose destination copy
+    still exists will NOT be re-sent (unlike rsync's --size-only, which still re-checks).
     """
     rewrite = bool(update_old_prefix and update_new_prefix)
     tmp_dir = tempfile.mkdtemp(prefix="rsync_manifests_") if rewrite else None
 
+    manifest_paths = _expand_local_manifest_inputs(manifest_paths, pattern=pattern, recursive=recursive)
+
+    # When asked to skip already-present manifests, list the destination once up front
+    # (one ssh+find for a remote destination) so we can avoid the per-manifest load+rewrite.
+    # For a local destination existing_dest stays None and we fall back to a filesystem check.
+    existing_dest = None
+    if skip_existing and ":" in destination:
+        host, remote_dir = destination.split(":", 1)
+        logger.info(f"Listing existing manifests at {host}:{remote_dir} via ssh+find...")
+        existing_dest = _list_remote_files(host, remote_dir)
+        if existing_dest is None:
+            logger.warning(f"Could not list {host}:{remote_dir} remotely; --skip-existing disabled")
+            skip_existing = False
+
     try:
+        skipped_existing = 0
         for ds in manifest_paths:
             ds = str(ds)
             if relative_to:
@@ -246,6 +288,15 @@ def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_r
                 dst_dir = destination.rstrip("/") + "/"
             else:
                 dst_dir = destination.rstrip("/") + "/" + rel_parent + "/"
+
+            if skip_existing:
+                if existing_dest is not None:
+                    already_there = rel in existing_dest          # remote: matched against ssh+find listing
+                else:
+                    already_there = (Path(dst_dir) / Path(rel).name).exists()  # local: filesystem check
+                if already_there:
+                    skipped_existing += 1
+                    continue
 
             actual_src = src_path
             if rewrite:
@@ -281,6 +332,9 @@ def rsync_manifests(manifest_paths, source, destination, relative_to=None, dry_r
                 logger.error(f"rsync failed for {ds} (exit code {result.returncode})")
             elif chmod and not dry_run:
                 _chmod_recursive(destination, rel_parent if rel_parent not in (".", "") else "", chmod)
+
+        if skip_existing and skipped_existing:
+            logger.info(f"Skipped {skipped_existing} manifest(s) already present at destination (--skip-existing)")
     finally:
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -324,6 +378,7 @@ if __name__ == "__main__":
     rsync_opts.add_argument("--update-old-prefix", help="With --rsync-manifests: replace this prefix in audio paths inside each manifest before sending (originals are not modified; rewriting is done in a temporary file).")
     rsync_opts.add_argument("--update-new-prefix", help="Replacement for --update-old-prefix (e.g. the remote audio destination).")
     rsync_opts.add_argument("--chmod", default="u=rwX,g=rwX,o=", help="Permissions applied to synced files via rsync --chmod (default: 'u=rwX,g=rwX,o=' → dirs rwxrwx---, files rw-rw----). Combined with -p so existing destination files are also updated. Pass an empty string to keep rsync's default behavior.")
+    rsync_opts.add_argument("--skip-existing", action="store_true", help="With --rsync-manifests: skip manifests whose destination file already exists, avoiding the (slow) load+rewrite step. The destination is listed once up front (one ssh+find for remote). Trades correctness for speed: a changed manifest whose destination copy still exists will NOT be re-sent.")
 
     discovery = parser.add_argument_group("Manifest discovery")
     discovery.add_argument("--pattern", default="*.jsonl", help="Glob pattern for manifest files (default: *.jsonl)")
@@ -345,11 +400,13 @@ if __name__ == "__main__":
             update_old_prefix=args.update_old_prefix,
             update_new_prefix=args.update_new_prefix,
             chmod=args.chmod,
+            pattern=args.pattern, recursive=args.recursive,
+            skip_existing=args.skip_existing,
         )
         # Find the rsynced manifests locally (only meaningful for local destinations)
         if ":" not in args.rsync_manifests:
             local_paths = [Path(args.rsync_manifests) / ds for ds in args.inputs]
-            local_manifests = resolve_manifest_paths(local_paths, pattern=args.pattern, recursive=True)
+            local_manifests = resolve_manifest_paths(local_paths, pattern=args.pattern, recursive=args.recursive)
 
     if args.rsync_audios:
         if local_manifests is not None:

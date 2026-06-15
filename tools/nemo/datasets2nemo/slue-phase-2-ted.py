@@ -87,11 +87,11 @@ def main():
     args = parser.parse_args()
 
     if args.raw_manifest_path is None:
-        args.raw_manifest_path = f"{os.environ['DATA_DIR']}/raw/summary/en/slue-phase-2-ted"
+        args.raw_manifest_path = f"{os.environ['DATA_FOLDER']}/raw/summary/en/slue-phase-2-ted"
     if args.manifest_path is None:
-        args.manifest_path = f"{os.environ['DATA_DIR']}/nemo/summary/en/slue-phase-2-ted"
+        args.manifest_path = f"{os.environ['DATA_FOLDER']}/nemo/summary/en/slue-phase-2-ted"
     if args.audio_path is None:
-        args.audio_path = f"{os.environ['DATA_DIR']}/raw/summary/en/slue-phase-2-ted/audios"
+        args.audio_path = f"{os.environ['DATA_FOLDER']}/raw/summary/en/slue-phase-2-ted/audios"
 
     RAW_MANIFEST_PATH = Path(args.raw_manifest_path)
     MANIFEST_PATH = Path(args.manifest_path)

@@ -91,11 +91,11 @@ def main():
     args = parser.parse_args()
 
     if args.raw_manifest_path is None:
-        args.raw_manifest_path = f"{os.environ['DATA_DIR']}/raw/summary/en/nutshell"
+        args.raw_manifest_path = f"{os.environ['DATA_FOLDER']}/raw/summary/en/nutshell"
     if args.manifest_path is None:
-        args.manifest_path = f"{os.environ['DATA_DIR']}/nemo/summary/en/nutshell"
+        args.manifest_path = f"{os.environ['DATA_FOLDER']}/nemo/summary/en/nutshell"
     if args.audio_path is None:
-        args.audio_path = f"{os.environ['DATA_DIR']}/raw/summary/en/nutshell/audios"
+        args.audio_path = f"{os.environ['DATA_FOLDER']}/raw/summary/en/nutshell/audios"
 
     RAW_MANIFEST_PATH = Path(args.raw_manifest_path)
     MANIFEST_PATH = Path(args.manifest_path)

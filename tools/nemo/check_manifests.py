@@ -92,29 +92,29 @@ def extract_audio_entries(row):
     return []
 
 
-def _check_long_text(text, max_text_length, label, stats, row_errors):
+def _check_long_text(text, max_text_length, path, stats, row_errors, manifest, row_id):
     """If text exceeds max_text_length characters, record a long_text error."""
     if not max_text_length or not isinstance(text, str):
         return
     if len(text) > max_text_length:
-        logger.error(f"{label}: text length {len(text)} exceeds max_text_length={max_text_length}")
+        logger.error(f"[{manifest} row={row_id}]: text length {len(text)} exceeds max_text_length={max_text_length}")
         stats["long_text"] += 1
         stats["errors"].append({
-            "status": "long_text", "path": label,
+            "status": "long_text", "path": path, "manifest": manifest, "row_id": row_id,
             "expected": f"<= {max_text_length} chars", "actual": len(text),
         })
         if "long_text" not in row_errors:
             row_errors.append("long_text")
 
 
-def check_row(row, stats, max_text_length=None):
+def check_row(row, stats, max_text_length=None, manifest=None):
     """Run field validation and last-turn check, updating stats in place. Returns list of error types."""
     row_errors = []
     row_id = row.get("id", "<no-id>")
     if "conversations" in row:
         turns = row["conversations"]
         if turns and turns[-1].get("from") != "Assistant":
-            logger.error(f"Last turn is not from Assistant: {turns[-1].get('from')!r} (id={row.get('id')})")
+            logger.error(f"[{manifest} row={row_id}]: last turn is not from Assistant: {turns[-1].get('from')!r}")
             stats["wrong_last_turn"] += 1
             row_errors.append("wrong_last_turn")
         for t in turns:
@@ -124,13 +124,13 @@ def check_row(row, stats, max_text_length=None):
                 if n:
                     row_errors.append("invalid_field")
             elif t.get("type") == "text":
-                _check_long_text(t.get("value"), max_text_length, f"row={row_id}", stats, row_errors)
+                _check_long_text(t.get("value"), max_text_length, "", stats, row_errors, manifest, row_id)
     elif "audio_filepath" in row:
         n = _check_audio_fields(row["audio_filepath"], row.get("duration"), row.get("offset"))
         stats["invalid_field"] += n
         if n:
             row_errors.append("invalid_field")
-        _check_long_text(row.get("text"), max_text_length, row.get("audio_filepath", f"row={row_id}"), stats, row_errors)
+        _check_long_text(row.get("text"), max_text_length, row.get("audio_filepath", ""), stats, row_errors, manifest, row_id)
     return row_errors
 
 
@@ -186,7 +186,7 @@ def _iter_rows(manifest_path, num_rows, label=None, stats=None):
                 if stats is not None:
                     stats["invalid_json"] += 1
                     stats["errors"].append({
-                        "status": "invalid_json", "path": f"{label}:{i+1}",
+                        "status": "invalid_json", "path": "", "manifest": label, "row_id": f"line {i+1}",
                         "error": str(e),
                     })
                 return
@@ -202,7 +202,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
         logger.error(f"Manifest not found: {label}")
         stats = empty_stats()
         stats["manifest_not_found"] += 1
-        stats["errors"].append({"status": "manifest_not_found", "path": label})
+        stats["errors"].append({"status": "manifest_not_found", "path": label, "manifest": label, "row_id": None})
         return stats
 
     def hit_error_limit():
@@ -215,7 +215,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
     total = 0
     stopped_early = False
     for row in _iter_rows(manifest_path, num_rows, label, stats=stats):
-        row_errors = check_row(row, stats, max_text_length=max_text_length)
+        row_errors = check_row(row, stats, max_text_length=max_text_length, manifest=label)
         audio_entries = extract_audio_entries(row)
         for path, dur, offset in audio_entries:
             unique_paths.add(path)
@@ -245,6 +245,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
                 stopped_early = True
             break
         row_error_types = set(row_errors)
+        row_id = row.get("id", "<no-id>")
         for path, expected_dur, expected_offset in audio_entries:
             if disable_audio_check:
                 stats["ok"] += 1
@@ -252,7 +253,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
             info = file_info[path]
             if info["status"] != "ok":
                 stats[info["status"]] += 1
-                err_entry = {"status": info["status"], "path": path}
+                err_entry = {"status": info["status"], "path": path, "manifest": label, "row_id": row_id}
                 if "error" in info:
                     err_entry["error"] = info["error"]
                 stats["errors"].append(err_entry)
@@ -269,7 +270,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
                     segment_end = offset + (expected_dur or 0)
                     stats["segment_out_of_bounds"] += 1
                     stats["errors"].append({
-                        "status": "segment_out_of_bounds", "path": path,
+                        "status": "segment_out_of_bounds", "path": path, "manifest": label, "row_id": row_id,
                         "expected": f"offset={offset}+dur={expected_dur}={round(segment_end, 3)}",
                         "actual": round(info["duration"], 3),
                     })
@@ -278,7 +279,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
             elif expected_dur is not None and expected_dur > info["duration"] + duration_tolerance:
                 stats["duration_mismatch"] += 1
                 stats["errors"].append({
-                    "status": "duration_mismatch", "path": path,
+                    "status": "duration_mismatch", "path": path, "manifest": label, "row_id": row_id,
                     "expected": expected_dur, "actual": round(info["duration"], 3),
                 })
                 row_error_types.add("duration_mismatch")
@@ -287,7 +288,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
             if not disable_channel_check and info.get("channels") != EXPECTED_CHANNELS:
                 stats["wrong_channels"] += 1
                 stats["errors"].append({
-                    "status": "wrong_channels", "path": path,
+                    "status": "wrong_channels", "path": path, "manifest": label, "row_id": row_id,
                     "expected": EXPECTED_CHANNELS, "actual": info.get("channels"),
                 })
                 row_error_types.add("wrong_channels")
@@ -296,7 +297,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
             if not disable_rate_check and info.get("sample_rate") != EXPECTED_SAMPLE_RATE:
                 stats["wrong_sample_rate"] += 1
                 stats["errors"].append({
-                    "status": "wrong_sample_rate", "path": path,
+                    "status": "wrong_sample_rate", "path": path, "manifest": label, "row_id": row_id,
                     "expected": EXPECTED_SAMPLE_RATE, "actual": info.get("sample_rate"),
                 })
                 row_error_types.add("wrong_sample_rate")
@@ -359,7 +360,7 @@ def process_path(path, recursive=False, **kwargs):
     for mp in missing_manifests:
         logger.error(f"Manifest not found: {mp}")
         overall["manifest_not_found"] += 1
-        overall["errors"].append({"status": "manifest_not_found", "path": str(mp)})
+        overall["errors"].append({"status": "manifest_not_found", "path": str(mp), "manifest": str(mp), "row_id": None})
 
     pbar = tqdm(manifests, desc="Manifests", unit="file", position=0)
     for mf in pbar:
@@ -376,15 +377,30 @@ def process_path(path, recursive=False, **kwargs):
 # Summary
 # ---------------------------------------------------------------------------
 
+def _loc(e):
+    """Build a '[manifest row=id]' location prefix from an error entry."""
+    parts = []
+    if e.get("manifest"):
+        parts.append(e["manifest"])
+    if e.get("row_id") not in (None, "<no-id>"):
+        parts.append(f"row={e['row_id']}")
+    return f"[{' '.join(parts)}] " if parts else ""
+
+
+def _suffix(e):
+    """Append the audio path (if any) after the location prefix."""
+    return f"{e['path']} " if e.get("path") else ""
+
+
 ERROR_FMT = {
-    "missing": lambda e: f"  MISSING: {e['path']}",
-    "unreadable": lambda e: f"  UNREADABLE: {e['path']} ({e.get('error', '')})",
-    "duration_mismatch": lambda e: f"  DURATION MISMATCH: {e['path']} (expected={e['expected']}s, actual={e['actual']}s)",
-    "segment_out_of_bounds": lambda e: f"  SEGMENT OOB: {e['path']} (segment_end={e['expected']}, file_duration={e['actual']}s)",
-    "wrong_channels": lambda e: f"  WRONG CHANNELS: {e['path']} (expected={e['expected']}, actual={e['actual']})",
-    "wrong_sample_rate": lambda e: f"  WRONG SAMPLE RATE: {e['path']} (expected={e['expected']}, actual={e['actual']})",
-    "long_text": lambda e: f"  LONG TEXT: {e['path']} (length={e['actual']}, expected {e['expected']})",
-    "invalid_json": lambda e: f"  INVALID JSON: {e['path']} ({e.get('error', '')})",
+    "missing": lambda e: f"  MISSING: {_loc(e)}{_suffix(e)}".rstrip(),
+    "unreadable": lambda e: f"  UNREADABLE: {_loc(e)}{_suffix(e)}({e.get('error', '')})",
+    "duration_mismatch": lambda e: f"  DURATION MISMATCH: {_loc(e)}{_suffix(e)}(expected={e['expected']}s, actual={e['actual']}s)",
+    "segment_out_of_bounds": lambda e: f"  SEGMENT OOB: {_loc(e)}{_suffix(e)}(segment_end={e['expected']}, file_duration={e['actual']}s)",
+    "wrong_channels": lambda e: f"  WRONG CHANNELS: {_loc(e)}{_suffix(e)}(expected={e['expected']}, actual={e['actual']})",
+    "wrong_sample_rate": lambda e: f"  WRONG SAMPLE RATE: {_loc(e)}{_suffix(e)}(expected={e['expected']}, actual={e['actual']})",
+    "long_text": lambda e: f"  LONG TEXT: {_loc(e)}{_suffix(e)}(length={e['actual']}, expected {e['expected']})",
+    "invalid_json": lambda e: f"  INVALID JSON: {_loc(e)}({e.get('error', '')})",
     "manifest_not_found": lambda e: f"  MANIFEST NOT FOUND: {e['path']}",
 
 }
@@ -412,7 +428,7 @@ def print_summary(overall):
         print(f"\n--- Errors ({len(overall['errors'])}) ---")
         seen = set()
         for err in overall["errors"]:
-            key = (err["status"], err["path"])
+            key = (err["status"], err.get("manifest"), err.get("row_id"), err["path"])
             if key not in seen:
                 seen.add(key)
                 print(ERROR_FMT[err["status"]](err))

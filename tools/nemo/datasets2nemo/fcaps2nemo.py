@@ -197,9 +197,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.input is None:
-        args.input = f"{os.environ['DATA_DIR']}/raw/misc/en/FCaps"
+        args.input = f"{os.environ['DATA_FOLDER']}/raw/misc/en/FCaps"
     if args.output is None:
-        args.output = f"{os.environ['DATA_DIR']}/nemo/misc/en"
+        args.output = f"{os.environ['DATA_FOLDER']}/nemo/misc/en"
 
     input_root = Path(args.input)
     download_dir = input_root / "download"

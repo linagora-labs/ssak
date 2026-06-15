@@ -10,9 +10,12 @@ Expected layout (matches the standard `ami_public_manual_*.zip` + `amicorpus` do
         annotations/segments/<MEETING>.<SPEAKER>.segments.xml
         annotations/corpusResources/meetings.xml          (optional, for speaker→channel mapping)
 
-Produces two manifest families:
-  - summary/  : one row per meeting (Mix-Headset.wav + abstractive summary text)
-  - asr/      : one row per segment   (per-speaker headset .wav + transcript)
+Produces three manifest families (each opt-in via a flag):
+  - summary/      : one row per meeting (Mix-Headset.wav + abstractive summary text)
+  - asr/          : one row per segment   (per-speaker headset .wav + transcript)
+  - diarization/  : windowed "who spoke when" rows in asr/timestamps/timestamps_asr
+                    variants, several output formats (RTTM, SRT, VTT, ...) and
+                    with/without backchannels (written under a diarization-specific root)
 """
 
 import argparse
@@ -27,6 +30,13 @@ import soundfile as sf
 from tqdm import tqdm
 
 from ssak.utils.nemo_dataset import NemoDataset, NemoDatasetRow, NemoTurn
+from diar_prompts import (
+    DIAR_VARIANTS,
+    DIAR_DEFAULT_FORMAT,
+    _DIAR_FORMATS,
+    clean_window_pieces,
+    make_diar_lean_row,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -221,9 +231,18 @@ def resolve_segment_words(word_ids, words_by_file: dict):
     return out
 
 
+# AMI stores punctuation as standalone word tokens (<w punc="true">), so a naive
+# space-join yields "Okay ." / "Hi , I'm". Drop the space before such punctuation.
+_DETOK_RE = re.compile(r"\s+([,.;:!?])")
+
+
+def detokenize(text: str) -> str:
+    return _DETOK_RE.sub(r"\1", text).strip()
+
+
 def segment_text(word_records: list) -> str:
     parts = [w["text"] for w in word_records if w.get("text")]
-    return " ".join(parts).strip()
+    return detokenize(" ".join(parts))
 
 
 # --------------------------- topics + dialogue acts + summlink ---------------------------
@@ -756,40 +775,367 @@ def build_asr_rows(meeting_id: str, audio_dir: Path, words_dir: Path,
     return rows
 
 
+# --------------------------- diarization ---------------------------
+
+def collect_meeting_turns(meeting_id: str, words_dir: Path, seg_dir: Path,
+                          merge_gap: float | None) -> list[dict]:
+    """Return chronologically-ordered speaker turns for the whole meeting.
+
+    Each turn is {'speaker': letter, 'start', 'end', 'text', 'words': [...]},
+    where 'words' keeps per-word timing so a too-long turn can be split at word
+    boundaries. Consecutive turns of the same speaker separated by <= merge_gap
+    seconds are merged (merge_gap=None disables merging)."""
+    speakers = collect_speaker_files(words_dir, meeting_id)
+    if not speakers:
+        return []
+
+    words_by_file = {}
+    for letter, words_xml in speakers.items():
+        try:
+            words_by_file[words_xml.name] = load_words(words_xml)
+        except ET.ParseError as e:
+            logger.warning(f"{meeting_id}/{letter}: bad words.xml ({e}), skipping speaker")
+
+    units: list[dict] = []
+    for letter in sorted(speakers):
+        seg_xml = seg_dir / f"{meeting_id}.{letter}.segments.xml"
+        if not seg_xml.exists():
+            continue
+        try:
+            seg_iter = list(iter_segments(seg_xml))
+        except ET.ParseError as e:
+            logger.warning(f"{meeting_id}/{letter}: bad segments.xml ({e}), skipping")
+            continue
+        for seg_id, seg_start, seg_end, word_refs in seg_iter:
+            word_records = resolve_segment_words(word_refs, words_by_file)
+            text = segment_text(word_records)
+            if not text:
+                continue
+            start, end = seg_start, seg_end
+            if start is None or end is None:
+                word_starts = [w["start"] for w in word_records if w.get("start") is not None]
+                word_ends = [w["end"] for w in word_records if w.get("end") is not None]
+                if not word_starts or not word_ends:
+                    continue
+                start = min(word_starts) if start is None else start
+                end = max(word_ends) if end is None else end
+            if end <= start:
+                continue
+            words = [
+                {"text": w["text"], "start": w["start"], "end": w["end"]}
+                for w in word_records if w.get("text")
+            ]
+            units.append({"speaker": letter, "start": start, "end": end,
+                          "text": text, "words": words})
+
+    units.sort(key=lambda u: (u["start"], u["end"]))
+    if merge_gap is not None:
+        units = _merge_same_speaker(units, merge_gap)
+    return units
+
+
+def _merge_same_speaker(units: list[dict], gap: float) -> list[dict]:
+    """Merge consecutive same-speaker turns within `gap` seconds of each other."""
+    out: list[dict] = []
+    for u in units:
+        prev = out[-1] if out else None
+        if prev and prev["speaker"] == u["speaker"] and u["start"] - prev["end"] <= gap:
+            prev["end"] = max(prev["end"], u["end"])
+            prev["text"] = detokenize(prev["text"] + " " + u["text"])
+            prev["words"].extend(u["words"])
+        else:
+            out.append(dict(u, words=list(u["words"])))
+    return out
+
+
+def _mk_piece(speaker: str, words: list[dict]) -> dict:
+    text = detokenize(" ".join(w["text"] for w in words if w.get("text")))
+    return {"speaker": speaker, "start": words[0]["start"],
+            "end": words[-1]["end"], "text": text, "words": list(words)}
+
+
+def _split_long_turn(unit: dict, max_dur: float) -> list[dict]:
+    """Split a turn longer than max_dur at word boundaries; otherwise return [unit]."""
+    if unit["end"] - unit["start"] <= max_dur:
+        return [unit]
+    words = [w for w in unit["words"]
+             if w.get("start") is not None and w.get("end") is not None and w.get("text")]
+    if not words:
+        # No word timing to split on: hard-cut by time, keep text on the first piece.
+        pieces, s = [], unit["start"]
+        while s < unit["end"]:
+            e = min(s + max_dur, unit["end"])
+            pieces.append({"speaker": unit["speaker"], "start": s, "end": e,
+                           "text": unit["text"] if s == unit["start"] else "", "words": []})
+            s = e
+        return pieces
+    pieces, cur, cur_start = [], [], words[0]["start"]
+    for w in words:
+        if cur and w["end"] - cur_start > max_dur:
+            pieces.append(_mk_piece(unit["speaker"], cur))
+            cur, cur_start = [], w["start"]
+        cur.append(w)
+    if cur:
+        pieces.append(_mk_piece(unit["speaker"], cur))
+    return pieces
+
+
+def window_turns(units: list[dict], max_dur: float,
+                 max_turns: int | None = None) -> list[list[dict]]:
+    """Greedily group turns into windows bounded by max_dur seconds and, optionally,
+    max_turns speaker turns.
+
+    Turns are never cut across a window boundary; a single turn longer than
+    max_dur is first split at word boundaries by _split_long_turn."""
+    windows: list[list[dict]] = []
+    cur: list[dict] = []
+    cur_start = None
+    for u in units:
+        for piece in _split_long_turn(u, max_dur):
+            fits = (cur
+                    and piece["end"] - cur_start <= max_dur
+                    and (max_turns is None or len(cur) < max_turns))
+            if fits:
+                cur.append(piece)
+            else:
+                if cur:
+                    windows.append(cur)
+                cur, cur_start = [piece], piece["start"]
+    if cur:
+        windows.append(cur)
+    return windows
+
+
+def _pieces_to_segs(pieces: list[dict], win_start: float):
+    """Render a list of turn pieces into (segs, labels), numbering speakers 1, 2, ...
+    by order of first appearance among *these* pieces."""
+    labels: dict[str, int] = {}
+    segs = []
+    for p in pieces:
+        if p["speaker"] not in labels:
+            labels[p["speaker"]] = len(labels) + 1
+        segs.append({
+            "n": labels[p["speaker"]],
+            "s": round(p["start"] - win_start, 2),
+            "e": round(p["end"] - win_start, 2),
+            "text": p["text"],
+        })
+    return segs, labels
+
+
+def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
+                    max_dur: float, min_turns: int, min_dur: float,
+                    max_turns: int | None = None, split: str | None = None,
+                    format_variety: bool = True, backchannel_versions: bool = True,
+                    generic_ratio: float = 0.4, backchannel_ratio: float = 0.5,
+                    mixed_variants: tuple | None = None) -> dict:
+    """Build diarization rows for every variant from one shared windowing.
+
+    For each (window, variant, version) a prompt style is chosen: with probability
+    generic_ratio a generic, no-format prompt paired with the variant's DEFAULT
+    format; otherwise an explicit format-specifying prompt paired with a random
+    format. The choice (format + prompt_style) is stored in custom_metadata so
+    make_diar_lean_row can pick a matching prompt.
+
+    When backchannel_versions, each window yields a "clean" version
+    (backchannels/acknowledgements removed, default prompt); if it also contained
+    backchannels, a "full" version (kept, prompt asks to include them) is emitted
+    with probability backchannel_ratio. Windows entirely of backchannels yield
+    only the full version. Windows with fewer than min_turns turns or shorter than
+    min_dur seconds are dropped. The audio clip is identical across versions."""
+    if split is None:
+        split = split_for(meeting_id)
+    out: dict[str, list] = {v: [] for v in DIAR_VARIANTS}
+    if mixed_variants:
+        out["mixed"] = []
+    for i, window in enumerate(window_turns(units, max_dur, max_turns)):
+        if len(window) < min_turns:
+            continue
+        win_start = window[0]["start"]
+        win_end = max(p["end"] for p in window)
+        dur = win_end - win_start
+        if dur < min_dur or dur <= 0:
+            continue
+
+        # (tag, pieces, include_backchannels). Audio window is unchanged; only text differs.
+        if backchannel_versions:
+            clean = clean_window_pieces(window)
+            versions = []
+            if clean:
+                versions.append(("clean", clean, False))
+            if not clean:
+                versions.append(("full", window, True))
+            elif len(clean) < len(window):
+                rng_bc = random.Random(f"{meeting_id}.{i}.bc")
+                if rng_bc.random() < backchannel_ratio:
+                    versions.append(("full", window, True))
+        else:
+            versions = [("all", window, None)]
+
+        for tag, pieces, include_bc in versions:
+            segs, labels = _pieces_to_segs(pieces, win_start)
+            if not segs:
+                continue
+            seg_meta = [{
+                "speaker_letter": p["speaker"],
+                "label": f"Speaker {labels[p['speaker']]}",
+                "start": round(p["start"], 3),
+                "end": round(p["end"], 3),
+                "text": p["text"],
+            } for p in pieces]
+            built: dict[str, NemoDatasetRow] = {}
+            for variant in DIAR_VARIANTS:
+                formats = _DIAR_FORMATS[variant]
+                rng = random.Random(f"{meeting_id}.{i}.{variant}.{tag}")
+                if format_variety and rng.random() >= generic_ratio:
+                    fmt, prompt_style = rng.choice(list(formats)), "explicit"
+                else:
+                    fmt, prompt_style = DIAR_DEFAULT_FORMAT[variant], "generic"
+                target = formats[fmt]["render"](segs, meeting_id)
+                if not target.strip():
+                    continue
+                audio_turn = NemoTurn(role="User", value=str(mix_audio), turn_type="audio",
+                                      duration=round(dur, 3), offset=round(win_start, 3))
+                target_turn = NemoTurn(role="Assistant", value=target, turn_type="text")
+                md = {
+                    "meeting": meeting_id,
+                    "variant": variant,
+                    "format": fmt,
+                    "prompt_style": prompt_style,
+                    "num_speakers": len(labels),
+                    "segments": seg_meta,
+                }
+                if include_bc is not None:
+                    md["backchannels"] = include_bc
+                row = NemoDatasetRow(
+                    id=f"{meeting_id}.diar.{i}.{tag}",
+                    dataset_name=DATASET_NAME,
+                    split=split,
+                    language="en",
+                    turns=[audio_turn, target_turn],
+                    custom_metadata=md,
+                )
+                out[variant].append(row)
+                built[variant] = row
+            # 'mixed': one row per window, rendered as a single randomly-chosen variant.
+            if mixed_variants:
+                pool = [v for v in mixed_variants if v in built]
+                if pool:
+                    rng_m = random.Random(f"{meeting_id}.{i}.{tag}.mixed")
+                    out["mixed"].append(built[rng_m.choice(pool)])
+    return out
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert AMI (NXT layout) to NeMo manifests.")
-    parser.add_argument("--root", type=str, default=None,
-                        help="AMI download root (contains amicorpus/ and annotations/).")
-    parser.add_argument("--force", action="store_true",
-                        help="Overwrite existing manifest .jsonl files.")
-    parser.add_argument("--raw-manifest-path", type=str, default=None,
-                        help="Override raw manifest output folder (with custom_metadata).")
-    parser.add_argument("--manifest-path", type=str, default=None,
-                        help="Override metadata-free manifest output folder.")
-    parser.add_argument("--no-summary", action="store_true",
-                        help="Skip the summarization manifest.")
-    parser.add_argument("--asr", action="store_true",
-                        help="Enable the per-speaker ASR manifest (off by default).")
-    parser.add_argument("--asr-min-duration", type=float, default=0.2)
-    parser.add_argument("--asr-max-duration", type=float, default=60.0)
-    parser.add_argument("--summary-segment", choices=["none", "topics", "turns"], default="topics",
-                        help="'none' = one row per meeting (full Mix-Headset). "
-                             "'topics' = one row per AMI topic, with offset/duration "
-                             "and topic-attributed abstractive sentences. "
-                             "'turns' = one row per abstractive sentence, audio span "
-                             "from linked dialogue acts.")
-    parser.add_argument("--summary-per-section", action="store_true",
-                        help="Emit separate rows per summary section "
-                             "(abstract/decisions/problems/actions). "
-                             "Works with 'none' and 'topics' segment modes.")
-    parser.add_argument("--summary-min-duration", type=float, default=10.0)
-    parser.add_argument("--summary-max-duration", type=float, default=900.0)
-    parser.add_argument("--limit", type=int, default=None,
-                        help="Process at most N meetings (debug).")
+
+    io_group = parser.add_argument_group("input/output")
+    io_group.add_argument("--root", type=str, default=None,
+                          help="AMI download root (contains amicorpus/ and annotations/).")
+    io_group.add_argument("--raw-manifest-path", type=str, default=None,
+                          help="Override raw manifest output folder (with custom_metadata).")
+    io_group.add_argument("--manifest-path", type=str, default=None,
+                          help="Override metadata-free manifest output folder.")
+    io_group.add_argument("--force", action="store_true",
+                          help="Overwrite existing manifest .jsonl files.")
+    io_group.add_argument("--limit", type=int, default=None,
+                          help="Process at most N meetings (debug).")
+
+    summary_group = parser.add_argument_group("summary manifest")
+    summary_group.add_argument("--summary", action="store_true",
+                               help="Enable the summarization manifest (off by default).")
+    summary_group.add_argument("--summary-segment", choices=["none", "topics", "turns"], default="topics",
+                               help="'none' = one row per meeting (full Mix-Headset). "
+                                    "'topics' = one row per AMI topic, with offset/duration "
+                                    "and topic-attributed abstractive sentences. "
+                                    "'turns' = one row per abstractive sentence, audio span "
+                                    "from linked dialogue acts.")
+    summary_group.add_argument("--summary-per-section", action="store_true",
+                               help="Emit separate rows per summary section "
+                                    "(abstract/decisions/problems/actions). "
+                                    "Works with 'none' and 'topics' segment modes.")
+    summary_group.add_argument("--summary-min-duration", type=float, default=10.0)
+    summary_group.add_argument("--summary-max-duration", type=float, default=900.0)
+
+    asr_group = parser.add_argument_group("asr manifest")
+    asr_group.add_argument("--asr", action="store_true",
+                           help="Enable the per-speaker ASR manifest (off by default).")
+    asr_group.add_argument("--asr-min-duration", type=float, default=0.2)
+    asr_group.add_argument("--asr-max-duration", type=float, default=60.0)
+
+    diar_group = parser.add_argument_group("diarization manifest")
+    diar_group.add_argument("--diarization", action="store_true",
+                            help="Enable the speaker-diarization manifests (off by default). "
+                                 "Emits three variants under diarization/: 'asr' "
+                                 "(speaker-labeled transcript), 'timestamps' (who-spoke-when), "
+                                 "and 'timestamps_asr' (labels + times + words).")
+    diar_group.add_argument("--diar-max-duration", type=float, default=90.0,
+                            help="Max window length in seconds. Speaker turns are packed into "
+                                 "windows without being cut, except a single turn longer than "
+                                 "this is split at word boundaries.")
+    diar_group.add_argument("--diar-min-duration", type=float, default=10.0,
+                            help="Drop diarization windows shorter than this many seconds.")
+    diar_group.add_argument("--diar-min-turns", type=int, default=3,
+                            help="Drop windows with fewer than this many speaker turns "
+                                 "(set 1 to keep long single-turn windows).")
+    diar_group.add_argument("--diar-max-turns", type=int, default=10,
+                            help="Start a new window once it reaches this many speaker turns, "
+                                 "even if the duration cap is not hit (0 disables the cap).")
+    diar_group.add_argument("--diar-fold-non-scenario", action=argparse.BooleanOptionalAction,
+                            default=True,
+                            help="Fold non-scenario meetings (EN*, IB*, ...) into the train "
+                                 "split instead of a separate non_scenario.jsonl "
+                                 "(--no-diar-fold-non-scenario to keep them separate).")
+    diar_group.add_argument("--diar-format-variety", action=argparse.BooleanOptionalAction,
+                            default=True,
+                            help="Vary the output format per row (RTTM, 'N: words', bracketed "
+                                 "times, ...) with a prompt that specifies it, to teach "
+                                 "format-following. --no-diar-format-variety forces the default "
+                                 "format for every row.")
+    diar_group.add_argument("--diar-generic-prompt-ratio", type=float, default=0.5,
+                            help="Fraction of rows that use a generic, no-format prompt "
+                                 "(rendered in the default format) instead of an explicit "
+                                 "format-specifying prompt.")
+    diar_group.add_argument("--diar-cross-lingual-prompt-ratio", type=float, default=0.05,
+                            help="Probability of drawing the prompt from a different language than "
+                                 "the audio (e.g. a French prompt on English data and vice versa); "
+                                 "only formats defined in both languages are eligible.")
+    diar_group.add_argument("--diar-backchannel-versions", action=argparse.BooleanOptionalAction,
+                            default=True,
+                            help="Emit two versions per window: one without "
+                                 "backchannels/acknowledgements (default prompt) and, when the "
+                                 "window has any, one with them (prompt asks to include them). "
+                                 "--no-diar-backchannel-versions keeps every utterance in a "
+                                 "single version.")
+    diar_group.add_argument("--diar-backchannel-ratio", type=float, default=0.5,
+                            help="When a window contains backchannels, the probability of also "
+                                 "emitting its backchannel-included version.")
+    diar_group.add_argument("--diar-mixed", action=argparse.BooleanOptionalAction, default=True,
+                            help="Also emit a 'mixed/' folder where each window is a single row "
+                                 "rendered as one randomly-chosen variant (sampled from "
+                                 "--diar-mixed-variants).")
+    diar_group.add_argument("--diar-mixed-variants", nargs="+", choices=list(DIAR_VARIANTS),
+                            default=list(DIAR_VARIANTS),
+                            help="Pool of variants to sample from for the 'mixed' folder "
+                                 "(default: all three; pass two for a 2-of-3 mix).")
+    diar_group.add_argument("--diar-merge-gap", type=float, default=1.0,
+                            help="Merge consecutive same-speaker turns separated by <= this "
+                                 "many seconds. Negative disables merging.")
+    diar_group.add_argument("--diar-raw-manifest-path", type=str, default=None,
+                            help="Raw diarization manifest folder (with custom_metadata). "
+                                 "Kept next to the audio by default: "
+                                 "$DATA_FOLDER/raw/summary/en/ami/diarization.")
+    diar_group.add_argument("--diar-manifest-path", type=str, default=None,
+                            help="Training diarization manifest folder. "
+                                 "Default: $DATA_FOLDER/nemo/diarization/en/ami.")
+
     args = parser.parse_args()
 
+    if not (args.summary or args.asr or args.diarization):
+        parser.error("Nothing to do: pass at least one of --summary, --asr, --diarization.")
+
     if args.root is None:
-        args.root = f"{os.environ['DATA_DIR']}/raw/summary/en/ami"
+        args.root = f"{os.environ['DATA_FOLDER']}/raw/summary/en/ami"
         print(f"Input path not specified, using default: {args.root}")
     root = Path(args.root)
     corpus_dir = root / "amicorpus"
@@ -806,22 +1152,41 @@ def main():
         if not d.is_dir():
             parser.error(f"Missing directory: {d}")
 
-    data_dir = os.environ.get("DATA_DIR")
+    data_dir = os.environ.get("DATA_FOLDER")
     if args.raw_manifest_path is None:
         if not data_dir:
-            parser.error("--raw-manifest-path not set and DATA_DIR env var is missing")
+            parser.error("--raw-manifest-path not set and DATA_FOLDER env var is missing")
         args.raw_manifest_path = f"{data_dir}/raw/summary/en/ami"
     if args.manifest_path is None:
         if not data_dir:
-            parser.error("--manifest-path not set and DATA_DIR env var is missing")
+            parser.error("--manifest-path not set and DATA_FOLDER env var is missing")
         args.manifest_path = f"{data_dir}/nemo/summary/en/ami"
+
+    if args.diarization:
+        if args.diar_raw_manifest_path is None:
+            if not data_dir:
+                parser.error("--diar-raw-manifest-path not set and DATA_FOLDER env var is missing")
+            args.diar_raw_manifest_path = f"{data_dir}/raw/summary/en/ami/diarization"
+        if args.diar_manifest_path is None:
+            if not data_dir:
+                parser.error("--diar-manifest-path not set and DATA_FOLDER env var is missing")
+            args.diar_manifest_path = f"{data_dir}/nemo/diarization/en/ami"
 
     raw_root = Path(args.raw_manifest_path)
     out_root = Path(args.manifest_path)
-    (raw_root / "summary").mkdir(parents=True, exist_ok=True)
-    (raw_root / "asr").mkdir(parents=True, exist_ok=True)
-    (out_root / "summary").mkdir(parents=True, exist_ok=True)
-    (out_root / "asr").mkdir(parents=True, exist_ok=True)
+    diar_raw_root = Path(args.diar_raw_manifest_path) if args.diarization else None
+    diar_out_root = Path(args.diar_manifest_path) if args.diarization else None
+    if args.summary:
+        (raw_root / "summary").mkdir(parents=True, exist_ok=True)
+        (out_root / "summary").mkdir(parents=True, exist_ok=True)
+    if args.asr:
+        (raw_root / "asr").mkdir(parents=True, exist_ok=True)
+        (out_root / "asr").mkdir(parents=True, exist_ok=True)
+    diar_outputs = list(DIAR_VARIANTS) + (["mixed"] if (args.diarization and args.diar_mixed) else [])
+    if args.diarization:
+        for v in diar_outputs:
+            (diar_raw_root / v).mkdir(parents=True, exist_ok=True)
+            (diar_out_root / v).mkdir(parents=True, exist_ok=True)
 
     channel_map = parse_speaker_channel_map(meetings_xml)
     if channel_map:
@@ -836,6 +1201,9 @@ def main():
 
     summary_per_split: dict[str, tuple[NemoDataset, NemoDataset]] = {}
     asr_per_split: dict[str, tuple[NemoDataset, NemoDataset]] = {}
+    diar_buckets: dict[str, dict[str, tuple[NemoDataset, NemoDataset]]] = {
+        v: {} for v in diar_outputs
+    }
 
     def get(buckets, split):
         if split not in buckets:
@@ -861,7 +1229,7 @@ def main():
             continue
         split = split_for(meeting_id)
 
-        if not args.no_summary:
+        if args.summary:
             mix = audio_dir / f"{meeting_id}.Mix-Headset.wav"
             if not mix.exists():
                 logger.debug(f"{meeting_id}: no Mix-Headset.wav")
@@ -933,12 +1301,43 @@ def main():
                         language=r.language, speaker=r.speaker, turns=r.turns,
                     ))
 
-    def dump(buckets, kind):
+        if args.diarization:
+            mix_diar = audio_dir / f"{meeting_id}.Mix-Headset.wav"
+            if not mix_diar.exists():
+                logger.debug(f"{meeting_id}: no Mix-Headset.wav for diarization")
+            else:
+                units = collect_meeting_turns(
+                    meeting_id, words_dir, seg_dir,
+                    None if args.diar_merge_gap < 0 else args.diar_merge_gap,
+                )
+                if units:
+                    diar_split = split
+                    if args.diar_fold_non_scenario and diar_split == "non_scenario":
+                        diar_split = "train"
+                    per_variant = build_diar_rows(
+                        meeting_id, mix_diar, units,
+                        args.diar_max_duration, args.diar_min_turns, args.diar_min_duration,
+                        max_turns=None if args.diar_max_turns <= 0 else args.diar_max_turns,
+                        split=diar_split, format_variety=args.diar_format_variety,
+                        backchannel_versions=args.diar_backchannel_versions,
+                        generic_ratio=args.diar_generic_prompt_ratio,
+                        backchannel_ratio=args.diar_backchannel_ratio,
+                        mixed_variants=tuple(args.diar_mixed_variants) if args.diar_mixed else None,
+                    )
+                    for variant, rows in per_variant.items():
+                        if not rows:
+                            continue
+                        raw, lean = get(diar_buckets[variant], diar_split)
+                        for r in rows:
+                            raw.append(r)
+                            lean.append(make_diar_lean_row(r, args.diar_cross_lingual_prompt_ratio))
+
+    def dump(buckets, kind, raw_base=raw_root, out_base=out_root):
         for split, (raw, lean) in buckets.items():
             if not len(raw):
                 continue
-            raw_file = raw_root / kind / f"{split}.jsonl"
-            lean_file = out_root / kind / f"{split}.jsonl"
+            raw_file = raw_base / kind / f"{split}.jsonl"
+            lean_file = out_base / kind / f"{split}.jsonl"
             if raw_file.exists() and lean_file.exists() and not args.force:
                 logger.info(f"[{kind}/{split}] exists, skipping (use --force)")
                 continue
@@ -947,10 +1346,14 @@ def main():
             logger.info(f"[{kind}/{split}] wrote {len(raw)} rows → {raw_file}")
             logger.info(f"[{kind}/{split}] wrote {len(lean)} rows → {lean_file}")
 
-    if not args.no_summary:
+    if args.summary:
         dump(summary_per_split, "summary")
     if args.asr:
         dump(asr_per_split, "asr")
+    if args.diarization:
+        for variant in diar_outputs:
+            dump(diar_buckets[variant], variant,
+                 raw_base=diar_raw_root, out_base=diar_out_root)
 
 
 if __name__ == "__main__":
