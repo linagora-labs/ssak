@@ -21,9 +21,9 @@ ASR is intentionally not wired up yet. The `--asr` flag and its dispatch hook ar
 present so it can be filled in later without reshaping the CLI; for now passing it
 errors out.
 
-Note on language: CFPP2000 is French (language="fr"). diar_prompts has no "fr"
-entry yet, so prompts fall back to English (see diar_prompts module docstring to
-add French).
+Note on language: CFPP2000 is French (language="fr"), so rows draw the French
+prompts from diar_prompts (including the French-only "Locuteur" formats); any
+prompt list French is missing falls back to English automatically.
 """
 
 import argparse
@@ -41,7 +41,7 @@ from tqdm import tqdm
 from ssak.utils.nemo_dataset import NemoDataset, NemoDatasetRow, NemoTurn
 from diar_prompts import (
     DIAR_VARIANTS,
-    DIAR_DEFAULT_FORMAT,
+    choose_format,
     formats_for,
     clean_window_pieces,
     make_diar_lean_row,
@@ -369,11 +369,12 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
                     mixed_variants: tuple | None = None) -> dict:
     """Build diarization rows for every variant from one shared windowing.
 
-    For each (window, variant, version) a prompt style is chosen: with probability
-    generic_ratio a generic, no-format prompt paired with the variant's DEFAULT
-    format; otherwise an explicit format-specifying prompt paired with a random
-    format. The choice (format + prompt_style) is stored in custom_metadata so
-    make_diar_lean_row can pick a matching prompt.
+    For each (window, variant, version) a (format, prompt_style) is chosen by
+    diar_prompts.choose_format: JSON is emitted for a small fixed fraction of rows
+    (JSON_FORMAT_RATIO), otherwise with probability generic_ratio a generic,
+    no-format prompt on the variant's DEFAULT format, else an explicit
+    format-specifying prompt on a random non-JSON format. The choice is stored in
+    custom_metadata so make_diar_lean_row can pick a matching prompt.
 
     When backchannel_versions, each window yields a "clean" version
     (backchannels/acknowledgements removed, default prompt); if it also contained
@@ -423,10 +424,8 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
             for variant in DIAR_VARIANTS:
                 formats = formats_for(LANGUAGE, variant)
                 rng = random.Random(f"{meeting_id}.{i}.{variant}.{tag}")
-                if format_variety and rng.random() >= generic_ratio:
-                    fmt, prompt_style = rng.choice(list(formats)), "explicit"
-                else:
-                    fmt, prompt_style = DIAR_DEFAULT_FORMAT[variant], "generic"
+                fmt, prompt_style = choose_format(variant, formats, rng,
+                                                  format_variety, generic_ratio)
                 target = formats[fmt]["render"](segs, meeting_id)
                 if not target.strip():
                     continue

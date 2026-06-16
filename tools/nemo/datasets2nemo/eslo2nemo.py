@@ -25,9 +25,9 @@ ASR (over *all* available ESLO audio-paired data: ESLO-md + ESLO-orleans, both
 its dispatch hook are present so it can be filled in later without reshaping the
 CLI; for now passing it errors out.
 
-Note on language: ESLO is French (language="fr"). diar_prompts has no "fr" entry
-yet, so prompts fall back to English (see diar_prompts module docstring to add
-French).
+Note on language: ESLO is French (language="fr"), so rows draw the French
+prompts from diar_prompts (including the French-only "Locuteur" formats); any
+prompt list French is missing falls back to English automatically.
 """
 
 import argparse
@@ -45,7 +45,7 @@ from tqdm import tqdm
 from ssak.utils.nemo_dataset import NemoDataset, NemoDatasetRow, NemoTurn
 from diar_prompts import (
     DIAR_VARIANTS,
-    DIAR_DEFAULT_FORMAT,
+    choose_format,
     formats_for,
     clean_window_pieces,
     make_diar_lean_row,
@@ -416,10 +416,8 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
             for variant in DIAR_VARIANTS:
                 formats = formats_for(LANGUAGE, variant)
                 rng = random.Random(f"{meeting_id}.{i}.{variant}.{tag}")
-                if format_variety and rng.random() >= generic_ratio:
-                    fmt, prompt_style = rng.choice(list(formats)), "explicit"
-                else:
-                    fmt, prompt_style = DIAR_DEFAULT_FORMAT[variant], "generic"
+                fmt, prompt_style = choose_format(variant, formats, rng,
+                                                  format_variety, generic_ratio)
                 target = formats[fmt]["render"](segs, meeting_id)
                 if not target.strip():
                     continue

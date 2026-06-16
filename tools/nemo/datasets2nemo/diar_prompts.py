@@ -31,6 +31,7 @@ The format keys a language provides must be a subset of `_DIAR_FORMATS[variant]`
 `_validate_prompts()` checks at import time that "en" (the fallback) is complete.
 """
 
+import json
 import random
 import re
 
@@ -142,6 +143,46 @@ def _r_tsa_vtt(segs, meeting):
     return "WEBVTT\n\n" + "\n\n".join(cues)
 
 
+# JSON: a structured, schema-heavy output (kept to a small slice of the rows, see
+# JSON_FORMAT_RATIO). Speakers are identified as 'spk<N>'. Only fields derivable
+# from the source segments (n/s/e/text) are emitted: there is no per-word timing,
+# no confidence, no raw-vs-processed distinction and no per-segment language in the
+# pipeline, so those schema fields are deliberately omitted rather than fabricated.
+def _spk(n): return f"spk{n}"
+
+def _r_asr_json(segs, meeting):
+    # ASR + speaker, no timestamps.
+    result = "\n".join(f"{_spk(s['n'])}: {s['text']}" for s in segs if s["text"])
+    segments = [{"segment": s["text"], "spk_id": _spk(s["n"])}
+                for s in segs if s["text"]]
+    return json.dumps({"transcription_result": result, "segments": segments},
+                      ensure_ascii=False, indent=2)
+
+def _r_ts_json(segs, meeting):
+    # Speaker + timestamps, no transcript: a per-speaker summary plus the segments.
+    speakers = {}
+    for s in segs:
+        spk = _spk(s["n"])
+        agg = speakers.setdefault(spk, {"spk_id": spk, "duration": 0.0, "nbr_seg": 0})
+        agg["duration"] = round(agg["duration"] + (s["e"] - s["s"]), 2)
+        agg["nbr_seg"] += 1
+    segments = [{"seg_id": i, "spk_id": _spk(s["n"]),
+                 "seg_begin": round(s["s"], 2), "seg_end": round(s["e"], 2)}
+                for i, s in enumerate(segs, 1)]
+    return json.dumps({"speakers": list(speakers.values()), "segments": segments},
+                      ensure_ascii=False, indent=2)
+
+def _r_tsa_json(segs, meeting):
+    # ASR + speaker + timestamps.
+    result = "\n".join(f"{_spk(s['n'])}: {s['text']}" for s in segs if s["text"])
+    segments = [{"segment": s["text"],
+                 "start": round(s["s"], 2), "end": round(s["e"], 2),
+                 "duration": round(s["e"] - s["s"], 2), "spk_id": _spk(s["n"])}
+                for s in segs if s["text"]]
+    return json.dumps({"transcription_result": result, "segments": segments},
+                      ensure_ascii=False, indent=2)
+
+
 # Whole-word label-casing styles. French (Locuteur/LOCUTEUR/locuteur) back the
 # French-only formats in `_LANG_EXTRA_FORMATS["fr"]`; English SPEAKER/speaker are
 # base formats (distinct from the zero-padded 'SPEAKER_00' style).
@@ -217,6 +258,7 @@ _DIAR_FORMATS = {
         "letter":        {"render": _r_asr_letter},
         "speaker_caps":  {"render": _r_asr_speaker_caps},
         "speaker_lower": {"render": _r_asr_speaker_lower},
+        "json":          {"render": _r_asr_json},
     },
     "timestamps": {
         "plain":         {"render": _r_ts_plain},
@@ -227,6 +269,7 @@ _DIAR_FORMATS = {
         "speaker_upper": {"render": _r_ts_speaker_upper},
         "speaker_caps":  {"render": _r_ts_speaker_caps},
         "speaker_lower": {"render": _r_ts_speaker_lower},
+        "json":          {"render": _r_ts_json},
     },
     "timestamps_asr": {
         "bracket_colon": {"render": _r_tsa_bracket_colon},
@@ -239,11 +282,40 @@ _DIAR_FORMATS = {
         "vtt":           {"render": _r_tsa_vtt},
         "speaker_caps":  {"render": _r_tsa_speaker_caps},
         "speaker_lower": {"render": _r_tsa_speaker_lower},
+        "json":          {"render": _r_tsa_json},
     },
 }
 
 # First key of each variant is its default format (used by generic prompts).
 DIAR_DEFAULT_FORMAT = {v: next(iter(fmts)) for v, fmts in _DIAR_FORMATS.items()}
+
+# JSON is a structured, schema-heavy format; keep it a small slice of all rows.
+JSON_FORMAT_RATIO = 0.05
+
+
+def choose_format(variant, formats, rng, format_variety=True,
+                  generic_ratio=0.4, json_ratio=JSON_FORMAT_RATIO):
+    """Pick (format_key, prompt_style) for one diarization row.
+
+    - Without `format_variety`: always the variant's default format + a generic
+      (no-format) prompt.
+    - 'json' is emitted for a fixed small fraction (`json_ratio`) of rows, always
+      paired with an explicit, format-specifying prompt. It is never the default
+      format and is never drawn by the generic/uniform path, so its overall share
+      is exactly `json_ratio`.
+    - Otherwise: with probability `generic_ratio` a generic prompt on the default
+      format, else an explicit prompt on a uniformly-random non-json format.
+
+    `rng` is a `random.Random`; `formats` is the variant's format dict (typically
+    `_DIAR_FORMATS[variant]` or `formats_for(language, variant)`)."""
+    if not format_variety:
+        return DIAR_DEFAULT_FORMAT[variant], "generic"
+    if "json" in formats and rng.random() < json_ratio:
+        return "json", "explicit"
+    if rng.random() < generic_ratio:
+        return DIAR_DEFAULT_FORMAT[variant], "generic"
+    non_json = [k for k in formats if k != "json"]
+    return rng.choice(non_json), "explicit"
 
 
 # --------------------------------------------------------------------------- #
@@ -412,6 +484,24 @@ _DIAR_PROMPTS = {
                     "Give the transcript with turns as 'speaker N: <words>', speaker in lowercase.",
                     "Label each turn 'speaker N: <words>' using the lowercase word speaker.",
                 ],
+                "json": [
+                    # Loose prompts: ask for JSON without spelling out the schema.
+                    "Transcribe this conversation with speaker labels and return the result as JSON.",
+                    "Give a speaker-labeled transcript of this audio in JSON format.",
+                    "Diarize and transcribe this recording; output the result as JSON.",
+                    # Schema-specifying prompts.
+                    "Transcribe the dialogue as JSON: a \"transcription_result\" string "
+                    "('spk1: ...\\nspk2: ...') and a \"segments\" array of "
+                    "{\"segment\": \"<words>\", \"spk_id\": \"spkN\"}.",
+                    "Output JSON with \"transcription_result\" (speaker-labeled lines) and "
+                    "\"segments\": a list of {\"segment\": ..., \"spk_id\": \"spkN\"}.",
+                    "Produce a speaker-attributed transcript as a JSON object with keys "
+                    "\"transcription_result\" and \"segments\" (each segment has \"segment\" and \"spk_id\").",
+                    "Return JSON: \"transcription_result\" joining the turns as 'spkN: <words>', and "
+                    "\"segments\" with one {\"segment\", \"spk_id\"} object per turn.",
+                    "Give the transcript as JSON with a \"transcription_result\" string and a "
+                    "\"segments\" array of {\"segment\": \"<words>\", \"spk_id\": \"spkN\"}.",
+                ],
             },
             "timestamps": {
                 "plain": [
@@ -484,6 +574,25 @@ _DIAR_PROMPTS = {
                     "Diarize this audio, one line per turn as '[start - end] speaker 1'.",
                     "Output the speaker turns as '[<start> - <end>] speaker 1', '[<start> - <end>] speaker 2', ...",
                     "Give each turn as '[start - end] speaker N' using the lowercase word speaker.",
+                ],
+                "json": [
+                    # Loose prompts: ask for JSON without spelling out the schema.
+                    "Perform speaker diarization on this audio and return the result as JSON.",
+                    "Identify who spoke when and give the result in JSON format.",
+                    "Diarize this recording; output the speaker segments as JSON.",
+                    # Schema-specifying prompts.
+                    "Diarize this audio as JSON with a \"speakers\" array of "
+                    "{\"spk_id\": \"spkN\", \"duration\": <s>, \"nbr_seg\": <n>} and a \"segments\" "
+                    "array of {\"seg_id\": <i>, \"spk_id\": \"spkN\", \"seg_begin\": <s>, \"seg_end\": <s>}.",
+                    "Output JSON with \"speakers\" (per-speaker total \"duration\" and segment count "
+                    "\"nbr_seg\") and \"segments\" ({\"seg_id\", \"spk_id\", \"seg_begin\", \"seg_end\"}).",
+                    "Perform speaker diarization and return a JSON object: \"speakers\" summarising each "
+                    "spk_id's duration and nbr_seg, and \"segments\" listing every turn with seg_begin/seg_end.",
+                    "Give the diarization as JSON, times in seconds: a \"speakers\" summary "
+                    "({spk_id, duration, nbr_seg}) and a \"segments\" list ({seg_id, spk_id, seg_begin, seg_end}).",
+                    "Diarise this recording into JSON with two arrays: \"speakers\" "
+                    "({\"spk_id\", \"duration\", \"nbr_seg\"}) and \"segments\" "
+                    "({\"seg_id\", \"spk_id\", \"seg_begin\", \"seg_end\"}).",
                 ],
             },
             "timestamps_asr": {
@@ -577,6 +686,25 @@ _DIAR_PROMPTS = {
                     "Transcribe with timestamps, each turn as '[start-end] speaker 1: <words>'.",
                     "Give a timed transcript with turns as '[<start>-<end>] speaker N: <words>', speaker in lowercase.",
                     "Output each turn as '[start-end] speaker N: <words>' using the lowercase word speaker.",
+                ],
+                "json": [
+                    # Loose prompts: ask for JSON without spelling out the schema.
+                    "Transcribe this audio with speaker labels and timestamps, and return the result as JSON.",
+                    "Give a timed, speaker-attributed transcript in JSON format.",
+                    "Transcribe and diarize this recording; output the result as JSON.",
+                    # Schema-specifying prompts.
+                    "Transcribe with timestamps as JSON: a \"transcription_result\" string "
+                    "('spkN: ...') and a \"segments\" array of {\"segment\": \"<words>\", "
+                    "\"start\": <s>, \"end\": <s>, \"duration\": <s>, \"spk_id\": \"spkN\"}.",
+                    "Output JSON with \"transcription_result\" (speaker-labeled lines) and \"segments\", "
+                    "each {\"segment\", \"start\", \"end\", \"duration\", \"spk_id\"}, times in seconds.",
+                    "Produce a timed, speaker-attributed transcript as a JSON object with "
+                    "\"transcription_result\" and a \"segments\" list carrying segment text, start, end, "
+                    "duration and spk_id.",
+                    "Transcribe and diarize this audio into JSON: a \"transcription_result\" string plus "
+                    "\"segments\" of {\"segment\", \"start\", \"end\", \"duration\", \"spk_id\"}.",
+                    "Give a timed transcript as JSON with \"transcription_result\" and a \"segments\" array "
+                    "where each turn has \"segment\", \"start\", \"end\", \"duration\" and \"spk_id\".",
                 ],
             },
         },
@@ -750,6 +878,24 @@ _DIAR_PROMPTS = {
                     "Donne la transcription avec chaque tour 'speaker N: <paroles>', speaker en minuscules.",
                     "Étiquette chaque tour 'speaker N: <paroles>' avec le mot speaker en minuscules.",
                 ],
+                "json": [
+                    # Prompts génériques : demandent du JSON sans détailler le schéma.
+                    "Transcris cette conversation avec les étiquettes de locuteur et renvoie le résultat en JSON.",
+                    "Donne une transcription par locuteur de cet audio au format JSON.",
+                    "Transcris et diarise cet enregistrement ; restitue le résultat en JSON.",
+                    # Prompts spécifiant le schéma.
+                    "Transcris le dialogue en JSON : une chaîne \"transcription_result\" "
+                    "('spk1: ...\\nspk2: ...') et un tableau \"segments\" d'objets "
+                    "{\"segment\": \"<paroles>\", \"spk_id\": \"spkN\"}.",
+                    "Restitue du JSON avec \"transcription_result\" (lignes étiquetées par locuteur) et "
+                    "\"segments\" : une liste de {\"segment\": ..., \"spk_id\": \"spkN\"}.",
+                    "Produis une transcription par locuteur sous forme d'objet JSON avec les clés "
+                    "\"transcription_result\" et \"segments\" (chaque segment a \"segment\" et \"spk_id\").",
+                    "Renvoie du JSON : \"transcription_result\" joignant les tours sous la forme 'spkN: <paroles>', "
+                    "et \"segments\" avec un objet {\"segment\", \"spk_id\"} par tour.",
+                    "Donne la transcription en JSON avec une chaîne \"transcription_result\" et un tableau "
+                    "\"segments\" de {\"segment\": \"<paroles>\", \"spk_id\": \"spkN\"}.",
+                ],
             },
             "timestamps": {
                 "plain": [
@@ -843,6 +989,25 @@ _DIAR_PROMPTS = {
                     "Diarise cet audio, une ligne par tour '[début - fin] speaker 1'.",
                     "Restitue les tours '[<début> - <fin>] speaker 1', '[<début> - <fin>] speaker 2', ...",
                     "Donne chaque tour '[début - fin] speaker N', speaker en minuscules.",
+                ],
+                "json": [
+                    # Prompts génériques : demandent du JSON sans détailler le schéma.
+                    "Effectue la diarisation des locuteurs sur cet audio et renvoie le résultat en JSON.",
+                    "Identifie qui a parlé et quand, et donne le résultat au format JSON.",
+                    "Diarise cet enregistrement ; restitue les segments de parole en JSON.",
+                    # Prompts spécifiant le schéma.
+                    "Diarise cet audio en JSON avec un tableau \"speakers\" de "
+                    "{\"spk_id\": \"spkN\", \"duration\": <s>, \"nbr_seg\": <n>} et un tableau \"segments\" de "
+                    "{\"seg_id\": <i>, \"spk_id\": \"spkN\", \"seg_begin\": <s>, \"seg_end\": <s>}.",
+                    "Restitue du JSON avec \"speakers\" (durée totale \"duration\" et nombre de segments "
+                    "\"nbr_seg\" par locuteur) et \"segments\" ({\"seg_id\", \"spk_id\", \"seg_begin\", \"seg_end\"}).",
+                    "Effectue la diarisation et renvoie un objet JSON : \"speakers\" résumant la duration et "
+                    "le nbr_seg de chaque spk_id, et \"segments\" listant chaque tour avec seg_begin/seg_end.",
+                    "Donne la diarisation en JSON, temps en secondes : un résumé \"speakers\" "
+                    "({spk_id, duration, nbr_seg}) et une liste \"segments\" ({seg_id, spk_id, seg_begin, seg_end}).",
+                    "Diarise cet enregistrement en JSON avec deux tableaux : \"speakers\" "
+                    "({\"spk_id\", \"duration\", \"nbr_seg\"}) et \"segments\" "
+                    "({\"seg_id\", \"spk_id\", \"seg_begin\", \"seg_end\"}).",
                 ],
             },
             "timestamps_asr": {
@@ -968,6 +1133,25 @@ _DIAR_PROMPTS = {
                     "Transcris avec horodatage, chaque tour '[début-fin] speaker 1: <paroles>'.",
                     "Restitue chaque tour '[début-fin] speaker N: <paroles>', speaker en minuscules.",
                     "Transcris et diarise cet audio, chaque tour '[début-fin] speaker N: <paroles>'.",
+                ],
+                "json": [
+                    # Prompts génériques : demandent du JSON sans détailler le schéma.
+                    "Transcris cet audio avec les étiquettes de locuteur et les horodatages, et renvoie le résultat en JSON.",
+                    "Donne une transcription horodatée et attribuée aux locuteurs au format JSON.",
+                    "Transcris et diarise cet enregistrement ; restitue le résultat en JSON.",
+                    # Prompts spécifiant le schéma.
+                    "Transcris avec horodatage en JSON : une chaîne \"transcription_result\" "
+                    "('spkN: ...') et un tableau \"segments\" de {\"segment\": \"<paroles>\", "
+                    "\"start\": <s>, \"end\": <s>, \"duration\": <s>, \"spk_id\": \"spkN\"}.",
+                    "Restitue du JSON avec \"transcription_result\" (lignes étiquetées par locuteur) et "
+                    "\"segments\", chacun {\"segment\", \"start\", \"end\", \"duration\", \"spk_id\"}, temps en secondes.",
+                    "Produis une transcription horodatée et attribuée aux locuteurs sous forme d'objet JSON avec "
+                    "\"transcription_result\" et une liste \"segments\" portant le texte du segment, start, end, "
+                    "duration et spk_id.",
+                    "Transcris et diarise cet audio en JSON : une chaîne \"transcription_result\" et "
+                    "\"segments\" de {\"segment\", \"start\", \"end\", \"duration\", \"spk_id\"}.",
+                    "Donne une transcription horodatée en JSON avec \"transcription_result\" et un tableau "
+                    "\"segments\" où chaque tour a \"segment\", \"start\", \"end\", \"duration\" et \"spk_id\".",
                 ],
             },
         },
