@@ -125,10 +125,22 @@ def shard_from_yaml(yaml_path, shard_size=1000, min_lines=0, shuffle=False, seed
 
     # Shard each manifest and collect the mapping from resolved path -> glob pattern
     path_to_pattern = {}
+    errors = []
     for mf in manifest_files:
-        pattern = shard_single_manifest(mf, shard_size=shard_size, min_lines=min_lines, shuffle=shuffle, seed=seed, force=force)
+        try:
+            pattern = shard_single_manifest(mf, shard_size=shard_size, min_lines=min_lines, shuffle=shuffle, seed=seed, force=force)
+        except Exception as e:
+            logger.error(f"Failed to shard {mf}: {e}")
+            errors.append((mf, e))
+            continue
         if pattern:
             path_to_pattern[str(mf.resolve())] = pattern
+
+    if errors:
+        summary = "\n".join(f"  - {mf}: {e}" for mf, e in errors)
+        raise RuntimeError(
+            f"{len(errors)}/{len(manifest_files)} manifest(s) failed to shard:\n{summary}"
+        )
 
     # Update the YAML structure with glob patterns
     _update_manifest_paths_in_yaml(cfg, path_to_pattern)
@@ -148,7 +160,7 @@ if __name__ == "__main__":
     parser.add_argument("input", help="Input manifest file, directory, or YAML config", type=str)
     parser.add_argument(
         "--shard-size",
-        help="Maximum number of lines per shard (default: 1000)",
+        help="Maximum number of lines per shard (default: 5000)",
         type=int,
         default=5000,
     )
@@ -181,5 +193,15 @@ if __name__ == "__main__":
             logger.warning(f"No manifest files found for input: {args.input}")
             exit(0)
         logger.info(f"Found {len(manifest_files)} manifest file(s)")
+        errors = []
         for mf in manifest_files:
-            shard_single_manifest(mf, shard_size=args.shard_size, min_lines=args.min_lines, shuffle=args.shuffle, seed=args.seed, force=args.force)
+            try:
+                shard_single_manifest(mf, shard_size=args.shard_size, min_lines=args.min_lines, shuffle=args.shuffle, seed=args.seed, force=args.force)
+            except Exception as e:
+                logger.error(f"Failed to shard {mf}: {e}")
+                errors.append((mf, e))
+        if errors:
+            summary = "\n".join(f"  - {mf}: {e}" for mf, e in errors)
+            raise RuntimeError(
+                f"{len(errors)}/{len(manifest_files)} manifest(s) failed to shard:\n{summary}"
+            )
