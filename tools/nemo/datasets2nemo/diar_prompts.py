@@ -43,6 +43,10 @@ DIAR_VARIANTS = ("asr", "timestamps", "timestamps_asr")
 # list it does not define, and this one must be complete.
 DEFAULT_LANGUAGE = "en"
 
+# Base seed mixed into the per-row prompt rng (see `make_diar_lean_row`). Fixed so
+# the prompt wording is reproducible run-to-run; change it to reshuffle all prompts.
+PROMPT_SEED = 42
+
 # Each diarization variant can be rendered in several output formats. A row picks
 # one format, renders its target in that format, and is paired with a prompt drawn
 # from that same format's prompt list (in the row's language) — so the prompt
@@ -455,7 +459,7 @@ _DIAR_PROMPTS = {
                 ],
                 "dash": [
                     "Transcribe with speaker labels using the format 'Speaker N - <words>'.",
-                    "Separate each speaker label and their words with a dash: 'Speaker N - <words>'.",
+                    "Transcribe the dialogue, separating each speaker label and their words with a dash: 'Speaker N - <words>'.",
                     "Write each turn as 'Speaker N - <words>'.",
                     "Give the transcript with every turn as 'Speaker N - <words>'.",
                     "Transcribe this audio, formatting each turn as 'Speaker N - <words>'.",
@@ -474,7 +478,7 @@ _DIAR_PROMPTS = {
                     "Write each turn as 'SPEAKER N: <words>' with SPEAKER in uppercase.",
                     "Transcribe this audio, prefixing each turn with 'SPEAKER 1:', 'SPEAKER 2:', etc.",
                     "Give the transcript with turns as 'SPEAKER N: <words>', SPEAKER fully capitalised.",
-                    "Label each turn 'SPEAKER N: <words>' using the uppercase word SPEAKER.",
+                    "Transcribe the dialogue, labeling each turn 'SPEAKER N: <words>' with the word SPEAKER in uppercase.",
                 ],
                 "speaker_lower": [
                     "Transcribe the dialogue. Use the format 'speaker N: <words>' "
@@ -482,7 +486,7 @@ _DIAR_PROMPTS = {
                     "Write each turn as 'speaker N: <words>' with speaker in lowercase.",
                     "Transcribe this audio, prefixing each turn with 'speaker 1:', 'speaker 2:', etc.",
                     "Give the transcript with turns as 'speaker N: <words>', speaker in lowercase.",
-                    "Label each turn 'speaker N: <words>' using the lowercase word speaker.",
+                    "Transcribe the dialogue, labeling each turn 'speaker N: <words>' with the word speaker in lowercase.",
                 ],
                 "json": [
                     # Loose prompts: ask for JSON without spelling out the schema.
@@ -597,7 +601,7 @@ _DIAR_PROMPTS = {
             },
             "timestamps_asr": {
                 "bracket_colon": [
-                    "Format each turn as '[start-end] Speaker N: <words>' in seconds.",
+                    "Transcribe with timestamps, formatting each turn as '[start-end] Speaker N: <words>' in seconds.",
                     "Write each turn as '[<start>-<end>] Speaker N: <words>'.",
                     "Transcribe with timestamps, each turn as '[start-end] Speaker N: <words>'.",
                     "Give a timed transcript with turns as '[<start>-<end>] Speaker N: <words>'.",
@@ -605,7 +609,7 @@ _DIAR_PROMPTS = {
                     "Transcribe and diarise this audio, each turn as '[start-end] Speaker N: <words>'.",
                 ],
                 "bare_letter": [
-                    "Format each turn as '[start-end] A: <words>' in seconds "
+                    "Transcribe with timestamps, formatting each turn as '[start-end] A: <words>' in seconds "
                     "(label speakers A, B, C, ...).",
                     "Write each turn as '[<start>-<end>] X: <words>' using letters A, B, C.",
                     "Transcribe with timestamps, each turn as '[start-end] A: <words>'.",
@@ -615,7 +619,7 @@ _DIAR_PROMPTS = {
                     "Transcribe and diarise this audio, each turn as '[start-end] A: <words>'.",
                 ],
                 "s_num": [
-                    "Format each turn as '[start-end] S1: <words>' in seconds "
+                    "Transcribe with timestamps, formatting each turn as '[start-end] S1: <words>' in seconds "
                     "(label speakers S1, S2, S3, ...).",
                     "Write each turn as '[<start>-<end>] SN: <words>'.",
                     "Transcribe with timestamps, each turn as '[start-end] S1: <words>'.",
@@ -625,7 +629,7 @@ _DIAR_PROMPTS = {
                     "Transcribe and diarise this audio, each turn as '[start-end] S1: <words>'.",
                 ],
                 "speaker_upper": [
-                    "Format each turn as '[start-end] SPEAKER_00: <words>' in seconds "
+                    "Transcribe with timestamps, formatting each turn as '[start-end] SPEAKER_00: <words>' in seconds "
                     "(label speakers SPEAKER_00, SPEAKER_01, ...).",
                     "Write each turn as '[<start>-<end>] SPEAKER_NN: <words>' "
                     "with zero-padded indices from 00.",
@@ -646,7 +650,7 @@ _DIAR_PROMPTS = {
                 ],
                 "arrow": [
                     "Transcribe with timestamps. Use the format '<start> --> <end>  Speaker N: <words>'.",
-                    "Use simple cues: '<start> --> <end>  Speaker N: <words>'.",
+                    "Transcribe with timestamps using simple cues: '<start> --> <end>  Speaker N: <words>'.",
                     "Give a timed transcript with turns as '<start> --> <end>  Speaker N: <words>'.",
                     "Output each turn as '<start> --> <end>  Speaker N: <words>', times in seconds.",
                     "Transcribe this audio, formatting each turn as '<start> --> <end>  Speaker N: <words>'.",
@@ -672,7 +676,7 @@ _DIAR_PROMPTS = {
                     "Diarise this audio and write the transcript as WebVTT subtitles.",
                 ],
                 "speaker_caps": [
-                    "Format each turn as '[start-end] SPEAKER N: <words>' in seconds "
+                    "Transcribe with timestamps, formatting each turn as '[start-end] SPEAKER N: <words>' in seconds "
                     "(the word SPEAKER in all caps).",
                     "Write each turn as '[<start>-<end>] SPEAKER N: <words>', SPEAKER uppercase.",
                     "Transcribe with timestamps, each turn as '[start-end] SPEAKER 1: <words>'.",
@@ -680,7 +684,7 @@ _DIAR_PROMPTS = {
                     "Output each turn as '[start-end] SPEAKER N: <words>' using the uppercase word SPEAKER.",
                 ],
                 "speaker_lower": [
-                    "Format each turn as '[start-end] speaker N: <words>' in seconds "
+                    "Transcribe with timestamps, formatting each turn as '[start-end] speaker N: <words>' in seconds "
                     "(the word speaker in lowercase).",
                     "Write each turn as '[<start>-<end>] speaker N: <words>', speaker lowercase.",
                     "Transcribe with timestamps, each turn as '[start-end] speaker 1: <words>'.",
@@ -819,7 +823,7 @@ _DIAR_PROMPTS = {
                 ],
                 "dash": [
                     "Transcris avec les étiquettes de locuteur au format 'Speaker N - <paroles>'.",
-                    "Sépare l'étiquette du locuteur et ses paroles par un tiret : 'Speaker N - <paroles>'.",
+                    "Transcris le dialogue en séparant l'étiquette du locuteur et ses paroles par un tiret : 'Speaker N - <paroles>'.",
                     "Écris chaque tour sous la forme 'Speaker N - <paroles>'.",
                     "Donne la transcription avec chaque tour 'Speaker N - <paroles>'.",
                     "Transcris cet audio en formatant chaque tour 'Speaker N - <paroles>'.",
@@ -841,7 +845,7 @@ _DIAR_PROMPTS = {
                 ],
                 "locuteur_dash": [
                     "Transcris avec les étiquettes de locuteur au format 'Locuteur N - <paroles>'.",
-                    "Sépare l'étiquette du locuteur et ses paroles par un tiret : 'Locuteur N - <paroles>'.",
+                    "Transcris le dialogue en séparant l'étiquette du locuteur et ses paroles par un tiret : 'Locuteur N - <paroles>'.",
                     "Écris chaque tour sous la forme 'Locuteur N - <paroles>'.",
                     "Donne la transcription avec chaque tour 'Locuteur N - <paroles>'.",
                     "Transcris cet audio en formatant chaque tour 'Locuteur N - <paroles>'.",
@@ -852,7 +856,7 @@ _DIAR_PROMPTS = {
                     "Écris chaque tour sous la forme 'LOCUTEUR N: <paroles>', LOCUTEUR en majuscules.",
                     "Transcris cet audio en préfixant chaque tour par 'LOCUTEUR 1:', 'LOCUTEUR 2:', etc.",
                     "Donne la transcription avec chaque tour 'LOCUTEUR N: <paroles>', LOCUTEUR tout en majuscules.",
-                    "Étiquette chaque tour 'LOCUTEUR N: <paroles>' avec le mot LOCUTEUR en majuscules.",
+                    "Transcris le dialogue en étiquetant chaque tour 'LOCUTEUR N: <paroles>', le mot LOCUTEUR en majuscules.",
                 ],
                 "locuteur_lower": [
                     "Transcris le dialogue. Utilise le format 'locuteur N: <paroles>' "
@@ -860,7 +864,7 @@ _DIAR_PROMPTS = {
                     "Écris chaque tour sous la forme 'locuteur N: <paroles>', locuteur en minuscules.",
                     "Transcris cet audio en préfixant chaque tour par 'locuteur 1:', 'locuteur 2:', etc.",
                     "Donne la transcription avec chaque tour 'locuteur N: <paroles>', locuteur en minuscules.",
-                    "Étiquette chaque tour 'locuteur N: <paroles>' avec le mot locuteur en minuscules.",
+                    "Transcris le dialogue en étiquetant chaque tour 'locuteur N: <paroles>', le mot locuteur en minuscules.",
                 ],
                 "speaker_caps": [
                     "Transcris le dialogue. Utilise le format 'SPEAKER N: <paroles>' "
@@ -868,7 +872,7 @@ _DIAR_PROMPTS = {
                     "Écris chaque tour sous la forme 'SPEAKER N: <paroles>', SPEAKER en majuscules.",
                     "Transcris cet audio en préfixant chaque tour par 'SPEAKER 1:', 'SPEAKER 2:', etc.",
                     "Donne la transcription avec chaque tour 'SPEAKER N: <paroles>', SPEAKER tout en majuscules.",
-                    "Étiquette chaque tour 'SPEAKER N: <paroles>' avec le mot SPEAKER en majuscules.",
+                    "Transcris le dialogue en étiquetant chaque tour 'SPEAKER N: <paroles>', le mot SPEAKER en majuscules.",
                 ],
                 "speaker_lower": [
                     "Transcris le dialogue. Utilise le format 'speaker N: <paroles>' "
@@ -876,7 +880,7 @@ _DIAR_PROMPTS = {
                     "Écris chaque tour sous la forme 'speaker N: <paroles>', speaker en minuscules.",
                     "Transcris cet audio en préfixant chaque tour par 'speaker 1:', 'speaker 2:', etc.",
                     "Donne la transcription avec chaque tour 'speaker N: <paroles>', speaker en minuscules.",
-                    "Étiquette chaque tour 'speaker N: <paroles>' avec le mot speaker en minuscules.",
+                    "Transcris le dialogue en étiquetant chaque tour 'speaker N: <paroles>', le mot speaker en minuscules.",
                 ],
                 "json": [
                     # Prompts génériques : demandent du JSON sans détailler le schéma.
@@ -1012,7 +1016,7 @@ _DIAR_PROMPTS = {
             },
             "timestamps_asr": {
                 "bracket_colon": [
-                    "Formate chaque tour sous la forme '[début-fin] Speaker N: <paroles>' en secondes.",
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] Speaker N: <paroles>' en secondes.",
                     "Écris chaque tour sous la forme '[<début>-<fin>] Speaker N: <paroles>'.",
                     "Transcris avec horodatage, chaque tour '[début-fin] Speaker N: <paroles>'.",
                     "Donne une transcription horodatée avec les tours '[<début>-<fin>] Speaker N: <paroles>'.",
@@ -1020,7 +1024,7 @@ _DIAR_PROMPTS = {
                     "Transcris et diarise cet audio, chaque tour '[début-fin] Speaker N: <paroles>'.",
                 ],
                 "bare_letter": [
-                    "Formate chaque tour sous la forme '[début-fin] A: <paroles>' en secondes "
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] A: <paroles>' en secondes "
                     "(étiquette les locuteurs A, B, C, ...).",
                     "Écris chaque tour sous la forme '[<début>-<fin>] X: <paroles>' avec des lettres A, B, C.",
                     "Transcris avec horodatage, chaque tour '[début-fin] A: <paroles>'.",
@@ -1030,7 +1034,7 @@ _DIAR_PROMPTS = {
                     "Transcris et diarise cet audio, chaque tour '[début-fin] A: <paroles>'.",
                 ],
                 "s_num": [
-                    "Formate chaque tour sous la forme '[début-fin] S1: <paroles>' en secondes "
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] S1: <paroles>' en secondes "
                     "(étiquette les locuteurs S1, S2, S3, ...).",
                     "Écris chaque tour sous la forme '[<début>-<fin>] SN: <paroles>'.",
                     "Transcris avec horodatage, chaque tour '[début-fin] S1: <paroles>'.",
@@ -1040,7 +1044,7 @@ _DIAR_PROMPTS = {
                     "Transcris et diarise cet audio, chaque tour '[début-fin] S1: <paroles>'.",
                 ],
                 "speaker_upper": [
-                    "Formate chaque tour sous la forme '[début-fin] SPEAKER_00: <paroles>' en secondes "
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] SPEAKER_00: <paroles>' en secondes "
                     "(étiquette les locuteurs SPEAKER_00, SPEAKER_01, ...).",
                     "Écris chaque tour sous la forme '[<début>-<fin>] SPEAKER_NN: <paroles>' "
                     "avec des indices à partir de 00.",
@@ -1061,7 +1065,7 @@ _DIAR_PROMPTS = {
                 ],
                 "arrow": [
                     "Transcris avec horodatage. Utilise le format '<début> --> <fin>  Speaker N: <paroles>'.",
-                    "Utilise des repères simples : '<début> --> <fin>  Speaker N: <paroles>'.",
+                    "Transcris avec les horodatages en utilisant des repères simples : '<début> --> <fin>  Speaker N: <paroles>'.",
                     "Donne une transcription horodatée avec les tours '<début> --> <fin>  Speaker N: <paroles>'.",
                     "Restitue chaque tour '<début> --> <fin>  Speaker N: <paroles>', temps en secondes.",
                     "Transcris cet audio en formatant chaque tour '<début> --> <fin>  Speaker N: <paroles>'.",
@@ -1087,7 +1091,7 @@ _DIAR_PROMPTS = {
                     "Diarise cet audio et écris la transcription sous forme de sous-titres WebVTT.",
                 ],
                 "locuteur_bracket_colon": [
-                    "Formate chaque tour sous la forme '[début-fin] Locuteur N: <paroles>' en secondes.",
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] Locuteur N: <paroles>' en secondes.",
                     "Écris chaque tour sous la forme '[<début>-<fin>] Locuteur N: <paroles>'.",
                     "Transcris avec horodatage, chaque tour '[début-fin] Locuteur N: <paroles>'.",
                     "Donne une transcription horodatée avec les tours '[<début>-<fin>] Locuteur N: <paroles>'.",
@@ -1103,7 +1107,7 @@ _DIAR_PROMPTS = {
                     "Transcris et diarise cet audio, chaque tour 'Locuteur N (début-fin): <paroles>'.",
                 ],
                 "locuteur_caps": [
-                    "Formate chaque tour sous la forme '[début-fin] LOCUTEUR N: <paroles>' en secondes "
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] LOCUTEUR N: <paroles>' en secondes "
                     "(le mot LOCUTEUR en majuscules).",
                     "Écris chaque tour sous la forme '[<début>-<fin>] LOCUTEUR N: <paroles>', LOCUTEUR en majuscules.",
                     "Transcris avec horodatage, chaque tour '[début-fin] LOCUTEUR 1: <paroles>'.",
@@ -1111,7 +1115,7 @@ _DIAR_PROMPTS = {
                     "Transcris et diarise cet audio, chaque tour '[début-fin] LOCUTEUR N: <paroles>'.",
                 ],
                 "locuteur_lower": [
-                    "Formate chaque tour sous la forme '[début-fin] locuteur N: <paroles>' en secondes "
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] locuteur N: <paroles>' en secondes "
                     "(le mot locuteur en minuscules).",
                     "Écris chaque tour sous la forme '[<début>-<fin>] locuteur N: <paroles>', locuteur en minuscules.",
                     "Transcris avec horodatage, chaque tour '[début-fin] locuteur 1: <paroles>'.",
@@ -1119,7 +1123,7 @@ _DIAR_PROMPTS = {
                     "Transcris et diarise cet audio, chaque tour '[début-fin] locuteur N: <paroles>'.",
                 ],
                 "speaker_caps": [
-                    "Formate chaque tour sous la forme '[début-fin] SPEAKER N: <paroles>' en secondes "
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] SPEAKER N: <paroles>' en secondes "
                     "(le mot SPEAKER en majuscules).",
                     "Écris chaque tour sous la forme '[<début>-<fin>] SPEAKER N: <paroles>', SPEAKER en majuscules.",
                     "Transcris avec horodatage, chaque tour '[début-fin] SPEAKER 1: <paroles>'.",
@@ -1127,7 +1131,7 @@ _DIAR_PROMPTS = {
                     "Transcris et diarise cet audio, chaque tour '[début-fin] SPEAKER N: <paroles>'.",
                 ],
                 "speaker_lower": [
-                    "Formate chaque tour sous la forme '[début-fin] speaker N: <paroles>' en secondes "
+                    "Transcris avec les horodatages, en formatant chaque tour sous la forme '[début-fin] speaker N: <paroles>' en secondes "
                     "(le mot speaker en minuscules).",
                     "Écris chaque tour sous la forme '[<début>-<fin>] speaker N: <paroles>', speaker en minuscules.",
                     "Transcris avec horodatage, chaque tour '[début-fin] speaker 1: <paroles>'.",
@@ -1349,19 +1353,25 @@ def make_diar_lean_row(r: NemoDatasetRow, cross_lingual_ratio: float = 0.0) -> N
     variant, fmt, style = md.get("variant"), md.get("format"), md.get("prompt_style")
     language = r.language or DEFAULT_LANGUAGE
 
+    # Deterministic per-row rng so the prompt wording (language draw, phrasing,
+    # backchannel suffix) is reproducible across regenerations, like the structural
+    # format choice in `choose_format`. Seeded from the row id plus the
+    # variant/format/style so sibling rows sharing an id still draw independently.
+    rng = random.Random(f"{PROMPT_SEED}.{r.id}.{variant}.{fmt}.{style}.prompt")
+
     prompt_language = language
-    if cross_lingual_ratio and random.random() < cross_lingual_ratio:
+    if cross_lingual_ratio and rng.random() < cross_lingual_ratio:
         others = [lang for lang in _DIAR_PROMPTS
                   if lang != language and _defines_prompt(lang, variant, fmt, style)]
         if others:
-            prompt_language = random.choice(others)
+            prompt_language = rng.choice(others)
 
     turns = list(r.turns)
     prompts = _prompts_for(prompt_language, variant, fmt, style)
     if prompts:
-        prompt = random.choice(prompts)
+        prompt = rng.choice(prompts)
         if md.get("backchannels"):
-            prompt = prompt + " " + random.choice(_backchannel_suffixes_for(prompt_language, variant))
+            prompt = prompt + " " + rng.choice(_backchannel_suffixes_for(prompt_language, variant))
         turns = [NemoTurn(role="User", value=prompt, turn_type="text")] + turns
     return NemoDatasetRow(
         id=r.id, dataset_name=r.dataset_name,
