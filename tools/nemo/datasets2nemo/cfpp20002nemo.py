@@ -22,7 +22,7 @@ present so it can be filled in later without reshaping the CLI; for now passing 
 errors out.
 
 Note on language: CFPP2000 is French (language="fr"), so rows draw the French
-prompts from diar_prompts (including the French-only "Locuteur" formats); any
+prompts from prompts_diarization (including the French-only "Locuteur" formats); any
 prompt list French is missing falls back to English automatically.
 """
 
@@ -39,7 +39,7 @@ import soundfile as sf
 from tqdm import tqdm
 
 from ssak.utils.nemo_dataset import NemoDataset, NemoDatasetRow, NemoTurn
-from diar_prompts import (
+from prompts_diarization import (
     DIAR_VARIANTS,
     choose_format,
     formats_for,
@@ -370,7 +370,7 @@ def build_diar_rows(meeting_id: str, mix_audio: Path, units: list[dict],
     """Build diarization rows for every variant from one shared windowing.
 
     For each (window, variant, version) a (format, prompt_style) is chosen by
-    diar_prompts.choose_format: JSON is emitted for a small fixed fraction of rows
+    prompts_diarization.choose_format: JSON is emitted for a small fixed fraction of rows
     (JSON_FORMAT_RATIO), otherwise with probability generic_ratio a generic,
     no-format prompt on the variant's DEFAULT format, else an explicit
     format-specifying prompt on a random non-JSON format. The choice is stored in

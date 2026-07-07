@@ -26,7 +26,7 @@ its dispatch hook are present so it can be filled in later without reshaping the
 CLI; for now passing it errors out.
 
 Note on language: ESLO is French (language="fr"), so rows draw the French
-prompts from diar_prompts (including the French-only "Locuteur" formats); any
+prompts from prompts_diarization (including the French-only "Locuteur" formats); any
 prompt list French is missing falls back to English automatically.
 """
 
@@ -43,7 +43,7 @@ import soundfile as sf
 from tqdm import tqdm
 
 from ssak.utils.nemo_dataset import NemoDataset, NemoDatasetRow, NemoTurn
-from diar_prompts import (
+from prompts_diarization import (
     DIAR_VARIANTS,
     choose_format,
     formats_for,
