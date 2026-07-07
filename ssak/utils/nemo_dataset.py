@@ -709,7 +709,7 @@ class NemoDataset:
                         raise RuntimeError(f"Error processing audio {turn.value}: {e}")
 
     
-    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1, relative_to=None):
+    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1, relative_to=None, accepted_extensions=None):
         """
         Check audio files sample rate and number of channels and convert them if they don't match the target sample rate/number of channels.
 
@@ -719,6 +719,9 @@ class NemoDataset:
             output_wavs_conversion_folder (str): Folder where to save the transformed audio files
             target_sample_rate (int): Target sample rate for the audio files
             target_extension (str): Optional. Target extension for the audio files (wav, mp3...). If set to None, it will keep the original extension
+            accepted_extensions (list): Optional. Formats (e.g. ["wav", "flac"]) that are kept as-is when their sample rate and channels are already
+                fine. Only files whose format is not in this list get re-encoded to ``target_extension``; without it, any file not already matching
+                ``target_extension`` is re-encoded.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -727,7 +730,7 @@ class NemoDataset:
         errors = False
         if num_workers == 1:
             for audio_path in tqdm(audio_paths, total=len(audio_paths), desc="Checking audio files"):
-                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension, relative_to=relative_to)
+                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension, relative_to=relative_to, accepted_extensions=accepted_extensions)
                 if new_path != audio_path:
                     updated_audio_paths[audio_path] = new_path
                     if new_path == "error":
@@ -742,6 +745,7 @@ class NemoDataset:
                         target_sample_rate,
                         target_extension,
                         relative_to=relative_to,
+                        accepted_extensions=accepted_extensions,
                     ): audio_path
                     for audio_path in audio_paths
                 }

@@ -559,7 +559,7 @@ class KaldiDataset:
             for row in removed_lines:
                 f.write(str(row) + "\n")
                 
-def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1, relative_to=None):
+def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1, relative_to=None, accepted_extensions=None):
     """
     Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
 
@@ -570,6 +570,9 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
         target_extension (str): Optional. Target extension for the audio file. If set to None, it will keep the original extension
         max_channel (int): Maximum number of channels for the audio file. If the audio file has more channels, it will keep only the first channel. TODO: Add option to keep all channels in different files
         relative_to (str): Optional. When set, preserve directory structure relative to this path instead of flattening to basename.
+        accepted_extensions (list): Optional. Formats (e.g. ["wav", "flac"]) that are considered good enough to keep as-is. When provided,
+            a file is only re-encoded to ``target_extension`` because its own format is not in this list (instead of whenever it differs from
+            ``target_extension``); a file whose sample rate and channels are already fine and whose extension is accepted is left untouched.
     """
     from pydub import AudioSegment
     from pydub.utils import mediainfo
@@ -597,11 +600,16 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
         infos = mediainfo(audio_path)
         src_sample_rate = int(infos["sample_rate"])
         src_n_channels = int(infos["channels"])
+        if accepted_extensions is not None:
+            accepted = {"." + e.lower().lstrip(".") for e in accepted_extensions}
+            extension_bad = os.path.splitext(audio_path)[1].lower() not in accepted
+        else:
+            extension_bad = target_extension is not None and not audio_path.endswith(target_extension)
         try:
             if infos["duration"] == "N/A":  # or float(infos['duration'])<0.01:
                 logger.error(f"Audio file {audio_path} has no duration: {infos['duration']}. It is probably corrupted!")
                 return "error"
-            elif src_n_channels > max_channel or src_sample_rate != target_sample_rate or (target_extension is not None and not audio_path.endswith(target_extension)):
+            elif src_n_channels > max_channel or src_sample_rate != target_sample_rate or extension_bad:
                 waveform = AudioSegment.from_file(audio_path)
                 if src_n_channels > max_channel:
                     logger.debug(f"Audio file {audio_path} has {src_n_channels} channels. Converting to 1 channel...")
@@ -611,7 +619,8 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
                     waveform = waveform.set_frame_rate(target_sample_rate)
                 if not os.path.exists(new_folder):
                     os.makedirs(new_folder, exist_ok=True)
-                waveform.export(new_path, format=target_extension[1:])
+                export_format = target_extension[1:] if target_extension else os.path.splitext(new_path)[1][1:]
+                waveform.export(new_path, format=export_format)
                 return new_path
             else:
                 return audio_path
