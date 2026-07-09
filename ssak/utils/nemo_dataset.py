@@ -709,7 +709,7 @@ class NemoDataset:
                         raise RuntimeError(f"Error processing audio {turn.value}: {e}")
 
     
-    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension=None, num_workers=1, relative_to=None, accepted_extensions=None):
+    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension="flac", num_workers=1, relative_to=None, accepted_extensions=["wav", "flac"]):
         """
         Check audio files sample rate and number of channels and convert them if they don't match the target sample rate/number of channels.
 

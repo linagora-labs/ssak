@@ -559,7 +559,7 @@ class KaldiDataset:
             for row in removed_lines:
                 f.write(str(row) + "\n")
                 
-def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1, relative_to=None, accepted_extensions=None):
+def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension="flac", max_channel=1, relative_to=None, accepted_extensions=["wav", "flac"]):
     """
     Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
 
@@ -575,6 +575,7 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
             ``target_extension``); a file whose sample rate and channels are already fine and whose extension is accepted is left untouched.
     """
     from pydub import AudioSegment
+    from pydub.exceptions import CouldntDecodeError
     from pydub.utils import mediainfo
 
     if new_folder:
@@ -624,6 +625,9 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
                 return new_path
             else:
                 return audio_path
+        except CouldntDecodeError as e:
+            logger.error(f"Audio file {audio_path} could not be decoded ({e}). It is probably corrupted or too large to process!")
+            return "error"
         except Exception as e:
             raise Exception(f"Error with {audio_path} with infos: {infos}") from e
     return new_path

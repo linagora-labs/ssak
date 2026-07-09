@@ -30,9 +30,9 @@ if __name__ == "__main__":
         nemo_dataset = NemoDataset()
         data_type = nemo_dataset.load(mf)
         if args.one_segment_per_audio:
-            nemo_dataset.extract_one_segment_per_audio(args.output_wav_folder, target_sample_rate=16000, target_extension="wav", num_workers=args.num_threads, relative_to=args.relative_to)
+            nemo_dataset.extract_one_segment_per_audio(args.output_wav_folder, target_sample_rate=16000, target_extension="flac", num_workers=args.num_threads, relative_to=args.relative_to)
         else:
-            nemo_dataset.normalize_audios(args.output_wav_folder, target_sample_rate=16000, target_extension="wav", num_workers=args.num_threads, relative_to=args.relative_to)
+            nemo_dataset.normalize_audios(args.output_wav_folder, target_sample_rate=16000, target_extension="flac", num_workers=args.num_threads, relative_to=args.relative_to)
         shutil.move(mf, str(mf) + ".original")
         nemo_dataset.save(mf, data_type=data_type)
         logger.info(f"Saved {mf} (original backed up as {mf}.original)")
