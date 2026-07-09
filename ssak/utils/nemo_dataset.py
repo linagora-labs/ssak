@@ -630,6 +630,7 @@ class NemoDataset:
         target_extension=None,
         num_workers=1,
         relative_to=None,
+        target_precision=None,
     ):
         """
         Extract exactly one audio segment per audio turn and normalize it
@@ -646,7 +647,7 @@ class NemoDataset:
                 if turn.turn_type == "audio":
                     audio_turns.append(turn)
 
-        def process_turn(turn, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1, relative_to=None):
+        def process_turn(turn, new_folder, target_sample_rate=16000, target_extension=None, max_channel=1, relative_to=None, target_precision=None):
             from pydub import AudioSegment
             audio_path = Path(turn.value)
             new_folder = Path(new_folder)
@@ -679,6 +680,10 @@ class NemoDataset:
                     waveform = waveform.set_channels(max_channel)
                 if waveform.frame_rate != target_sample_rate:
                     waveform = waveform.set_frame_rate(target_sample_rate)
+                if target_precision:
+                    width = target_precision // 8
+                    if waveform.sample_width != width:
+                        waveform = waveform.set_sample_width(width)
                 waveform.export(new_path, format=new_path.suffix.lstrip("."))
                 
             return new_path
@@ -686,13 +691,13 @@ class NemoDataset:
         Path(output_wavs_folder).mkdir(parents=True, exist_ok=True)
         if num_workers == 1:
             for turn in tqdm(audio_turns, desc="Extracting audio segments"):
-                new_path = str(process_turn(turn, output_wavs_folder, target_sample_rate, target_extension, relative_to=relative_to))
+                new_path = str(process_turn(turn, output_wavs_folder, target_sample_rate, target_extension, relative_to=relative_to, target_precision=target_precision))
                 if new_path != turn.value:
                     turn.value = new_path
         else:
             with ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = {
-                    executor.submit(process_turn, turn, output_wavs_folder, target_sample_rate, target_extension, relative_to=relative_to): turn
+                    executor.submit(process_turn, turn, output_wavs_folder, target_sample_rate, target_extension, relative_to=relative_to, target_precision=target_precision): turn
                     for turn in audio_turns
                 }
                 for future in tqdm(
@@ -709,7 +714,7 @@ class NemoDataset:
                         raise RuntimeError(f"Error processing audio {turn.value}: {e}")
 
     
-    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension="flac", num_workers=1, relative_to=None, accepted_extensions=["wav", "flac"]):
+    def normalize_audios(self, output_wavs_conversion_folder, target_sample_rate=16000, target_extension="flac", num_workers=1, relative_to=None, accepted_extensions=["wav", "flac"], target_precision=None):
         """
         Check audio files sample rate and number of channels and convert them if they don't match the target sample rate/number of channels.
 
@@ -722,6 +727,8 @@ class NemoDataset:
             accepted_extensions (list): Optional. Formats (e.g. ["wav", "flac"]) that are kept as-is when their sample rate and channels are already
                 fine. Only files whose format is not in this list get re-encoded to ``target_extension``; without it, any file not already matching
                 ``target_extension`` is re-encoded.
+            target_precision (int): Optional. Bit depth (bits/sample) for re-encoded audio: 16, 24 or 32. Default None keeps the source width.
+                Set to 16 for the speech/ASR standard (roughly halves size vs 24-bit with no task-relevant loss).
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -730,7 +737,7 @@ class NemoDataset:
         errors = False
         if num_workers == 1:
             for audio_path in tqdm(audio_paths, total=len(audio_paths), desc="Checking audio files"):
-                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension, relative_to=relative_to, accepted_extensions=accepted_extensions)
+                new_path = audio_checks(audio_path, output_wavs_conversion_folder, target_sample_rate, target_extension, relative_to=relative_to, accepted_extensions=accepted_extensions, target_precision=target_precision)
                 if new_path != audio_path:
                     updated_audio_paths[audio_path] = new_path
                     if new_path == "error":
@@ -746,6 +753,7 @@ class NemoDataset:
                         target_extension,
                         relative_to=relative_to,
                         accepted_extensions=accepted_extensions,
+                        target_precision=target_precision,
                     ): audio_path
                     for audio_path in audio_paths
                 }

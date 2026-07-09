@@ -23,8 +23,64 @@ logger.addHandler(TqdmHandler())
 
 STAT_KEYS = ("total", "missing", "unreadable", "duration_mismatch", "segment_out_of_bounds", "wrong_channels", "wrong_sample_rate", "invalid_field", "wrong_last_turn", "long_text", "invalid_json", "manifest_not_found", "ok")
 
+# Issues that always count as hard errors (things that must be fixed before
+# training). Everything else (wrong_channels, wrong_sample_rate, long_text) is a
+# warning under SEVERITY_MODE == "critical". duration_mismatch and
+# segment_out_of_bounds are *conditionally* critical — see entry_is_error().
+CRITICAL_KEYS = ("missing", "unreadable", "invalid_field", "wrong_last_turn", "invalid_json", "manifest_not_found")
+
+# Statuses whose severity depends on the magnitude of the mismatch, decided
+# per-instance in entry_is_error() rather than by status alone.
+CONDITIONAL_KEYS = ("duration_mismatch", "segment_out_of_bounds")
+
+# duration_mismatch and segment_out_of_bounds are critical when more than this
+# fraction of the declared segment falls outside the audio file (a 0.1s overrun
+# on a 20s segment is harmless; the same overrun on a 1s segment is not).
+CRITICAL_OOB_RATIO = 0.1
+
+# "all": every issue is an error. "critical": only critical issues are errors,
+# the rest are warnings (do not affect the exit code). Set from --errors in main.
+SEVERITY_MODE = "all"
+
 EXPECTED_SAMPLE_RATE = 16000
 EXPECTED_CHANNELS = 1
+
+
+def is_error(status):
+    """Whether a status counts as a hard error under SEVERITY_MODE, by status alone.
+
+    For CONDITIONAL_KEYS this returns False in "critical" mode (they are neither
+    unconditionally critical nor unconditionally warnings) — use entry_is_error()
+    with the actual error entry to decide those.
+    """
+    return SEVERITY_MODE == "all" or status in CRITICAL_KEYS
+
+
+def entry_is_error(e):
+    """Whether a specific error entry counts as a hard error under SEVERITY_MODE."""
+    if SEVERITY_MODE == "all":
+        return True
+    status = e["status"]
+    if status in CRITICAL_KEYS:
+        return True
+    if status == "duration_mismatch":
+        # OOB portion = declared duration - file duration, as a fraction of the segment.
+        expected = e.get("expected", 0)
+        if expected <= 0:
+            return True
+        return (expected - (e.get("actual") or 0)) / expected > CRITICAL_OOB_RATIO
+    if status == "segment_out_of_bounds":
+        # OOB portion = segment_end - file duration, as a fraction of the segment.
+        seg_dur = e.get("segment_dur") or 0
+        if seg_dur <= 0:
+            return True
+        return (e.get("segment_end", 0) - e.get("actual", 0)) / seg_dur > CRITICAL_OOB_RATIO
+    return False
+
+
+def log_issue(status, msg):
+    """Log an issue at error or warning level depending on its severity."""
+    (logger.error if is_error(status) else logger.warning)(msg)
 
 
 def empty_stats():
@@ -32,7 +88,14 @@ def empty_stats():
 
 
 def total_errors(stats):
-    return sum(stats[k] for k in STAT_KEYS if k not in ("total", "ok"))
+    """Count issues that currently count as hard errors (respects SEVERITY_MODE)."""
+    # Unconditional statuses via counters (is_error is False for CONDITIONAL_KEYS
+    # in "critical" mode, and True for everything in "all" mode).
+    n = sum(stats[k] for k in STAT_KEYS if k not in ("total", "ok") and is_error(k))
+    # Conditional statuses: count only the critical instances from the error list.
+    if SEVERITY_MODE != "all":
+        n += sum(1 for e in stats["errors"] if e["status"] in CONDITIONAL_KEYS and entry_is_error(e))
+    return n
 
 
 def empty_overall():
@@ -69,13 +132,13 @@ def _check_audio_fields(path, duration, offset):
     """Return number of invalid fields found."""
     errors = 0
     if duration is None:
-        logger.error(f"{path}: missing duration")
+        log_issue("invalid_field", f"{path}: missing duration")
         errors += 1
     elif not isinstance(duration, (int, float)):
-        logger.error(f"{path}: duration is not a float: {duration!r}")
+        log_issue("invalid_field", f"{path}: duration is not a float: {duration!r}")
         errors += 1
     if offset is not None and not isinstance(offset, (int, float)):
-        logger.error(f"{path}: offset is not a float: {offset!r}")
+        log_issue("invalid_field", f"{path}: offset is not a float: {offset!r}")
         errors += 1
     return errors
 
@@ -97,7 +160,7 @@ def _check_long_text(text, max_text_length, path, stats, row_errors, manifest, r
     if not max_text_length or not isinstance(text, str):
         return
     if len(text) > max_text_length:
-        logger.error(f"[{manifest} row={row_id}]: text length {len(text)} exceeds max_text_length={max_text_length}")
+        log_issue("long_text", f"[{manifest} row={row_id}]: text length {len(text)} exceeds max_text_length={max_text_length}")
         stats["long_text"] += 1
         stats["errors"].append({
             "status": "long_text", "path": path, "manifest": manifest, "row_id": row_id,
@@ -114,7 +177,7 @@ def check_row(row, stats, max_text_length=None, manifest=None):
     if "conversations" in row:
         turns = row["conversations"]
         if turns and turns[-1].get("from") != "Assistant":
-            logger.error(f"[{manifest} row={row_id}]: last turn is not from Assistant: {turns[-1].get('from')!r}")
+            log_issue("wrong_last_turn", f"[{manifest} row={row_id}]: last turn is not from Assistant: {turns[-1].get('from')!r}")
             stats["wrong_last_turn"] += 1
             row_errors.append("wrong_last_turn")
         for t in turns:
@@ -273,6 +336,7 @@ def check_manifest(manifest_path, num_rows=None, disable_audio_check=False,
                         "status": "segment_out_of_bounds", "path": path, "manifest": label, "row_id": row_id,
                         "expected": f"offset={offset}+dur={expected_dur}={round(segment_end, 3)}",
                         "actual": round(info["duration"], 3),
+                        "segment_dur": expected_dur, "segment_end": segment_end,
                     })
                     row_error_types.add("segment_out_of_bounds")
                     entry_ok = False
@@ -425,13 +489,25 @@ def print_summary(overall):
             print(f"{label + ':':22}{overall[key]}")
 
     if overall["errors"]:
-        print(f"\n--- Errors ({len(overall['errors'])}) ---")
-        seen = set()
-        for err in overall["errors"]:
-            key = (err["status"], err.get("manifest"), err.get("row_id"), err["path"])
-            if key not in seen:
-                seen.add(key)
-                print(ERROR_FMT[err["status"]](err))
+        errs = [e for e in overall["errors"] if entry_is_error(e)]
+        warns = [e for e in overall["errors"] if not entry_is_error(e)]
+
+        def _print_group(title, entries):
+            print(f"\n--- {title} ({len(entries)}) ---")
+            seen = set()
+            for err in entries:
+                key = (err["status"], err.get("manifest"), err.get("row_id"), err["path"])
+                if key not in seen:
+                    seen.add(key)
+                    print(ERROR_FMT[err["status"]](err))
+
+        if SEVERITY_MODE == "all":
+            _print_group("Errors", overall["errors"])
+        else:
+            if errs:
+                _print_group("Errors", errs)
+            if warns:
+                _print_group("Warnings", warns)
     else:
         print("\nNo errors found.")
 
@@ -459,8 +535,19 @@ if __name__ == "__main__":
     parser.add_argument("--output_errors", type=str, default=None, help="Write problematic rows to this JSONL file.")
     parser.add_argument("--max_text_length", type=int, default=5000, help="Flag rows whose text exceeds this many characters (default: 5000). Set to 0 to disable. Checks `text` for ASR rows and text-type turns in conversations.")
     parser.add_argument("--max_errors", type=int, default=10, help="Stop checking a manifest once this many errors have been found (default: 10). Set to 0 to disable.")
+    parser.add_argument("--errors", choices=["all", "critical"], default="all",
+                        help="Which issues count as errors (affect the exit code and --max_errors). "
+                             "'all' (default): every issue is an error. "
+                             "'critical': errors are missing/unreadable/invalid_field/wrong_last_turn/"
+                             "invalid_json/manifest_not_found, plus duration_mismatch and "
+                             "segment_out_of_bounds when more than "
+                             f"{int(CRITICAL_OOB_RATIO * 100)}%% of the declared segment falls outside "
+                             "the audio file. long_text, wrong_channels, wrong_sample_rate, and the "
+                             "milder duration/segment mismatches become warnings.")
 
     args = parser.parse_args()
+
+    SEVERITY_MODE = args.errors
 
     check_kwargs = dict(
         num_rows=args.rows,
@@ -489,6 +576,5 @@ if __name__ == "__main__":
                 f.write("\n")
         logger.info(f"Wrote {len(combined['bad_rows'])} problematic rows to {args.output_errors}")
 
-    error_keys = [k for k in STAT_KEYS if k not in ("total", "ok")]
-    if any(combined[k] for k in error_keys):
+    if total_errors(combined):
         sys.exit(1)

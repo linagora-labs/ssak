@@ -559,7 +559,7 @@ class KaldiDataset:
             for row in removed_lines:
                 f.write(str(row) + "\n")
                 
-def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension="flac", max_channel=1, relative_to=None, accepted_extensions=["wav", "flac"]):
+def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extension="flac", max_channel=1, relative_to=None, accepted_extensions=["wav", "flac"], target_precision=None):
     """
     Check audio file sample rate and number of channels and convert it if it doesn't match the target sample rate/number of channels.
 
@@ -573,6 +573,8 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
         accepted_extensions (list): Optional. Formats (e.g. ["wav", "flac"]) that are considered good enough to keep as-is. When provided,
             a file is only re-encoded to ``target_extension`` because its own format is not in this list (instead of whenever it differs from
             ``target_extension``); a file whose sample rate and channels are already fine and whose extension is accepted is left untouched.
+        target_precision (int): Optional. Bit depth (bits/sample) for re-encoded audio: 16, 24 or 32 (or 8). Default None keeps the source width.
+            Set to 16 for the speech/ASR standard (roughly halves file size vs 24-bit with no perceptible/task-relevant loss).
     """
     from pydub import AudioSegment
     from pydub.exceptions import CouldntDecodeError
@@ -618,6 +620,11 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
                 if src_sample_rate != target_sample_rate:
                     logger.debug(f"Audio file {audio_path} has sample rate of {src_sample_rate}. Converting to {target_sample_rate}Hz...")
                     waveform = waveform.set_frame_rate(target_sample_rate)
+                if target_precision:
+                    width = target_precision // 8
+                    if waveform.sample_width != width:
+                        logger.debug(f"Audio file {audio_path} has {waveform.sample_width * 8}-bit samples. Converting to {target_precision}-bit...")
+                        waveform = waveform.set_sample_width(width)
                 if not os.path.exists(new_folder):
                     os.makedirs(new_folder, exist_ok=True)
                 export_format = target_extension[1:] if target_extension else os.path.splitext(new_path)[1][1:]

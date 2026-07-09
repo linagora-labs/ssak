@@ -3,11 +3,15 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 import random
 import re
 import signal
 import sys
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def find_train_jsonl(root):
@@ -141,7 +145,93 @@ def process_file(filepath):
         raise
 
 
+def _resolve_oc_env(path_str):
+    """Resolve ${oc.env:VAR_NAME} patterns using environment variables."""
+    def replacer(match):
+        var_name = match.group(1)
+        value = os.environ.get(var_name)
+        if value is None:
+            raise ValueError(f"Environment variable '{var_name}' not set (needed for: {path_str})")
+        return value
+    return re.sub(r'\$\{oc\.env:([^}]+)\}', replacer, path_str)
+
+
+def _update_manifest_paths_in_yaml(cfg, path_to_output):
+    """Recursively replace manifest_filepath values in a YAML config structure.
+
+    Args:
+        cfg: The parsed YAML structure (list of dicts with input_cfg / manifest_filepath).
+        path_to_output: dict mapping resolved manifest path (str) -> _randomorder path (str).
+    """
+    if isinstance(cfg, list):
+        for entry in cfg:
+            if isinstance(entry, dict):
+                if "input_cfg" in entry:
+                    _update_manifest_paths_in_yaml(entry["input_cfg"], path_to_output)
+                if "manifest_filepath" in entry:
+                    raw = entry["manifest_filepath"]
+                    try:
+                        resolved = _resolve_oc_env(raw)
+                        resolved_abs = str(Path(resolved).resolve())
+                        if resolved_abs in path_to_output:
+                            entry["manifest_filepath"] = path_to_output[resolved_abs]
+                    except ValueError:
+                        pass
+
+
+def randomize_from_yaml(yaml_path, overwrite=False):
+    """Randomize all manifests referenced in a YAML config and produce an updated YAML."""
+    import yaml
+
+    from ssak.utils.nemo_dataset import resolve_manifest_paths
+
+    yaml_path = Path(yaml_path)
+    with open(yaml_path) as f:
+        cfg = yaml.safe_load(f)
+
+    manifest_files = resolve_manifest_paths(yaml_path)
+    if not manifest_files:
+        logger.warning(f"No manifest files found in YAML: {yaml_path}")
+        return
+
+    path_to_output = {}
+    errors = []
+    generated = 0
+    for mf in manifest_files:
+        outpath = output_path_for(str(mf))
+        if os.path.exists(outpath) and not overwrite and os.path.getmtime(outpath) >= os.path.getmtime(mf):
+            logger.info(f"SKIP (up to date): {outpath}")
+        else:
+            try:
+                process_file(str(mf))
+                generated += 1
+                logger.info(f"OK: {outpath}")
+            except Exception as e:
+                logger.error(f"FAIL: {mf} — {e}")
+                errors.append((mf, e))
+                continue
+        path_to_output[str(mf.resolve())] = str(Path(outpath).resolve())
+
+    if errors:
+        summary = "\n".join(f"  - {mf}: {e}" for mf, e in errors)
+        raise RuntimeError(
+            f"{len(errors)}/{len(manifest_files)} manifest(s) failed to process:\n{summary}"
+        )
+
+    output_yaml = yaml_path.parent / f"{yaml_path.stem}_randomorder{yaml_path.suffix}"
+    if output_yaml.exists() and generated == 0:
+        logger.info(f"No new manifests generated and output YAML exists, leaving unchanged: {output_yaml}")
+        return
+
+    _update_manifest_paths_in_yaml(cfg, path_to_output)
+
+    with open(output_yaml, "w", encoding="utf-8") as f:
+        yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
+    logger.info(f"Saved updated YAML config: {output_yaml}")
+
+
 def main():
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(
         description="Randomly permute User text/audio turn order in train JSONL files."
     )
@@ -151,11 +241,21 @@ def main():
         help="Root directory to search (default: /data-server/datasets/audio/nemo)",
     )
     parser.add_argument(
+        "--yaml",
+        default=None,
+        help="YAML config listing manifests: randomize each and write an updated "
+        "<name>_randomorder.yaml (like shard_manifest.py). Overrides --root.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite existing _randomorder.jsonl files (default: skip them)",
     )
     args = parser.parse_args()
+
+    if args.yaml:
+        randomize_from_yaml(args.yaml, overwrite=args.overwrite)
+        return
 
     files = find_train_jsonl(args.root)
     print(f"Found {len(files)} train*.jsonl file(s) under {args.root}")
