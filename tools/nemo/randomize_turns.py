@@ -186,6 +186,12 @@ def randomize_from_yaml(yaml_path, overwrite=False):
     from ssak.utils.nemo_dataset import resolve_manifest_paths
 
     yaml_path = Path(yaml_path)
+    # Already a _randomorder config (its manifests are the *_randomorder.jsonl): nothing
+    # to randomize, and we must NOT emit a doubly-suffixed *_randomorder_randomorder.yaml.
+    if yaml_path.stem.endswith("_randomorder"):
+        logger.info(f"Config is already a _randomorder config, nothing to randomize: {yaml_path}")
+        return
+
     with open(yaml_path) as f:
         cfg = yaml.safe_load(f)
 

@@ -31,7 +31,7 @@ def shard_single_manifest(manifest_path, shard_size=1000, min_lines=0, shuffle=F
         return None
 
     if total < min_lines:
-        logger.info(f"Skipping {manifest_path} ({total} lines < {min_lines} threshold)")
+        logger.info(f"SKIP (too small, {total} lines < {min_lines} threshold): {manifest_path}")
         return None
 
     num_shards = math.ceil(total / shard_size)
@@ -45,11 +45,7 @@ def shard_single_manifest(manifest_path, shard_size=1000, min_lines=0, shuffle=F
         else:
             existing_shards = sorted(output_dir.glob(f"{manifest_path.stem}_*.jsonl"))
             if len(existing_shards) == num_shards:
-                logger.info(
-                    f"Shard folder already exists with expected {num_shards} shards, "
-                    f"skipping creation: {output_dir}"
-                )
-                logger.info(f"NeMo glob pattern: {glob_pattern}")
+                logger.info(f"SKIP (up to date, the {num_shards} expected shards already exists): {output_dir}")
                 return glob_pattern
             raise FileExistsError(
                 f"Output folder already exists with {len(existing_shards)} shards "
@@ -71,7 +67,7 @@ def shard_single_manifest(manifest_path, shard_size=1000, min_lines=0, shuffle=F
             out.writelines(lines[start:end])
 
     logger.info(
-        f"Sharded {total} lines into {num_shards} files of ~{shard_size} lines "
+        f"OK: Sharded {total} lines into {num_shards} files of ~{shard_size} lines "
         f"in {output_dir}"
     )
     logger.info(f"NeMo glob pattern: {glob_pattern}")
@@ -120,8 +116,9 @@ def shard_from_yaml(yaml_path, shard_size=1000, min_lines=0, shuffle=False, seed
 
     manifest_files = resolve_manifest_paths(yaml_path)
     if not manifest_files:
-        logger.warning(f"No manifest files found in YAML: {yaml_path}")
-        return
+        # A config that references no resolvable manifest is broken, not empty — raising
+        # keeps the caller (and the slurm exit code) from reporting a successful no-op.
+        raise ValueError(f"No manifest files found in YAML: {yaml_path}")
 
     # Shard each manifest and collect the mapping from resolved path -> glob pattern
     path_to_pattern = {}
@@ -145,9 +142,10 @@ def shard_from_yaml(yaml_path, shard_size=1000, min_lines=0, shuffle=False, seed
     # Update the YAML structure with glob patterns
     _update_manifest_paths_in_yaml(cfg, path_to_pattern)
 
+    # The output YAML is a cheap derived artifact — always (re)write it, even when the
+    # expensive shard folders already exist and were skipped above. (--force only gates
+    # regenerating the shard folders themselves.)
     output_yaml = yaml_path.parent / f"{yaml_path.stem}_sharded{yaml_path.suffix}"
-    if output_yaml.exists() and not force:
-        raise FileExistsError(f"Output YAML already exists: {output_yaml} (use --force to overwrite)")
     with open(output_yaml, "w", encoding="utf-8") as f:
         yaml.dump(cfg, f, default_flow_style=False, allow_unicode=True)
     logger.info(f"Saved updated YAML config: {output_yaml}")
@@ -185,13 +183,21 @@ if __name__ == "__main__":
 
     input_path = Path(args.input)
 
+    # A path that does not exist is a caller mistake (typo, wrong config base), never an
+    # empty-input case. Without this a bad .yaml path falls through to the directory
+    # branch below, globs nothing and used to exit(0) — so the job "succeeded" having
+    # sharded nothing. Fail loudly instead.
+    if not input_path.exists():
+        logger.error(f"Input path does not exist: {args.input}")
+        exit(1)
+
     if input_path.is_file() and input_path.suffix in (".yaml", ".yml"):
         shard_from_yaml(input_path, shard_size=args.shard_size, min_lines=args.min_lines, shuffle=args.shuffle, seed=args.seed, force=args.force)
     else:
         manifest_files = resolve_manifest_paths(args.input, pattern=args.pattern, recursive=args.recursive)
         if not manifest_files:
-            logger.warning(f"No manifest files found for input: {args.input}")
-            exit(0)
+            logger.error(f"No manifest files found for input: {args.input}")
+            exit(1)
         logger.info(f"Found {len(manifest_files)} manifest file(s)")
         errors = []
         for mf in manifest_files:
