@@ -169,8 +169,11 @@ def display_data_interactive(merged_data, number_of_comparison=2, batch_size=5):
                 current_index += batch_size
 
 # Utilisation
-def build_merged_data(paths):
+def build_merged_data(paths, strip_id_suffixes=None):
     """Load one or more manifests and merge their rows by item id.
+
+    strip_id_suffixes: suffixes to remove from ids before merging, so that
+    variants of the same item (e.g. "X" and "X_fr") end up in the same bucket.
 
     Returns a dict: id -> {manifest_path: json_row}.
     """
@@ -184,14 +187,21 @@ def build_merged_data(paths):
     for manifest, data in manifests.items():
         for row in data:
             json_row = row.to_json()
-            if not merged_data.get(json_row["id"]):
-                 merged_data[json_row["id"]]= dict()
-            merged_data[json_row["id"]][manifest] = json_row
+            key = normalize_id(json_row["id"], strip_id_suffixes)
+            if not merged_data.get(key):
+                 merged_data[key]= dict()
+            merged_data[key][manifest] = json_row
 
     return merged_data
 
-def process_path(paths):
-    merged_data = build_merged_data(paths)
+def normalize_id(item_id, strip_id_suffixes=None):
+    for suffix in strip_id_suffixes or []:
+        if item_id.endswith(suffix):
+            return item_id[: -len(suffix)]
+    return item_id
+
+def process_path(paths, strip_id_suffixes=None):
+    merged_data = build_merged_data(paths, strip_id_suffixes)
     display_data_interactive(merged_data, number_of_comparison=len(paths), batch_size=1)
 
 if __name__ == "__main__":
@@ -203,7 +213,14 @@ if __name__ == "__main__":
         nargs="+",
         help="One or more manifests."
     )
+    parser.add_argument(
+        "--strip-id-suffix",
+        nargs="+",
+        default=[],
+        metavar="SUFFIX",
+        help="Suffixes to strip from ids before merging, e.g. --strip-id-suffix _fr"
+    )
 
     args = parser.parse_args()
 
-    process_path(args.input_paths)
+    process_path(args.input_paths, args.strip_id_suffix)
