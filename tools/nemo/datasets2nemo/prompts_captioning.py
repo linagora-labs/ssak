@@ -1,22 +1,10 @@
 """Shared instruction pools for sound-captioning manifests.
 
-Caption length varies a lot by dataset (AudioCaps / WavCaps average ~8 words, MECAT
-~13), so the instruction has to match the target length — otherwise the model gets a
-contradictory signal (a "short caption" prompt paired with a long, detailed target).
-
 Pools:
     NEUTRAL_PROMPTS  - no length cue either way.
     SHORT_PROMPTS    - explicitly ask for a short/brief caption.
     LONG_PROMPTS     - explicitly ask for a detailed caption; use ONLY for datasets that
                        actually carry long captions (e.g. the MECAT "long" captions).
-
-Wording is kept consistent with the MECAT converter
-(datasets/audio/nemo/_script_/python/get_data/get_mecat_caption.py) so the short-vs-long
-instruction signal is shared across datasets.
-
-SHORT_CAPTION_PROMPTS = NEUTRAL + SHORT is the pool for datasets whose captions are short
-single phrases (AudioCaps, WavCaps): it mixes neutral asks with explicit "short" asks and
-never asks for detail.
 """
 
 # Neutral asks — no length cue.
@@ -70,3 +58,65 @@ LONG_PROMPTS = [
 
 # Pool for short-caption datasets (AudioCaps, WavCaps): neutral + short, never long.
 SHORT_CAPTION_PROMPTS = NEUTRAL_PROMPTS + SHORT_PROMPTS
+
+# ----------------------------------------------------------------------------
+# French pools.
+#
+# Authored, not machine-translated: MT renders "clip" as "vidéo"/"séquence vidéo",
+# which tells an audio-only model it is watching video. "clip" is always "extrait".
+# ----------------------------------------------------------------------------
+
+NEUTRAL_PROMPTS_FR = [
+    "Décrivez ce que vous entendez dans l'extrait audio.",
+    "Quels sons entendez-vous dans cet enregistrement ?",
+    "Légendez l'extrait audio : que se passe-t-il ?",
+    "Dites-moi ce qu'est ce son.",
+    "Résumez les événements sonores présents dans l'extrait.",
+    "Que se passe-t-il dans cet extrait audio (bruits, musiques, événements, etc.) ?",
+    "Décrivez la scène sonore.",
+    "Qu'entendez-vous dans cet extrait audio ?",
+    "Rédigez une légende pour cet extrait audio.",
+    "Identifiez les sons présents dans cet extrait.",
+    "Qu'entend-on dans cet enregistrement ?",
+    "Générez une légende audio pour cet extrait.",
+    "Décrivez les sons présents dans l'enregistrement.",
+    "Proposez une légende pour cet extrait audio.",
+]
+
+SHORT_PROMPTS_FR = [
+    "Décrivez brièvement ce que vous entendez.",
+    "Donnez une courte description de l'extrait audio.",
+    "Résumez en quelques mots les sons et bruits que vous entendez.",
+    "Décrivez brièvement les sons de l'extrait audio.",
+    "Fournissez une brève description audio.",
+    "Décrivez sommairement ce que vous entendez.",
+    "Donnez une description concise de l'extrait audio.",
+    "Décrivez en quelques mots ce que l'on entend.",
+    "Fournissez un bref résumé des sons.",
+    "Décrivez rapidement ce que vous entendez.",
+    "En quelques mots, qu'entendez-vous comme sons, bruits, musiques, etc. ?",
+    "Rédigez une courte légende pour cet extrait audio.",
+    "Donnez une courte légende de cet extrait.",
+]
+
+LONG_PROMPTS_FR = [
+    "Décrivez en détail ce que vous entendez.",
+    "Donnez une description détaillée de l'extrait audio.",
+    "Expliquez tout ce que vous pouvez entendre dans l'extrait audio.",
+    "Fournissez une description complète des sons que vous entendez.",
+    "Décrivez en détail tous les éléments audibles.",
+    "Donnez une description exhaustive du contenu audio.",
+    "Décrivez la scène sonore aussi précisément que possible.",
+    "Expliquez en détail ce qui se passe dans l'extrait audio.",
+    "Fournissez un compte rendu détaillé de ce que vous entendez.",
+    "Décrivez en profondeur les sons et les événements de l'extrait audio.",
+]
+
+SHORT_CAPTION_PROMPTS_FR = NEUTRAL_PROMPTS_FR + SHORT_PROMPTS_FR
+
+# English prompt -> French prompt, for rewriting prompts in already-generated
+# French manifests (built by translating the English ones).
+EN_TO_FR_PROMPT = dict(
+    zip(NEUTRAL_PROMPTS + SHORT_PROMPTS + LONG_PROMPTS,
+        NEUTRAL_PROMPTS_FR + SHORT_PROMPTS_FR + LONG_PROMPTS_FR)
+)
