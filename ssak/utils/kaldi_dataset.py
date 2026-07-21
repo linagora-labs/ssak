@@ -597,7 +597,10 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
             new_path = os.path.join(new_folder, os.path.basename(audio_path))
     else:
         raise ValueError("New folder must be specified for audio conversion")
-    if not os.path.exists(new_path):
+    if not os.path.exists(new_path) or os.path.getsize(new_path) == 0:
+        if os.path.exists(new_path):
+            logger.warning(f"Converted file {new_path} is empty (truncated by a previous run). Regenerating it...")
+            os.remove(new_path)
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file {audio_path} does not exist (neither {new_path})")
         infos = mediainfo(audio_path)
@@ -629,6 +632,10 @@ def audio_checks(audio_path, new_folder, target_sample_rate=16000, target_extens
                     os.makedirs(new_folder, exist_ok=True)
                 export_format = target_extension[1:] if target_extension else os.path.splitext(new_path)[1][1:]
                 waveform.export(new_path, format=export_format)
+                if os.path.getsize(new_path) == 0:
+                    logger.error(f"Export of {audio_path} produced an empty file {new_path}. Removing it!")
+                    os.remove(new_path)
+                    return "error"
                 return new_path
             else:
                 return audio_path
