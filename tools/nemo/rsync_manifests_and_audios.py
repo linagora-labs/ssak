@@ -199,7 +199,10 @@ def _rewrite_manifest(src_local_path, dest_dir, old_prefix, new_prefix):
     but the file is still copied so the caller can always use `new_path`.
     """
     dataset = NemoDataset()
-    data_type = dataset.load(str(src_local_path))
+    try:
+        data_type = dataset.load(str(src_local_path))
+    except Exception as e:
+        raise RuntimeError(f"Failed to load {src_local_path}") from e
     count = dataset.update_audio_paths(old_prefix, new_prefix)
     new_path = Path(dest_dir) / Path(src_local_path).name
     dataset.save(str(new_path), data_type=data_type)

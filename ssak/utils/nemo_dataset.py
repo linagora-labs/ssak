@@ -512,7 +512,10 @@ class NemoDataset:
                         data_type = "multiturn"
                     else:
                         data_type = "asr"
-                row = NemoDatasetRow.from_json(json_row, data_type=data_type, dataset_name=dataset_name)
+                try:
+                    row = NemoDatasetRow.from_json(json_row, data_type=data_type, dataset_name=dataset_name)
+                except Exception as e:
+                    raise ValueError(f"Error parsing row {i}: {json_row}") from e
                 self.append(row)
         return data_type
     
