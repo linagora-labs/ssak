@@ -293,6 +293,44 @@ _PATTERNS_EN = [
     (r"\b(an|leuk)aemi(a|as|c)\b", r"\1emi\2"),
 ]
 
+# Portuguese: European spelling
+_STEMS_PT = {
+    "recepç": "receç",
+    "concepç": "conceç",
+    "percepç": "perceç",
+    "decepç": "deceç",
+    "contracepç": "contraceç",
+    "registr": "regist",
+    "umid": "humid",
+    "indeniz": "indemniz",
+    "anisti": "amnisti",
+}
+_WORDS_PT = {
+    "dezesseis": "dezasseis",
+    "dezessete": "dezassete",
+    "dezenove": "dezanove",
+    "quatorze": "catorze",
+    "contato": "contacto",
+    "contatos": "contactos",
+    "cotidiano": "quotidiano",
+    "cotidiana": "quotidiana",
+    "úmido": "húmido",
+    "úmida": "húmida",
+    "úmidos": "húmidos",
+    "úmidas": "húmidas",
+    "súdito": "súbdito",
+    "sutil": "subtil",
+    "sutis": "subtis",
+    "bebê": "bebé",
+    "bebês": "bebés",
+    "comitê": "comité",
+    "comitês": "comités",
+    "purê": "puré",
+    "judô": "judo",
+}
+# "econômico" -> "económico", "gênero" -> "género" (but not "fêmea", "estômago", that are the same in Portugal)
+_PATTERN_PT = r"\b(?!(?:fême[ao]s?|sêmeas?|estômagos?)\b)(\w*)([ôê])(?=[mn][aeiouáéíóúâêôãõ])"
+
 
 @cache
 def _spelling_rules(lang):
@@ -300,6 +338,8 @@ def _spelling_rules(lang):
         stems, words = _STEMS_FR, _WORDS_FR
     elif lang == "en":
         stems, words = {}, _WORDS_EN
+    elif lang == "pt":
+        stems, words = _STEMS_PT, _WORDS_PT
     else:
         return None, None, {}
     boundary, end = r"(?<![\w-])", r"(?![\w-]|'(?=\w))" if lang == "en" else r"(?![\w-])"
@@ -312,6 +352,7 @@ def _spelling_rules(lang):
 def normalize_spelling(text, lang):
     """
     French: spelling reform ("événement" -> "évènement", "maître" -> "maitre", "week-end" -> "weekend")
+    Portuguese: European spelling ("econômico" -> "económico", "dezesseis" -> "dezasseis", "contato" -> "contacto")
     English: American spelling ("colour" -> "color", "organise" -> "organize", "travelled" -> "traveled")
     """
     stems_pattern, words_pattern, replacements = _spelling_rules(lang)
@@ -320,6 +361,8 @@ def normalize_spelling(text, lang):
             text = pattern.sub(lambda m: _keep_case(m.group(), replacements[m.group().lower()]), text)
     if lang == "fr":
         text = re.sub(_VERBS_FR, r"\1i\2", text, flags=re.IGNORECASE)
+    if lang == "pt":
+        text = re.sub(_PATTERN_PT, lambda m: m.group(1) + {"ô": "ó", "ê": "é", "Ô": "Ó", "Ê": "É"}[m.group(2)], text, flags=re.IGNORECASE)
     if lang == "en":
         for pattern, replacement in _PATTERNS_EN:
             text = re.sub(pattern, lambda m: _keep_case(m.group(), m.expand(replacement).lower()), text, flags=re.IGNORECASE)

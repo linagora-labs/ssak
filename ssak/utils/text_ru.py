@@ -1,12 +1,12 @@
 import re
 
-from ssak.utils.text_utils import (
+from ssak.utils.text_basic import (
     collapse_whitespace,
     format_special_characters,
-    numbers_and_symbols_to_letters,
     remove_parenthesis,
     remove_punctuations,
 )
+from ssak.utils.text_utils import numbers_and_symbols_to_letters
 
 
 def format_text_ru(

@@ -28,6 +28,32 @@ def clean_padding(text):
     return re.sub(p, " ", text)
 
 
+# Beginning of a sentence with a number, to get a capital letter
+_SENTENCE_START = "\ue0f1"
+# A dot after these words does not end a sentence
+_ABBREVIATIONS = "no|vs|n|p|pp|art|fig|vol|cf|approx|env|st|dr|mr|mrs|ms|m|mme|mlle|etc|max|min"
+
+
+def mark_sentence_starts(text):
+    """Mark the numbers at the beginning of a sentence, in a text with case or punctuation (not in "3 comprimés", nor in lower case without punctuation)"""
+    if not re.search(r"[^\W\d_a-zà-öø-ÿ][a-zà-öø-ÿ]|[.?!…]\s*$", text):
+        return text
+
+    def mark(match):
+        before = re.search(r"(\w+)$", text[: match.start()])
+        if match.group().startswith(".") and before and re.fullmatch(_ABBREVIATIONS, before.group(1), flags=re.IGNORECASE):
+            return match.group()
+        return match.group() + _SENTENCE_START
+
+    return re.sub(r"(?:^\s*|(?:(?<!\.)\.|[?!])\s+)(?=[\d$€£¥₹]|[Nn]o\.\s*\d|[IVX]+(?:er|e)?\b)", mark, text)
+
+
+def capitalize_sentence_starts(text):
+    if _SENTENCE_START not in text:
+        return text
+    return re.sub(_SENTENCE_START + r"\s*(.?)", lambda m: m.group(1).upper(), text)
+
+
 def base_language(lang):
     """ "fr-FR" -> "fr" (but "ar_tn" -> "ar_tn")"""
     return lang.split("-")[0]
@@ -75,7 +101,7 @@ def clean_number_formats(text, lang):
         text = re.sub(r"(?<![\d:,.])([01]?\d|2[0-4]):([0-5]\d)(?![\d:])", _english_hour, text)
         text = re.sub(r"\bno\.\s*(?=\d)", "number ", text)
         # Decades
-        text = re.sub(r"(?<![\w.,])(1[1-9]\d0|20[1-9]0|[2-9]0)s\b", _english_decade, text)
+        text = re.sub(r"(?<![\w.,])(1[1-9]\d0|20\d0|[2-9]0)s\b", _english_decade, text)
     elif lang == "de":
         text = _german_ordinals(text)
     return text
@@ -126,6 +152,8 @@ def _english_decade(match):
     decade = match.group(1)
     if len(decade) == 2:
         return _DECADES_EN[int(decade[0]) - 2]
+    if decade == "2000":
+        return "two thousands"
     if decade[2] == "1":
         return f"{decade[:2]} tens"
     return f"{decade[:2]} {_DECADES_EN[int(decade[2]) - 2]}" if decade[2] != "0" else f"{decade[:2]} hundreds"
@@ -213,9 +241,11 @@ def normalize_spoken_numbers(text, lang):
     - "deux cents", "quatre-vingts" -> "deux cent", "quatre vingt"
     - "dix-neuf cent" -> "mille neuf cent"
     - "pourcent" -> "pour cent"
-    - "october seventh", "october the seventh" -> "october seven"
+    - "zéro virgule zéro vingt-cinq" -> "zéro virgule zéro deux cinq"
+    - "october seventh", "october the seventh" -> "october seven", "seventh october", "the seventh of october" -> "seven october"
+    - "three point twenty-five" -> "three point two five"
     Spanish, Italian, Portuguese, German: gender of the numbers
-    Portuguese: "dezasseis" -> "dezesseis"
+    Portuguese: "dezesseis" -> "dezasseis"
     German, Dutch: years ("eintausendneunhundert..." -> "neunzehnhundert...")
     """
     lang = base_language(lang)
@@ -233,7 +263,7 @@ def normalize_spoken_numbers(text, lang):
     if lang == "pt":
         text = re.sub(r"\bporcento\b", "por cento", text, flags=re.IGNORECASE)
         text = re.sub(r"\b(duz|trez|quatroc|quinh|seisc|setec|oitoc|novec)entas\b", r"\1entos", text, flags=re.IGNORECASE)
-        text = re.sub(r"\bdeza(sseis|ssete|nove)\b", r"deze\1", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bdeze(sseis|ssete|nove)\b", r"deza\1", text, flags=re.IGNORECASE)
         text = re.sub(r"\bquatorze\b", "catorze", text, flags=re.IGNORECASE)
         return re.sub(r"\bduas\b", "dois", re.sub(r"\buma\b", "um", text, flags=re.IGNORECASE), flags=re.IGNORECASE)
     if lang == "de":
@@ -266,22 +296,27 @@ def _german_hundreds(text):
 def _dutch_years():
     from .text_utils import undigit
 
-    words = {n: undigit(str(n), lang="nl").replace(" ", "") for n in range(10, 100)}
-    return {words[c]: c for c in range(11, 20)}, {words[n]: n for n in range(10, 100)}
+    words = {n: undigit(str(n), lang="nl").replace(" ", "") for n in range(1, 100)}
+    numbers = {words[n]: n for n in range(1, 100)} | {"een": 1}
+    return {words[c]: c for c in range(11, 20)}, numbers
 
 
 def _normalize_dutch_years(text):
-    """ "negentienachtennegentig", "negentienhonderd achtennegentig" -> "duizendnegenhonderdachtennegentig" """
+    """ "negentienachtennegentig", "negentienhonderd achtennegentig", "negentienhonderdvijf" -> "duizendnegenhonderd..." """
     from .text_utils import undigit
 
     centuries, numbers = _dutch_years()
-    by_length = lambda words: "|".join(sorted(words, key=len, reverse=True))
-    return re.sub(
-        rf"\b({by_length(centuries)})\s?(?:honderd\s?)?({by_length(numbers)})\b",
-        lambda m: undigit(str(100 * centuries[m.group(1).lower()] + numbers[m.group(2).lower()]), lang="nl").replace(" ", ""),
-        text,
-        flags=re.IGNORECASE,
-    )
+
+    def by_length(words):
+        return "|".join(sorted(words, key=len, reverse=True))
+
+    def year(match):
+        century, number = match.group(1), match.group(2) or match.group(3)
+        value = 100 * centuries[century.lower()] + (numbers[number.lower()] if number else 0)
+        return undigit(str(value), lang="nl").replace(" ", "")
+
+    two_digits = by_length(n for n, value in numbers.items() if value >= 10)
+    return re.sub(rf"\b({by_length(centuries)})(?:\s?honderd(?:\s?({by_length(numbers)}))?|\s?({two_digits}))\b", year, text, flags=re.IGNORECASE)
 
 
 def _split_compounds(text, numbers, next_numbers=None):
@@ -303,6 +338,12 @@ _YEAR_EN = re.compile(
     flags=re.IGNORECASE,
 )
 _DAY_EN = re.compile(rf"\b({_MONTHS_EN})\s+(?:the\s+)?(?:(twenty|thirty)\s+({'|'.join(_ORDINALS_EN[:9])})|({'|'.join(_ORDINALS_EN)}|thirtieth))\b", flags=re.IGNORECASE)
+
+
+_DAY_FIRST_EN = re.compile(
+    rf"\b(the\s+)?((?:twenty|thirty)\s+(?:{'|'.join(_ORDINALS_EN[:9])})|{'|'.join(_ORDINALS_EN)}|thirtieth)(\s+of)?(?=\s+(?:{_MONTHS_EN})\b)",
+    flags=re.IGNORECASE,
+)
 
 
 def _cardinal_en(n):
@@ -348,7 +389,29 @@ def _normalize_english(text):
             return f"{month} {tens} {_UNITS_EN[_ORDINALS_EN.index(unit.lower())]}"
         return f"{month} " + ("thirty" if ordinal.lower() == "thirtieth" else _cardinal_en(1 + _ORDINALS_EN.index(ordinal.lower())))
 
+    def day_first(match):
+        the, ordinal, of = match.groups()
+        cardinal = day(_DAY_EN.match("january " + ordinal))[len("january ") :]
+        return cardinal if of or not the else the + cardinal
+
     text = _DAY_EN.sub(day, text)
+    text = _DAY_FIRST_EN.sub(day_first, text)
+
+    def decimals(match):
+        zeros, teen, tens, unit = match.group(2, 3, 4, 5)
+        if teen:
+            digits = f"one {(['zero'] + _UNITS_EN)[_TEENS_EN.index(teen.lower())]}"
+        else:
+            digits = f"{_UNITS_EN[1 + _TENS_EN.index(tens.lower())]} {unit or 'zero'}"
+        return f"{match.group(1)} point {zeros}{digits}"
+
+    text = re.sub(
+        rf"\b({_NUMBERS_EN}) point ((?:(?:zero|oh) )*)(?:({'|'.join(_TEENS_EN)})|({'|'.join(_TENS_EN)})(?: ({'|'.join(_UNITS_EN)}))?)\b",
+        decimals,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?<=\bpoint )oh\b", "zero", text, flags=re.IGNORECASE)
     return re.sub(r"\bper\s+cent\b", "percent", text, flags=re.IGNORECASE)
 
 
@@ -360,11 +423,27 @@ _HUNDREDS_FR = dict(
 )
 
 
+@lru_cache(maxsize=1)
+def _french_decimals():
+    """{"vingt cinq": "deux cinq", ...} (10 to 999) and the pattern to find them after "virgule" """
+    from .text_utils import undigit
+
+    def words(n):
+        return re.sub(r"(cent|vingt)s\b", r"\1", undigit(str(n), lang="fr").replace("-", " "))
+
+    decimals = {words(n): " ".join(undigit(d, lang="fr") for d in str(n)) for n in range(10, 1000)}
+    alternatives = "|".join(w.replace(" ", r"\s+") for w in sorted(decimals, key=len, reverse=True))
+    return decimals, re.compile(rf"\b((?:virgule)\s+(?:zéro\s+)*)({alternatives})\b", flags=re.IGNORECASE)
+
+
 def _normalize_french(text):
     text = re.sub(r"\bpourcents?\b", "pour cent", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(u)ne\b", r"\1n", text, flags=re.IGNORECASE)
     text = _split_compounds(text, _NUMBERS_FR)
     text = re.sub(rf"\b({_NUMBERS_FR})\s+point\s+(?=(?:{_NUMBERS_FR})\b)", r"\1 virgule ", text, flags=re.IGNORECASE)
+    text = re.sub(rf"\b((?:{_NUMBERS_FR})\s+)(cent|vingt|mille)s\b", r"\1\2", text, flags=re.IGNORECASE)
+    decimals, pattern = _french_decimals()
+    text = pattern.sub(lambda m: m.group(1) + decimals[" ".join(m.group(2).lower().split())], text)
     # "dix-neuf cent" -> "mille neuf cent" (not in "quatre-vingt-dix-neuf cents", after another number)
     hundreds = "|".join(h.replace("-", r"\s+") for h in _HUNDREDS_FR)
     text = re.sub(

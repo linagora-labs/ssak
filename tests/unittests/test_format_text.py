@@ -1,8 +1,10 @@
 import os
 
-from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru, numbers_and_symbols_to_letters
+from ssak.utils.text import format_text_latin, numbers_and_symbols_to_letters
+from ssak.utils.text_ar import format_text_ar
 from ssak.utils.text_basic import replace_ligatures
 from ssak.utils.text_numbers import normalize_spoken_numbers
+from ssak.utils.text_ru import format_text_ru
 from ssak.utils.text_variants import join_acronyms, normalize_spelling, remove_disfluencies
 from ssak.utils.wer import compute_wer
 
@@ -170,7 +172,7 @@ class TestFormatTextLatin(Test):
                 " 7 ": " seven ",
             },
             "fr": {
-                "1, 2, 3 !": "un, deux, trois !",
+                "1, 2, 3 !": "Un, deux, trois !",
                 "Il y en a 1,5 % et 20€.": "Il y en a un virgule cinq pour cent et vingt euros.",
                 "d'1 dose": "d'un dose",
                 "007 à -5°C": "zéro zéro sept à moins cinq degrés Celsius",
@@ -373,6 +375,133 @@ class TestFormatTextLatin(Test):
         # What was said is different
         for ref, pred in [("don't", "do not"), ("gonna", "going to"), ("in 1789", "in 1798")]:
             self.assertGreater(compute_wer([ref], [pred], normalization="en+")["wer"], 0)
+
+    def test_roman_numbers(self):
+        for lang, texts in {
+            "fr": {
+                "la Ve République": "la cinquième République",
+                "le VIIIe siècle, le XXe": "le huitième siècle, le vingtième",
+                "les XVIIIes": "les dix-huitièmes",
+                "François Ier": "François premier",
+                "Ire partie, Ière partie": "première partie, première partie",
+                "Louis XIV et Henri IV": "Louis quatorze et Henri quatre",
+                "le chapitre II": "le chapitre deux",
+                # Not converted
+                "Vers le Ver, Vie, Ie, Vre, Xer": "Vers le Ver, Vie, Ie, Vre, Xer",
+                "Vitamine C, X-Prep, V, I": "Vitamine C, X-Prep, V, I",
+                "en IV, injection IV, CI et II": "en IV, injection IV, CI et II",
+            },
+            "en": {
+                "World War II": "World War two",
+                "Rocky II": "Rocky two",
+                "Henry VIII": "Henry the eighth",
+                "the XIXth century": "the nineteenth century",
+                # Not converted
+                "World War I think, Charles I": "World War I think, Charles I",
+                "IV fluids, Give IV, Ist": "IV fluids, Give IV, Ist",
+            },
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(numbers_and_symbols_to_letters(text, lang=lang), expected)
+        for lang, ref, pred in [("fr", "la Ve République", "la cinquième République"), ("fr", "François Ier", "François premier"), ("en", "Henry VIII", "Henry the eighth")]:
+            self.assertEqual(compute_wer([ref], [pred], normalization=lang + "+")["wer"], 0)
+
+    def test_degrees_or_ordinals(self):
+        for lang, texts in {
+            "es": {
+                "el 2° piso": "el segundo piso",
+                "es el 5°": "es el quinto",
+                "quemadura de 2° grado": "quemadura de segundo grado",
+                "1° de mayo": "primero de mayo",
+                "la 2° vez": "la segunda vez",
+                "Carlos, 2° clasificado": "Carlos, segundo clasificado",
+                "hace 10°": "hace diez grados",
+                "a 5° esta mañana": "a cinco grados esta mañana",
+                "un ángulo de 10° respecto al eje": "un ángulo de diez grados respecto al eje",
+                "entre 5° y 10°": "entre cinco grados y diez grados",
+                "a 10° bajo cero": "a diez grados bajo cero",
+                "10° de latitud": "diez grados de latitud",
+                "20 °C": "veinte grados Celsius",
+                "2 °C": "dos grados Celsius",
+                "a 45°": "a cuarenta y cinco grados",
+                "el 10º": "el décimo",
+            },
+            "it": {
+                "il 2° piano": "il secondo piano",
+                "1° maggio": "primo maggio",
+                "è il 5°": "è il quinto",
+                "fa 10°": "fa dieci gradi",
+                "ci sono 5° stamattina": "ci sono cinque gradi stamattina",
+                "10°": "dieci gradi",
+                "10° sotto zero": "dieci gradi sotto zero",
+                "fa 10° oggi": "fa dieci gradi oggi",
+            },
+            "pt": {
+                "o 2° andar": "o segundo andar",
+                "1° de maio": "primeiro de maio",
+                "faz 10°": "faz dez graus",
+                "subiu 2° durante a noite": "subiu dois graus durante a noite",
+                "ficou em 2° lugar": "ficou em segundo lugar",
+                "10° abaixo de zero": "dez graus abaixo de zero",
+            },
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(numbers_and_symbols_to_letters(text, lang=lang), expected)
+
+    def test_numbers_at_sentence_start(self):
+        for lang, texts in {
+            "fr": {
+                "3 comprimés.": "Trois comprimés.",
+                "Il dit oui. 3 fois": "Il dit oui. Trois fois",
+                "5 € par jour.": "Cinq euros par jour.",
+                # No case nor punctuation, or not the start of a sentence
+                "3 comprimés": "trois comprimés",
+                "Il dit 3 fois": "Il dit trois fois",
+                "Il dit oui... 3 fois": "Il dit oui... trois fois",
+                "Cf. 3 fois": "Cf. trois fois",
+            },
+            "en": {"$5 a day.": "Five dollars a day.", "No. 5 is here.": "Number five is here.", "He is No. 5.": "He is number five."},
+            "de": {"3 Häuser.": "Drei Häuser."},
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(numbers_and_symbols_to_letters(text, lang=lang), expected)
+        self.assertEqual(format_text_latin("3 comprimés."), "trois comprimés")
+        self.assertEqual(format_text_latin("3 comprimés.", lower_case=False), "Trois comprimés")
+        self.assertEqual(format_text_latin("3 comprimés.", lower_case=False, keep_punc=True), "Trois comprimés.")
+
+    def test_spelling_variants_pt(self):
+        for text, expected in {
+            "econômico Antônio gênero": "económico António género",
+            "contato, recepção, úmido": "contacto, receção, húmido",
+            "Dezesseis registros": "Dezasseis registos",
+            # Not changed: same in Portugal, or other words
+            "fêmea, estômago, você, têm": "fêmea, estômago, você, têm",
+            "caminhão, gol, equipe, planejar": "caminhão, gol, equipe, planejar",
+        }.items():
+            self.assertEqual(normalize_spelling(text, "pt"), expected)
+        self.assertEqual(format_text_latin("16 gêneros", lang="pt"), "dezasseis géneros")
+
+    def test_wer_dates_years_decimals(self):
+        for lang, ref, pred in [
+            ("en", "7 October", "seventh October"),
+            ("en", "7 October", "the seventh of October"),
+            ("en", "the 7th of October", "the seventh of October"),
+            ("en", "21 May", "twenty-first May"),
+            ("en", "the 2000s", "the two thousands"),
+            ("en", "3.25", "three point twenty-five"),
+            ("en", "3.10", "three point ten"),
+            ("en", "0.05", "zero point oh five"),
+            ("fr", "0,025", "zéro virgule zéro deux cinq"),
+            ("fr", "0,025", "zéro virgule zéro vingt-cinq"),
+            ("fr", "3,125", "trois virgule un deux cinq"),
+            ("nl", "in 1905", "in negentienhonderdvijf"),
+            ("nl", "in 1900", "in negentienhonderd"),
+            ("pt", "16", "dezesseis"),
+            ("pt", "16", "dezasseis"),
+        ]:
+            self.assertEqual(compute_wer([ref], [pred], normalization=lang + "+")["wer"], 0, msg=f"{ref} / {pred}")
+        for lang, ref, pred in [("fr", "0,025", "zéro virgule deux cinq"), ("en", "7 October", "eighth October"), ("nl", "1905", "negentienhonderdzes")]:
+            self.assertGreater(compute_wer([ref], [pred], normalization=lang + "+")["wer"], 0, msg=f"{ref} / {pred}")
 
     def test_ligatures(self):
         self.assertEqual(format_text_latin("Œuvre, cœur, ex æquo, aﬀaire, eﬃcace, ﬁn, reﬂet"), "oeuvre coeur ex aequo affaire efficace fin reflet")

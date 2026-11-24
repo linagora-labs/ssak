@@ -7,7 +7,15 @@ from ssak.utils.misc import flatten
 from ssak.utils.text_basic import (
     regex_escape,
 )
-from ssak.utils.text_numbers import PADDING, base_language, clean_number_formats, clean_padding, currencies_after_numbers
+from ssak.utils.text_numbers import (
+    PADDING,
+    base_language,
+    capitalize_sentence_starts,
+    clean_number_formats,
+    clean_padding,
+    currencies_after_numbers,
+    mark_sentence_starts,
+)
 
 
 def custom_formatwarning(msg, *args, **kwargs):
@@ -565,6 +573,7 @@ def ordinal_numbers_to_letters(text, lang):
     elif lang == "fr":
         digits = re.findall(r"\b(?:1(?:ères?|eres?|ers?|res?|r)|2(?:ndes?|nds?)|\d+(?:º|[èe]mes?|es?))\b", text)
     elif lang in ["es", "it", "pt"]:
+        text = _degree_signs_to_ordinals(text, lang)
         digits = re.findall(r"\b\d+\.?[ºª]", text)
     elif lang == "nl":
         digits = re.findall(r"\b\d+(?:ste|de|e)\b", text)
@@ -595,33 +604,99 @@ def ordinal_numbers_to_letters(text, lang):
     return text
 
 
-def roman_numbers_to_letters(text, lang):
-    if not is_number_language(lang):
-        return text
-    # Roman digits
-    if re.search(r"[IVX]", text):
-        if lang == "en":
-            digits = re.findall(r"\b(?=[XVI])M*(XX{0,3})(I[XV]|V?I{0,3})(º|st|nd|rd|th)?\b", text)
-            digits = ["".join(d) for d in digits]
-        elif lang == "fr":
-            digits = re.findall(r"\b(?=[XVI])M*(XX{0,3})(I[XV]|V?I{0,3})(º|ème|eme|e|er|ère)?\b", text)
-            digits = ["".join(d) for d in digits]
-        else:
-            digits = re.findall(r"\b(?=[XVI])M*(XX{0,3})(I[XV]|V?I{0,3})\b", text)
-            digits = ["".join(d) for d in digits]
-        if digits:
-            digits = sorted(list(set(digits)), reverse=True, key=lambda x: (len(x), x))
-            for s in digits:
-                filtered = re.sub("[a-zèº]", "", s)
-                ordinal = filtered != s
-                if filtered == "X" and not ordinal:
-                    # Likely not a number ("X-Prep", "rayons X", "Malcolm X")
-                    continue
-                digit = roman_to_decimal(filtered)
-                v = undigit(str(digit), lang=lang, to="ordinal" if ordinal else "cardinal")
-                text = re.sub(r"\b" + s + r"\b", v, text)
+# "2°" is read as an ordinal ("2º", "2ª") after a singular article, before a month, or before these nouns
+_MASCULINE_ARTICLES = {"es": "el|del|al", "it": "il|del|al|dal|nel|sul", "pt": "o|do|ao|no|pelo"}
+_FEMININE_ARTICLES = {"es": "la", "it": "la|della|alla|dalla|nella|sulla", "pt": "da|na|pela"}
+_NOUNS_AFTER_ORDINALS = {
+    "es": "piso|grado|lugar|puesto|clasificado|premio|capítulo|artículo|siglo|aniversario|curso|año|día|mes|trimestre|semestre|equipo|hijo|nivel|"
+    "de (?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)",
+    "it": "piano|grado|posto|classificato|premio|capitolo|articolo|secolo|anniversario|corso|anno|giorno|mese|trimestre|semestre|figlio|livello|"
+    "gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre",
+    "pt": "andar|grau|lugar|colocado|classificado|prémio|prêmio|capítulo|artigo|século|aniversário|curso|ano|dia|mês|trimestre|semestre|filho|nível|"
+    "de (?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)",
+}
 
-    return text
+
+def _degree_signs_to_ordinals(text, lang):
+    """
+    Spanish, Italian, Portuguese: "el 2° piso" -> "el 2º piso", "1° maggio" -> "1º maggio", "la 2° vez" -> "la 2ª vez"
+    (but not "fa 10°", "a 10° bajo cero", "20 °C", "45°"). Only the small numbers.
+    """
+
+    def ordinal(match):
+        article, number = match.groups()
+        article = article or ""
+        if re.fullmatch(_FEMININE_ARTICLES[lang], article.strip(), flags=re.IGNORECASE):
+            return f"{article}{number}ª"
+        is_ordinal = article or re.match(rf"\s+(?:{_NOUNS_AFTER_ORDINALS[lang]})\b", text[match.end() :], flags=re.IGNORECASE)
+        return f"{article}{number}" + ("º" if is_ordinal else "°")
+
+    articles = f"{_MASCULINE_ARTICLES[lang]}|{_FEMININE_ARTICLES[lang]}"
+    return re.sub(rf"(?<![\w.,])(\b(?:{articles})\s+)?(?<![\w.,])(\d|1[0-2])°(?!\s?[CFK]\b|\w)", ordinal, text, flags=re.IGNORECASE)
+
+
+_ROMAN = r"(?=[IVX])X{0,3}(?:IX|IV|V?I{0,3})"
+# (not "Vers", "Ver", "Ie")
+_ROMAN_ORDINALS = {
+    "fr": rf"(?<![\w-])(?:(I)(ers?|ères?|res?)|(?!I(?![IVX])){_ROMAN}(?:èmes?|emes?|es?|º))(?!\w)",
+    "en": rf"(?<![\w-])(?!I(?![IVX])){_ROMAN}(?:st|nd|rd|th|º)(?!\w)",
+}
+# After these words, or a name, the short roman numerals ("II", "IV", ...), that could be acronyms, are numbers
+_ROMAN_CONTEXT = {
+    "fr": "chapitre|tome|acte|scène|article|titre|volume|partie|livre|section|annexe|phase|type|grade|stade|niveau|classe|guerre|mondiale|pape|roi|empereur",
+    "en": "chapter|part|act|scene|article|title|volume|book|section|appendix|phase|type|grade|stage|level|class|war|king|queen|pope|emperor",
+}
+# Words before "IV" for "intravenous"
+_NOT_ROMAN_CONTEXT = "give|start|stop|via|by|with|in|and|the|en|par|avec|et|prendre|injecter|donner|injections?|perfusions?|voie|administration|doses?|traitement|antibiotiques?|drugs?|fluids?|therapy|lines?|access|antibiotics?|infusions?"
+# English: "Henry VIII" is "Henry the eighth", but "Rocky II" is "Rocky two"
+_RULERS_EN = (
+    "Henry|Louis|Charles|Elizabeth|George|James|Edward|Richard|William|Mary|Paul|Pius|Benedict|Leo|Gregory|Innocent|Clement|Philip|"
+    "Frederick|Francis|Napoleon|Nicholas|Alexander|Peter|Catherine|Otto|Ramses|Ramesses|Urban|Boniface|Sixtus|Ferdinand|Carlos"
+)
+
+
+def roman_numbers_to_letters(text, lang):
+    """
+    "XIXe siècle", "Ve République", "François Ier", "Louis XIV", "Henri IV", "World War II"
+    The numerals of a single letter are not converted without an ordinal suffix ("X-Prep", "vitamine C"),
+    and the ones of two letters that could be acronyms ("IV", "II") only after some words, or a name.
+    """
+    if not is_number_language(lang) or not re.search(r"[IVX]", text):
+        return text
+
+    def words(numeral, to="cardinal"):
+        return undigit(str(roman_to_decimal(numeral)), lang=lang, to=to)
+
+    if lang in _ROMAN_ORDINALS:
+
+        def ordinal(match):
+            numeral = re.match(r"[IVX]+", match.group()).group()
+            suffix = match.group()[len(numeral) :]
+            if lang == "fr" and numeral == "I":
+                word = "première" if suffix.rstrip("s") in ["ère", "re"] else "premier"
+            else:
+                word = words(numeral, "ordinal")
+            return word + ("s" if suffix.endswith("s") and lang == "fr" else "")
+
+        text = re.sub(_ROMAN_ORDINALS[lang], ordinal, text)
+
+    if lang == "en":
+        text = re.sub(rf"\b({_RULERS_EN}) ({_ROMAN})(?![\w-])", lambda m: m.group() if len(m.group(2)) == 1 else f"{m.group(1)} the {words(m.group(2), 'ordinal')}", text)
+
+    def cardinal(match):
+        numeral = match.group()
+        if len(numeral) == 1:
+            return numeral
+        if not numeral.startswith("X") and len(numeral) == 2:
+            before = re.search(r"([^\W\d_]+)\s+$", text[: match.start()])
+            before = before.group(1) if before else ""
+            is_context = re.fullmatch(_ROMAN_CONTEXT.get(lang, ""), before, flags=re.IGNORECASE)
+            is_name = re.fullmatch(r"[^\W\d_a-zà-öø-ÿ][^\W\d_A-ZÀ-ÖØ-Þ]+", before) and not re.fullmatch(_NOT_ROMAN_CONTEXT, before, flags=re.IGNORECASE)
+            if lang not in _ROMAN_CONTEXT or not (is_context or is_name):
+                return numeral
+        return words(numeral)
+
+    return re.sub(rf"(?<!\w)(?<![a-zà-öø-ÿ]-){_ROMAN}(?!\w)(?!-[^\W\d_]*[a-zà-öø-ÿ])", cardinal, text)
 
 
 def roman_to_decimal(str):
@@ -665,6 +740,7 @@ def roman_to_decimal(str):
 def numbers_and_symbols_to_letters(text, lang, verbose=False):
     """
     Convert numbers and symbols to letters
+    A number at the beginning of a sentence gets a capital letter, when the text has case or punctuation ("3 comprimés." -> "Trois comprimés.")
     In a language where the numbers cannot be converted, only the symbols known in this language are.
     """
     lang = base_language(lang)
@@ -673,6 +749,7 @@ def numbers_and_symbols_to_letters(text, lang, verbose=False):
     for n in numbers:
         text = re.sub(r"\b" + n + r"\b", re.sub(r"[,.]", "", n), text)
 
+    text = mark_sentence_starts(text)
     text = clean_number_formats(text, lang=lang)
     text = currencies_after_numbers(text, lang=lang, symbol_to_word=_symbol_to_word.get(lang, {}))
 
@@ -688,7 +765,7 @@ def numbers_and_symbols_to_letters(text, lang, verbose=False):
     text = cardinal_numbers_to_letters(text, lang=lang, verbose=verbose)
     text = symbols_to_letters(text, lang, lower_case=False)
 
-    return text
+    return capitalize_sentence_starts(text)
 
 
 def undigit(s, lang, to="cardinal", type="masc_gen", ignore_first_zeros=False):
