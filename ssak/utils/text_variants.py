@@ -9,6 +9,8 @@ The case is kept (used by format_text, which then lowers the case if asked to).
 import re
 from functools import cache
 
+from ssak.utils.text_numbers import ONE_MARK
+
 # ------------------------------------------------------------------------------------
 # Acronyms
 
@@ -58,47 +60,372 @@ def expand_titles(text, lang):
 # ------------------------------------------------------------------------------------
 # Units after a number
 
-# {unit: (singular, plural)}
+# {symbols: (singular, plural)}
 _UNITS = {
     "fr": {
-        "km/h": ("kilomètre par heure", "kilomètres par heure"),
-        "m/s": ("mètre par seconde", "mètres par seconde"),
         "km": ("kilomètre", "kilomètres"),
         "m": ("mètre", "mètres"),
-        "cl": ("centilitre", "centilitres"),
+        "cm": ("centimètre", "centimètres"),
+        "mm": ("millimètre", "millimètres"),
+        "kg": ("kilogramme", "kilogrammes"),
+        "g": ("gramme", "grammes"),
+        "mg": ("milligramme", "milligrammes"),
+        "µg|μg|mcg": ("microgramme", "microgrammes"),
+        "dl|dL": ("décilitre", "décilitres"),
+        "cl|cL": ("centilitre", "centilitres"),
+        "ml|mL": ("millilitre", "millilitres"),
         "ha": ("hectare", "hectares"),
         "min": ("minute", "minutes"),
     },
     "en": {
-        "km/h": ("kilometer per hour", "kilometers per hour"),
-        "mph": ("mile per hour", "miles per hour"),
         "km": ("kilometer", "kilometers"),
         "cm": ("centimeter", "centimeters"),
         "mm": ("millimeter", "millimeters"),
         "kg": ("kilogram", "kilograms"),
         "mg": ("milligram", "milligrams"),
-        "ml": ("milliliter", "milliliters"),
-        "lbs": ("pound", "pounds"),
-        "lb": ("pound", "pounds"),
+        "µg|μg|mcg": ("microgram", "micrograms"),
+        "dl|dL": ("deciliter", "deciliters"),
+        "cl|cL": ("centiliter", "centiliters"),
+        "ml|mL": ("milliliter", "milliliters"),
+        "mph": ("mile per hour", "miles per hour"),
+        "lbs|lb": ("pound", "pounds"),
         "ft": ("foot", "feet"),
+        "min": ("minute", "minutes"),
+    },
+    "es": {
+        "km": ("kilómetro", "kilómetros"),
+        "m": ("metro", "metros"),
+        "cm": ("centímetro", "centímetros"),
+        "mm": ("milímetro", "milímetros"),
+        "kg": ("kilogramo", "kilogramos"),
+        "g": ("gramo", "gramos"),
+        "mg": ("miligramo", "miligramos"),
+        "µg|μg|mcg": ("microgramo", "microgramos"),
+        "l|L": ("litro", "litros"),
+        "dl|dL": ("decilitro", "decilitros"),
+        "cl|cL": ("centilitro", "centilitros"),
+        "ml|mL": ("mililitro", "mililitros"),
+        "ha": ("hectárea", "hectáreas"),
+        "min": ("minuto", "minutos"),
+    },
+    "de": {
+        "km": ("Kilometer", "Kilometer"),
+        "m": ("Meter", "Meter"),
+        "cm": ("Zentimeter", "Zentimeter"),
+        "mm": ("Millimeter", "Millimeter"),
+        "kg": ("Kilogramm", "Kilogramm"),
+        "g": ("Gramm", "Gramm"),
+        "mg": ("Milligramm", "Milligramm"),
+        "µg|μg|mcg": ("Mikrogramm", "Mikrogramm"),
+        "l|L": ("Liter", "Liter"),
+        "dl|dL": ("Deziliter", "Deziliter"),
+        "cl|cL": ("Zentiliter", "Zentiliter"),
+        "ml|mL": ("Milliliter", "Milliliter"),
+        "ha": ("Hektar", "Hektar"),
+        "min": ("Minute", "Minuten"),
+    },
+    "it": {
+        "km": ("chilometro", "chilometri"),
+        "m": ("metro", "metri"),
+        "cm": ("centimetro", "centimetri"),
+        "mm": ("millimetro", "millimetri"),
+        "kg": ("chilogrammo", "chilogrammi"),
+        "g": ("grammo", "grammi"),
+        "mg": ("milligrammo", "milligrammi"),
+        "µg|μg|mcg": ("microgrammo", "microgrammi"),
+        "l|L": ("litro", "litri"),
+        "dl|dL": ("decilitro", "decilitri"),
+        "cl|cL": ("centilitro", "centilitri"),
+        "ml|mL": ("millilitro", "millilitri"),
+        "ha": ("ettaro", "ettari"),
+        "min": ("minuto", "minuti"),
+    },
+    "pt": {
+        "km": ("quilómetro", "quilómetros"),
+        "m": ("metro", "metros"),
+        "cm": ("centímetro", "centímetros"),
+        "mm": ("milímetro", "milímetros"),
+        "kg": ("quilograma", "quilogramas"),
+        "g": ("grama", "gramas"),
+        "mg": ("miligrama", "miligramas"),
+        "µg|μg|mcg": ("micrograma", "microgramas"),
+        "l|L": ("litro", "litros"),
+        "dl|dL": ("decilitro", "decilitros"),
+        "cl|cL": ("centilitro", "centilitros"),
+        "ml|mL": ("mililitro", "mililitros"),
+        "ha": ("hectare", "hectares"),
+        "min": ("minuto", "minutos"),
+    },
+    "nl": {
+        "km": ("kilometer", "kilometer"),
+        "m": ("meter", "meter"),
+        "cm": ("centimeter", "centimeter"),
+        "mm": ("millimeter", "millimeter"),
+        "kg": ("kilogram", "kilogram"),
+        "g": ("gram", "gram"),
+        "mg": ("milligram", "milligram"),
+        "µg|μg|mcg": ("microgram", "microgram"),
+        "l|L": ("liter", "liter"),
+        "dl|dL": ("deciliter", "deciliter"),
+        "cl|cL": ("centiliter", "centiliter"),
+        "ml|mL": ("milliliter", "milliliter"),
+        "ha": ("hectare", "hectare"),
+        "min": ("minuut", "minuten"),
     },
 }
 
+# Squares and cubes of the lengths
+_POWERS = {
+    "fr": ("{} carré", "{} carrés", "{} cube", "{} cubes"),
+    "en": ("square {}", "square {}", "cubic {}", "cubic {}"),
+    "es": ("{} cuadrado", "{} cuadrados", "{} cúbico", "{} cúbicos"),
+    "it": ("{} quadrato", "{} quadrati", "{} cubo", "{} cubi"),
+    "pt": ("{} quadrado", "{} quadrados", "{} cúbico", "{} cúbicos"),
+    "de": ("Quadrat{}", "Quadrat{}", "Kubik{}", "Kubik{}"),
+    "nl": ("vierkante {}", "vierkante {}", "kubieke {}", "kubieke {}"),
+}
+_METER = {"fr": ("mètre", "mètres"), "en": ("meter", "meters")}
+
+# Units that are too ambiguous to be converted, except before "/" and another unit ("3x/j", "1 cp/j", "2 h/jour")
+_UNITS_BEFORE_SLASH = {
+    "fr": {"l|L": ("litre", "litres"), "h": ("heure", "heures"), "j": ("jour", "jours"), "cp|cps|cpr": ("comprimé", "comprimés"), "x": ("fois", "fois")},
+    "en": {
+        "m": ("meter", "meters"),
+        "g": ("gram", "grams"),
+        "l|L": ("liter", "liters"),
+        "h|hr|hrs": ("hour", "hours"),
+        "mi": ("mile", "miles"),
+        "oz": ("ounce", "ounces"),
+        "x": ("time", "times"),
+    },
+    "es": {"h": ("hora", "horas"), "x": ("vez", "veces")},
+    "de": {"h": ("Stunde", "Stunden"), "x": ("Mal", "Mal")},
+    "it": {"h": ("ora", "ore"), "x": ("volta", "volte")},
+    "pt": {"h": ("hora", "horas"), "x": ("vez", "vezes")},
+    "nl": {"h|u": ("uur", "uur"), "x": ("keer", "keer")},
+}
+# Words that can be before "/" and a unit ("2 comprimés/jour"), besides the names of the units
+_WORDS_BEFORE_SLASH = {
+    "fr": "fois|comprimés?|gélules?|capsules?|sachets?|gouttes?|doses?|ampoules?|prises?|injections?|bouffées?",
+    "en": "times?|tablets?|pills?|capsules?|drops?|doses?|puffs?|injections?",
+    "es": "ve(?:z|ces)|comprimidos?|cápsulas?|gotas?|dosis|sobres?|inyección|inyecciones",
+    "de": "[Mm]al|Tabletten?|Kapseln?|Tropfen|Dosis|Dosen",
+    "it": "volt[ae]|compress[ae]|capsul[ae]|gocc(?:ia|e)|dos[ei]",
+    "pt": "ve(?:z|zes)|comprimidos?|cápsulas?|gotas?|doses?",
+    "nl": "keer|tablet(?:ten)?|capsules?|druppels?|dosis|doses",
+}
+# After "/", besides the units above
+_AFTER_SLASH = {
+    "fr": {
+        "j|jours?": "par jour",
+        "h|heures?": "par heure",
+        "s|secondes?": "par seconde",
+        "minutes?": "par minute",
+        "sem|semaines?": "par semaine",
+        "mois": "par mois",
+        "ans?|année": "par an",
+        "l|L|litre": "par litre",
+        "personne": "par personne",
+        "kilo": "par kilo",
+    },
+    "en": {
+        "d|days?": "per day",
+        "h|hr|hours?": "per hour",
+        "s|sec|seconds?": "per second",
+        "minutes?": "per minute",
+        "wk|weeks?": "per week",
+        "months?": "per month",
+        "yr|years?": "per year",
+        "g": "per gram",
+        "l|L|liter|litre": "per liter",
+        "m": "per meter",
+        "night": "per night",
+        "share": "per share",
+        "person": "per person",
+        "unit": "per unit",
+        "bbl|barrel": "per barrel",
+        "ton": "per ton",
+        "oz|ounce": "per ounce",
+        "mile": "per mile",
+    },
+    "es": {
+        "d|días?|dias?": "por día",
+        "h|horas?": "por hora",
+        "s|segundos?": "por segundo",
+        "minutos?": "por minuto",
+        "sem|semanas?": "por semana",
+        "mes": "por mes",
+        "años?": "por año",
+        "persona": "por persona",
+    },
+    "de": {
+        "d|Tag": "pro Tag",
+        "h|Std|Stunde": "pro Stunde",
+        "s|Sekunde": "pro Sekunde",
+        "Minute": "pro Minute",
+        "Woche": "pro Woche",
+        "Monat": "pro Monat",
+        "Jahr": "pro Jahr",
+        "Person": "pro Person",
+    },
+    "it": {
+        "die|dì|giorno": "al giorno",
+        "h|ora": "all'ora",
+        "s|secondo": "al secondo",
+        "min|minuto": "al minuto",
+        "settimana": "alla settimana",
+        "mese": "al mese",
+        "anno": "all'anno",
+        "persona": "a persona",
+    },
+    "pt": {
+        "d|dias?": "por dia",
+        "h|horas?": "por hora",
+        "s|segundos?": "por segundo",
+        "minutos?": "por minuto",
+        "sem|semanas?": "por semana",
+        "mês": "por mês",
+        "anos?": "por ano",
+        "pessoa": "por pessoa",
+    },
+    "nl": {
+        "d|dag": "per dag",
+        "h|u|uur": "per uur",
+        "s|seconde": "per seconde",
+        "minuut": "per minuut",
+        "week": "per week",
+        "maand": "per maand",
+        "jaar": "per jaar",
+        "persoon": "per persoon",
+    },
+}
+_PER = {"fr": "par", "en": "per", "es": "por", "de": "pro", "it": "per", "pt": "por", "nl": "per"}
+
+# "24h/24", "7j/7"
+_AROUND_THE_CLOCK = {
+    "fr": [(r"h|heures?", "24", "heures sur"), (r"j|jours?", "7", "jours sur")],
+    "it": [(r"h|ore", "24", "ore su"), (r"g|gg|giorni", "7", "giorni su")],
+}
+
+# Forms of "one" before a unit
+_ONE_BEFORE_MASCULINE = {"es": ("uno", "un"), "it": ("uno", "un"), "de": ("eins", "ein")}
+_ONE_BEFORE_FEMININE = {"fr": ("un", "une"), "es": ("uno", "una"), "it": ("uno", "una"), "de": ("eins", "eine"), "pt": ("um", "uma")}
+_FEMININE_UNITS = {
+    "fr": "livre|heure|minute|gélule|capsule|goutte|dose|ampoule|prise|injection|bouffée",
+    "es": "libra|hora|hectárea|vez|cápsula|gota|dosis",
+    "it": "sterlina|ora|volta|compressa|capsula|goccia|dose",
+    "de": "Stunde|Minute|Tablette|Kapsel|Dosis",
+    "pt": "libra|hora|vez|cápsula|gota|dose",
+}
+
+
+def _expand_symbols(units):
+    return {symbol: names for symbols, names in units.items() for symbol in symbols.split("|")}
+
+
+@cache
+def _unit_tables(lang):
+    """units after a number, units before a slash, {unit after a slash: words}"""
+    units = _expand_symbols(_UNITS[lang])
+    for prefix in "", "c", "m", "k":
+        names = units.get(prefix + "m") if prefix else units.get("m", _METER.get(lang))
+        square, squares, cube, cubes = _POWERS[lang]
+        for power, singular, plural in ("2", square, squares), ("3", cube, cubes):
+            for symbol in power, {"2": "²", "3": "³"}[power]:
+                units[f"{prefix}m{symbol}"] = (singular.format(names[0].lower()), plural.format(names[1].lower())) if lang == "de" else (singular.format(names[0]), plural.format(names[1]))
+    before = units | _expand_symbols(_UNITS_BEFORE_SLASH[lang])
+    after = {re.escape(symbol): f"{_PER[lang]} {names[0]}" for symbol, names in units.items() if "ph" not in symbol}
+    after |= {re.escape(names[0]): f"{_PER[lang]} {names[0]}" for symbol, names in units.items() if "ph" not in symbol}
+    for patterns, words in _AFTER_SLASH[lang].items():
+        after |= dict.fromkeys(patterns.split("|"), words)
+    return units, before, after
+
+
+def _alternatives(patterns):
+    return "|".join(sorted(patterns, key=len, reverse=True))
+
+
+_NUMBER = r"(?<![\w.,])(\d+/\d+|\d+(?:[    ]\d{3})*(?:[.,]\d+)*)"
+_NOT_IN_WORD = r"(?![\w²³'’-])"
+
+
+@cache
+def _unit_patterns(lang):
+    units, before, after = _unit_tables(lang)
+    after = _alternatives(after)
+    words = _alternatives({re.escape(n) for names in before.values() for n in names} | {_WORDS_BEFORE_SLASH[lang]})
+    slashes = rf"((?:\s?/\s?(?:{after}){_NOT_IN_WORD})+)"
+    single = [u for u in units if len(u) == 1]
+    return {
+        "ratio": re.compile(rf"{_NUMBER}(\s?(?:{_alternatives(map(re.escape, before))})|\s(?:{words})){slashes}"),
+        "price": re.compile(rf"([$€£]\s?\d[\d.,]*(?:\s?(?:[kKMB]|bn|million|billion)\b)?|\d[\d.,]*\s?[$€£]){slashes}"),
+        "unit": re.compile(rf"{_NUMBER}\s?({_alternatives(map(re.escape, units))}){_NOT_IN_WORD}"),
+        "single": single,
+        "after": re.compile(rf"/\s?({after}){_NOT_IN_WORD}"),
+        "after_words": {re.compile(p): w for p, w in _unit_tables(lang)[2].items()},
+    }
+
 
 def expand_units(text, lang):
-    """ "10 km" -> "10 kilomètres", "1 km" -> "1 kilomètre" """
-    units = _UNITS.get(lang)
-    if not units:
+    """
+    "10 km" -> "10 kilomètres", "1 km" -> "1 kilomètre"
+    "3 mg/j" -> "3 milligrammes par jour", "5 €/m²" -> "5 € par mètre carré" (only between a number with a unit, and a unit)
+    "24h/24" -> "24 heures sur 24"
+    """
+    if lang not in _UNITS:
+        return text
+    units, before, _ = _unit_tables(lang)
+    patterns = _unit_patterns(lang)
+
+    def number_and_name(number, names):
+        # Singular after one, or a fraction ("1/2 km")
+        if "/" in number:
+            numerator, denominator = map(int, number.split("/"))
+            is_singular = numerator <= denominator
+        else:
+            is_singular = number == "1" or (lang == "fr" and number == "0")
+        return f"{number}{ONE_MARK if number == '1' else ''} {names[0 if is_singular else 1]}"
+
+    def per(slashes):
+        def words(match):
+            return " " + next(w for p, w in patterns["after_words"].items() if p.fullmatch(match.group(1)))
+
+        return re.sub(r"\s+", " ", patterns["after"].sub(words, slashes))
+
+    def ratio(match):
+        number, unit, slashes = match.groups()
+        unit = unit.strip()
+        # ("une" for "1 goutte/jour")
+        names = before.get(unit, (unit, unit))
+        return number_and_name(number, names) + per(slashes)
+
+    def simple(match):
+        number, unit = match.groups()
+        # "m/..." with something that is not a unit
+        if unit in patterns["single"] and re.match(r"\s?/\s?[^\W\d]", text[match.end() :]):
+            return match.group()
+        return number_and_name(number, units[unit])
+
+    for unit, total, words in _AROUND_THE_CLOCK.get(lang, []):
+        text = re.sub(rf"(?<![\w.,/])(\d+)\s?(?:{unit})\s?/\s?{total}(?:\s?(?:{unit}))?(?![\w/])", rf"\1 {words} {total}", text)
+    text = patterns["ratio"].sub(ratio, text)
+    text = patterns["price"].sub(lambda m: m.group(1) + per(m.group(2)), text)
+    return patterns["unit"].sub(simple, text)
+
+
+def agree_one(text, lang):
+    """ "uno kilómetro" -> "un kilómetro", "un heure" -> "une heure" (only for the numbers one with the mark)"""
+    if ONE_MARK not in text:
         return text
 
-    def expand(match):
-        number, unit = match.groups()
-        value = float(re.sub(r"[   ]", "", number).replace(",", "." if lang == "fr" else ""))
-        singular = value < 2 if lang == "fr" else value == 1
-        return f"{number} {units[unit][0 if singular else 1]}"
+    def agree(match):
+        one, noun = match.groups()
+        feminine = re.fullmatch(_FEMININE_UNITS.get(lang, "(?!)"), noun)
+        word, replacement = (_ONE_BEFORE_FEMININE if feminine else _ONE_BEFORE_MASCULINE).get(lang, (None, None))
+        return f"{_keep_case(one, replacement) if one.lower() == word else one} {noun}"
 
-    names = "|".join(re.escape(u) for u in sorted(units, key=len, reverse=True))
-    return re.sub(r"(?<![\w.,])(\d+(?:[   ]\d{3})*(?:[.,]\d+)?)\s?(" + names + r")(?![\w²³/'’-])", expand, text)
+    text = re.sub(rf"(\w+)\s*{ONE_MARK}\s*(\w+)", agree, text)
+    return re.sub(rf"\s*{ONE_MARK}", "", text)
 
 
 # ------------------------------------------------------------------------------------

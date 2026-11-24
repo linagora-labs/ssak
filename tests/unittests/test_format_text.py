@@ -7,7 +7,7 @@ from num2words import CONVERTER_CLASSES
 from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru, numbers_and_symbols_to_letters
 from ssak.utils.text_basic import replace_ligatures
 from ssak.utils.text_numbers import normalize_spoken_numbers
-from ssak.utils.text_variants import join_acronyms, normalize_spelling, remove_disfluencies
+from ssak.utils.text_variants import _UNITS, join_acronyms, normalize_spelling, remove_disfluencies
 from ssak.utils.wer import compute_wer
 
 from .utils import Test
@@ -106,7 +106,7 @@ class TestFormatTextLatin(Test):
 
         self.assertEqual(
             format_text_latin("Une quantité c' est un volume  Quand on divise un volume par une surface on obtient une hauteur Par exemple un 1 litre / m² = 1 000 000 mm3/1 000 000 mm² = 1mm"),
-            "une quantité c' est un volume quand on divise un volume par une surface on obtient une hauteur par exemple un un litre mètres carrés égale un million millimètres trois un million millimètres carrés égale un millimètres",
+            "une quantité c' est un volume quand on divise un volume par une surface on obtient une hauteur par exemple un un litre par mètre carré égale un million millimètres cubes un million millimètres carrés égale un millimètre",
         )
 
         text = "2" * 700
@@ -247,7 +247,7 @@ class TestFormatTextLatin(Test):
         for lang, texts in {
             "fr": {
                 "10 km": "dix kilomètres",
-                "1 km et 1,5 km": "un kilomètre et un virgule cinq kilomètre",
+                "1 km et 1,5 km": "un kilomètre et un virgule cinq kilomètres",
                 "5 km/h et 10m/s": "cinq kilomètres par heure et dix mètres par seconde",
                 "10 m, 3 m² et 20 min": "dix mètres trois mètres carrés et vingt minutes",
                 "2 m'a": "deux m' a",
@@ -256,6 +256,200 @@ class TestFormatTextLatin(Test):
         }.items():
             for text, expected in texts.items():
                 self.assertEqual(format_text_latin(text, lang=lang), expected)
+
+    def test_all_units(self):
+        # Every symbol, in every language
+        for lang, units in _UNITS.items():
+            two, one = {
+                "fr": ("deux", "un"),
+                "en": ("two", "one"),
+                "es": ("dos", "un"),
+                "de": ("zwei", "ein"),
+                "it": ("due", "un"),
+                "pt": ("dois", "um"),
+                "nl": ("twee", "één"),
+            }[lang]
+            for symbols, (singular, plural) in units.items():
+                for symbol in symbols.split("|"):
+                    for text in [f"2 {symbol}", f"2{symbol}", f"2 {symbol}."]:
+                        self.assertEqual(format_text_latin(text, lang=lang), f"{two} {plural.lower()}", msg=f"{lang} {text}")
+                    said = format_text_latin(f"1 {symbol}", lang=lang).split(" ", 1)
+                    self.assertEqual(said[1], singular.lower(), msg=f"{lang} 1 {symbol}")
+                    self.assertIn(said[0], [one, one + "e", one + "a"], msg=f"{lang} 1 {symbol}")
+
+    def test_units_squares(self):
+        for lang, expected in {
+            "fr": "deux mètres carrés trois kilomètres carrés un mètre cube un centimètre carré deux millimètres cubes",
+            "en": "two square meters three square kilometers one cubic meter one square centimeter two cubic millimeters",
+            "es": "dos metros cuadrados tres kilómetros cuadrados un metro cúbico un centímetro cuadrado dos milímetros cúbicos",
+            "de": "zwei quadratmeter drei quadratkilometer ein kubikmeter ein quadratzentimeter zwei kubikmillimeter",
+            "it": "due metri quadrati tre chilometri quadrati un metro cubo un centimetro quadrato due millimetri cubi",
+            "pt": "dois metros quadrados três quilómetros quadrados um metro cúbico um centímetro quadrado dois milímetros cúbicos",
+            "nl": "twee vierkante meter drie vierkante kilometer één kubieke meter één vierkante centimeter twee kubieke millimeter",
+        }.items():
+            for text in "2 m² 3 km² 1 m³ 1 cm² 2 mm³", "2 m2 3 km2 1 m3 1 cm2 2 mm3":
+                self.assertEqual(format_text_latin(text, lang=lang), expected)
+
+    def test_units_ratios(self):
+        for lang, texts in {
+            "fr": {
+                "3 mg/j": "trois milligrammes par jour",
+                "3 mg/jour": "trois milligrammes par jour",
+                "3 mg / jour": "trois milligrammes par jour",
+                "1 mg/j": "un milligramme par jour",
+                "500 mg/kg": "cinq cents milligrammes par kilogramme",
+                "1,5 mg/kg/j": "un virgule cinq milligrammes par kilogramme par jour",
+                "1/2 mg/j": "un demi milligramme par jour",
+                "10 ml/h et 5 g/l": "dix millilitres par heure et cinq grammes par litre",
+                "3 mg/dl, 2 l/min": "trois milligrammes par décilitre deux litres par minute",
+                "50 µg/h": "cinquante microgrammes par heure",
+                "10 m/s, 5 km/h": "dix mètres par seconde cinq kilomètres par heure",
+                "3 fois/j, 3x/j": "trois fois par jour trois fois par jour",
+                "1 cp/j, 2 cp / jour": "un comprimé par jour deux comprimés par jour",
+                "2 gouttes/jour, 3 sachets/semaine": "deux gouttes par jour trois sachets par semaine",
+                "35h/semaine, 1 h/j": "trente-cinq heures par semaine une heure par jour",
+                "5 €/m²": "cinq euros par mètre carré",
+                "1 €/kg et 1,20 €/kg": "un euro par kilogramme et un euros vingt par kilogramme",
+                "24h/24, 24 h/24h, 24 heures/24": "vingt-quatre heures sur vingt-quatre " * 2 + "vingt-quatre heures sur vingt-quatre",
+                "7j/7 et 6 jours/7": "sept jours sur sept et six jours sur sept",
+                # Not read as "par"
+                "et/ou, matin/soir": "et ou matin soir",
+                "100 mg/5 ml": "cent milligrammes cinq millilitres",
+                "100 mg/200 mg": "cent milligrammes deux cents milligrammes",
+                "1 g/24h": "un gramme vingt-quatre heures",
+                "3 mg/xyz, 5 m/x": "trois milligrammes xyz cinq m x",
+                "12/8 et 1/2": "douze huitièmes et un demi",
+                "mg/j": "milligrammes j",
+            },
+            "en": {
+                "5 mg/day": "five milligrams per day",
+                "1 mg/d": "one milligram per day",
+                "5 mg/kg/day": "five milligrams per kilogram per day",
+                "100 ml/h, 100 ml/hr": "one hundred milliliters per hour one hundred milliliters per hour",
+                "5 g/l and 5 m/s": "five grams per liter and five meters per second",
+                "60 mi/h, 10 km/h": "sixty miles per hour ten kilometers per hour",
+                "3 times/day, 2x/day, 1 tablet/day": "three times per day two times per day one tablet per day",
+                "1,200 kg/m³": "one thousand two hundred kilograms per cubic meter",
+                "$5/share and $5M/year": "five dollars per share and five million dollars per year",
+                "5 €/m²": "five euros per square meter",
+                # Not read as "per"
+                "and/or, A/B": "and or a b",
+                "24/7": "twenty-four seven",
+                "100 mg/5 ml": "one hundred milligrams five milliliters",
+                "a 5 g network, 5 m people": "a five g network five m people",
+            },
+            "es": {
+                "3 mg/día": "tres miligramos por día",
+                "5 km/h": "cinco kilómetros por hora",
+                "500 mg/kg": "quinientos miligramos por kilogramo",
+                "3 veces/día, 1 h/día": "tres veces por día una hora por día",
+                "5 €/m²": "cinco euros por metro cuadrado",
+                "y/o": "y o",
+            },
+            "de": {
+                "3 mg/Tag": "drei milligramm pro tag",
+                "5 km/h": "fünf kilometer pro stunde",
+                "500 mg/kg": "fünfhundert milligramm pro kilogramm",
+                "3x/Tag, 1 h/Tag": "drei mal pro tag eine stunde pro tag",
+                "5 €/m²": "fünf euro pro quadratmeter",
+                "2,1 g": "zwei komma eins gramm",
+                "und/oder": "und oder",
+            },
+            "it": {
+                "3 mg/die, 3 mg/giorno": "tre milligrammi al giorno tre milligrammi al giorno",
+                "5 km/h": "cinque chilometri all' ora",
+                "500 mg/kg": "cinquecento milligrammi per chilogrammo",
+                "3 volte/giorno": "tre volte al giorno",
+                "5 €/kg": "cinque euro per chilogrammo",
+                "24h/24, 7 giorni/7": "ventiquattro ore su ventiquattro sette giorni su sette",
+                "e/o": "e o",
+            },
+            "pt": {
+                "3 mg/dia": "três miligramas por dia",
+                "5 km/h": "cinco quilómetros por hora",
+                "500 mg/kg": "quinhentos miligramas por quilograma",
+                "3 vezes/dia, 1 h/dia": "três vezes por dia uma hora por dia",
+                "5 €/m²": "cinco euros por metro quadrado",
+                "e/ou": "e ou",
+            },
+            "nl": {
+                "3 mg/dag": "drie milligram per dag",
+                "5 km/h, 5 km/u": "vijf kilometer per uur vijf kilometer per uur",
+                "500 mg/kg": "vijfhonderd milligram per kilogram",
+                "3x/dag": "drie keer per dag",
+                "5 €/m²": "vijf euro per vierkante meter",
+                "en/of": "en of",
+            },
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(format_text_latin(text, lang=lang), expected, msg=f"{lang} {text}")
+
+    def test_slash_with_punctuation(self):
+        for lang, texts in {
+            "fr": {
+                "Il prend 3 mg/j, et/ou 5 ml.": "Il prend trois milligrammes par jour, et ou cinq millilitres.",
+                "2,5mg/j.": "Deux virgule cinq milligrammes par jour.",
+                "matin/soir": "matin soir",
+            },
+            "en": {"He takes 5 mg/day, and/or 2 ml.": "He takes five milligrams per day, and or two milliliters."},
+            "de": {"3 mg/Tag.": "Drei Milligramm pro Tag."},
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(format_text_latin(text, lang=lang, keep_punc=True, lower_case=False), expected)
+        # Numbers not converted
+        self.assertEqual(format_text_latin("3 mg/j et/ou 1/2", keep_punc=True, convert_numbers=False), "3 mg j et ou 1 2")
+
+    def test_one_agreement(self):
+        for lang, texts in {
+            "fr": {"1 min, 1 goutte/jour, 1 £": "une minute une goutte par jour une livre", "un livre, un heure": "un livre un heure"},
+            "es": {"1 h/día, 1 ha, 1 km": "una hora por día una hectárea un kilómetro", "uno kilómetro": "uno kilómetro"},
+            "it": {"1 volta/giorno, 1 km": "una volta al giorno un chilometro"},
+            "de": {"1 min, 1 km, 21 km": "eine minute ein kilometer einundzwanzig kilometer"},
+            "pt": {"1 gota/dia, 1 km": "uma gota por dia um quilómetro"},
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(format_text_latin(text, lang=lang), expected)
+        self.assertEqual(numbers_and_symbols_to_letters("1 €.", lang="de"), "Ein Euro.")
+        self.assertEqual(numbers_and_symbols_to_letters("$1", lang="es"), "un dólar")
+
+    def test_one_currency(self):
+        for lang, expected in {
+            "fr": "un euro un dollar une livre vingt et un euros mille un euros",
+            "en": "one euro one dollar one pound twenty-one euros one thousand and one euros",
+            "es": "un euro un dólar una libra veintiuno euros mil uno euros",
+            "de": "ein euro ein dollar ein pfund einundzwanzig euro eintausendeins euro",
+            "it": "un euro un dollaro una sterlina ventuno euro milleuno euro",
+            "pt": "um euro um dólar uma libra vinte e um euros mil e um euros",
+            "nl": "één euro één dollar één pond eenentwintig euro duizendéén euro",
+        }.items():
+            for text in "1 €, 1 $, 1 £, 21 €, 1 001 €", "€1, $1, £1, €21, 1 001 €":
+                self.assertEqual(format_text_latin(text, lang=lang), expected, msg=f"{lang} {text}")
+
+    def test_wer_units(self):
+        for lang, texts in {
+            "fr": [
+                ("3 mg/j", "trois milligrammes par jour"),
+                ("1 mg", "un milligramme"),
+                ("1 mg", "un milligrammes"),
+                ("0,5 mg", "zéro virgule cinq milligramme"),
+                ("5 µg", "cinq micro grammes"),
+                ("5 m²", "cinq mètre carré"),
+                ("1 €", "un euro"),
+                ("et/ou", "et ou"),
+                ("24h/24", "vingt-quatre heures sur vingt-quatre"),
+            ],
+            "en": [("5 mg/day", "five milligrams per day"), ("1 mg", "one milligram"), ("and/or", "and or")],
+            "es": [("3 mg/día", "tres miligramos por día"), ("1 km", "un kilómetro")],
+            "de": [("3 mg/Tag", "drei Milligramm pro Tag"), ("1 km", "ein Kilometer")],
+            "it": [("3 mg/die", "tre milligrammi al giorno"), ("1 km", "un chilometro")],
+            "pt": [("3 mg/dia", "três miligramas por dia"), ("1 km", "um quilômetro")],
+            "nl": [("3 mg/dag", "drie milligram per dag")],
+        }.items():
+            for ref, pred in texts:
+                for normalization in [lang, lang + "+"]:
+                    self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} / {pred} ({normalization})")
+        for lang, ref, pred in [("fr", "3 mg/j", "trois grammes par jour"), ("fr", "3 mg/j", "trois milligrammes par heure"), ("en", "5 mg/day", "five milligrams per hour")]:
+            self.assertGreater(compute_wer([ref], [pred], normalization=lang)["wer"], 0, msg=f"{ref} / {pred}")
 
     def test_acronyms(self):
         # The case is kept, unless lower case is asked

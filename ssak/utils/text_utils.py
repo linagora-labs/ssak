@@ -27,6 +27,7 @@ from ssak.utils.text_numbers import (
     currencies_after_numbers,
     mark_sentence_starts,
 )
+from ssak.utils.text_variants import agree_one
 
 
 def custom_formatwarning(msg, *args, **kwargs):
@@ -776,6 +777,7 @@ def numbers_and_symbols_to_letters(text, lang, verbose=False):
     text = cardinal_numbers_to_letters(text, lang=lang, verbose=verbose)
     text = symbols_to_letters(text, lang, lower_case=False)
 
+    text = agree_one(text, lang)
     return capitalize_sentence_starts(text)
 
 

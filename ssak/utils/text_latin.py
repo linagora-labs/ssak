@@ -227,6 +227,9 @@ def format_text_latin(
             else:
                 warnings.warn(f"Language {lang} not supported for some normalization. Some words might be mis-localized.")
 
+        # (after the conversion of the units and fractions)
+        text = re.sub("/", " ", text)
+
         # Dashes
         text = re.sub(r"((?:^)|(?:\W))[-_]", r"\1, ", text)  # " j'ai dit -à ma ``belle-mère''-casse-toi" -> " j'ai dit , à ma ``belle-mère'', casse-toi"
         # Find all words with at least 2 dashes

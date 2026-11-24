@@ -28,6 +28,9 @@ def clean_padding(text):
     return re.sub(p, " ", text)
 
 
+# After a number one that has to agree with the next word
+ONE_MARK = "\ue0f2"
+
 # Beginning of a sentence with a number, to get a capital letter
 _SENTENCE_START = "\ue0f1"
 # A dot after these words does not end a sentence
@@ -169,6 +172,17 @@ _SCALE_SUFFIXES = {
 }
 
 
+_SINGULAR_CURRENCIES = {
+    "es": {"dólares": "dólar", "yenes": "yen"},
+    "pt": {"dólares": "dólar"},
+    "it": {"dollari": "dollaro", "sterline": "sterlina"},
+}
+
+
+def _singular_currency(word, lang):
+    return _SINGULAR_CURRENCIES.get(lang, {}).get(word) or re.sub("s$", "", word)
+
+
 def currencies_after_numbers(text, lang, symbol_to_word):
     """
     The currency is said after the number, and after the scale word
@@ -194,10 +208,10 @@ def currencies_after_numbers(text, lang, symbol_to_word):
                 return f"{number} {scale} " + ("d'" if word[0] in "aeiouy" else "de ") + word
             return f"{number} {scale} {word}"
         if number == "1":
-            word = re.sub("s$", "", word)
+            number, word = "1" + ONE_MARK, _singular_currency(word, lang)
         cents = re.fullmatch(r"([\d,. ]+)" + decimal + r"(\d\d)", number)
         if cents:
-            return f"{cents.group(1)} {re.sub('s$', '', word) if cents.group(1) == '1' else word} {cents.group(2)}"
+            return f"{cents.group(1)} {_singular_currency(word, lang) if cents.group(1) == '1' else word} {cents.group(2)}"
         return f"{number} {word}"
 
     # Before the number
@@ -206,6 +220,12 @@ def currencies_after_numbers(text, lang, symbol_to_word):
         lambda m: PADDING + said(m.group(2), m.group(3), m.group(4), symbol_to_word[m.group(1)]),
         text,
         flags=re.IGNORECASE,
+    )
+    # After the number one
+    text = re.sub(
+        r"(?<![\d.,/])(?<!\d[ \u00a0\u2009\u202f])1(\s?)" + symbol + r"(?!\s?\d)",
+        lambda m: f"1{ONE_MARK} " + _singular_currency(symbol_to_word[m.group(2)], lang) + PADDING,
+        text,
     )
     # After the number, with a scale (French: "1,5 M€", "3 millions €")
     if lang == "fr":
@@ -241,6 +261,7 @@ def normalize_spoken_numbers(text, lang):
     - "deux cents", "quatre-vingts" -> "deux cent", "quatre vingt"
     - "dix-neuf cent" -> "mille neuf cent"
     - "pourcent" -> "pour cent"
+    - "milligrammes", "micro grammes", "mètres carrés" -> "milligramme", "microgramme", "mètre carré"
     - "zéro virgule zéro vingt-cinq" -> "zéro virgule zéro deux cinq"
     - "october seventh", "october the seventh" -> "october seven", "seventh october", "the seventh of october" -> "seven october"
     - "three point twenty-five" -> "three point two five"
@@ -439,6 +460,10 @@ def _french_decimals():
 def _normalize_french(text):
     text = re.sub(r"\bpourcents?\b", "pour cent", text, flags=re.IGNORECASE)
     text = re.sub(r"\b(u)ne\b", r"\1n", text, flags=re.IGNORECASE)
+    # The singular and the plural of the units sound the same
+    text = re.sub(r"\b(micro|milli|centi|déci|kilo)\s+(?=(?:gramme|litre|mètre)s?\b)", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b((?:micro|milli|centi|déci|kilo)?(?:gramme|litre|mètre))s\b", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?<=mètre )(carré|cube)s\b", r"\1", text, flags=re.IGNORECASE)
     text = _split_compounds(text, _NUMBERS_FR)
     text = re.sub(rf"\b({_NUMBERS_FR})\s+point\s+(?=(?:{_NUMBERS_FR})\b)", r"\1 virgule ", text, flags=re.IGNORECASE)
     text = re.sub(rf"\b((?:{_NUMBERS_FR})\s+)(cent|vingt|mille)s\b", r"\1\2", text, flags=re.IGNORECASE)
