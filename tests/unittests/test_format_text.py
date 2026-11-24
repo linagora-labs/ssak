@@ -1,7 +1,8 @@
 import os
 
-from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru
-from ssak.utils.text_utils import normalize_english_numbers
+from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru, numbers_and_symbols_to_letters
+from ssak.utils.text_numbers import normalize_spoken_numbers
+from ssak.utils.wer import compute_wer
 
 from .utils import Test
 
@@ -134,15 +135,98 @@ class TestFormatTextLatin(Test):
         }.items():
             self.assertEqual(format_text_latin(text, lang="en"), expected)
 
+    def test_number_formats(self):
+        for text, expected in {
+            "3,14159 et 0,0125 et 1.234,56 et 1,234.56": "trois virgule un quatre un cinq neuf et zéro virgule zéro cent vingt-cinq "
+            "et mille deux cent trente-quatre virgule cinquante-six et mille deux cent trente-quatre virgule cinquante-six",
+            "COVID-19, B-6, le n°5 et il fait -5": "covid dix-neuf b six le numéro cinq et il fait moins cinq",
+            "à 14:30, à 7h, à 15h00 et à 1h": "à quatorze heures trente à sept heures à quinze heures et à une heure",
+            "la 1ère, la 2nde et les 3èmes": "la première la seconde et les troisièmes",
+            "$5, 12,5 € et 1,5 M€": "cinq dollars douze virgule cinq euros et un virgule cinq millions d' euros",
+            "X-Prep et XIXe siècle": "x-prep et dix-neuvième siècle",
+            "et aujourd'hui 1 injection": "et aujourd'hui un injection",
+        }.items():
+            self.assertEqual(format_text_latin(text), expected)
+        for text, expected in {
+            "COVID-19 in the mid-40s and the 1990s": "covid nineteen in the mid forties and the nineteen nineties",
+            "at 7:30 or 9:05, 24/7": "at seven thirty or nine oh five twenty-four seven",
+            "#5 and No. 6": "number five and number six",
+            "1.234,56 and version 1.2.3": "one thousand two hundred and thirty-four point five six and version one dot two dot three",
+        }.items():
+            self.assertEqual(format_text_latin(text, lang="en"), expected)
+
+    def test_number_spaces(self):
+        for lang, texts in {
+            "en": {
+                "$1.5 millions": "one point five millions dollars",
+                "2024": "two thousand and twenty-four",
+                "20 24": "twenty twenty-four",
+                "in 2021, (12) and 50%.": "in two thousand and twenty-one, (twelve) and fifty percent.",
+                "Q3 of US$5bn": "Q three of US five billion dollars",
+                "480- uh, 64- 64 to 81": "four hundred and eighty uh, sixty-four sixty-four to eighty-one",
+                "5kg  and  6": "five kg  and  six",  # The other spaces are kept
+                " 7 ": " seven ",
+            },
+            "fr": {
+                "1, 2, 3 !": "un, deux, trois !",
+                "Il y en a 1,5 % et 20€.": "Il y en a un virgule cinq pour cent et vingt euros.",
+                "d'1 dose": "d'un dose",
+                "007 à -5°C": "zéro zéro sept à moins cinq degrés Celsius",
+            },
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(numbers_and_symbols_to_letters(text, lang=lang), expected)
+
+    def test_number_other_languages(self):
+        for lang, expected in {
+            "es": "mil quinientos euros y cincuenta por ciento",
+            "de": "eintausendfünfhundert euro y fünfzig prozent",
+            "it": "millecinquecento euro y cinquanta per cento",
+            "pt": "mil e quinhentos euros y cinquenta por cento",
+            "nl": "duizendvijfhonderd euro y vijftig procent",
+        }.items():
+            self.assertEqual(format_text_latin("1.500 € y 50%", lang=lang), expected)
+        # Unsupported language: not converted
+        self.assertEqual(numbers_and_symbols_to_letters("21 1,5 50%", lang="xx"), "21 1,5 50%")
+
+    def test_wer_numbers(self):
+        for lang, texts in {
+            "fr": [
+                ("il prend 1,5 mg", "il prend un virgule cinq milligrammes"),
+                ("il prend 1,5 mg", "il prend 1.5 mg"),
+                ("1 goutte", "une goutte"),
+                ("50 pourcent", "50 %"),
+                ("quatre-vingts et 200", "quatre-vingt et deux cent"),
+                ("en 1980", "en dix-neuf cent quatre-vingt"),
+                ("à 14:30", "à quatorze heures trente"),
+            ],
+            "en": [
+                ("it was 250 people", "it was two hundred fifty people"),
+                ("in 2021", "in twenty twenty-one"),
+                ("in 1905 and 2005", "in nineteen oh five and two thousand and five"),
+                ("$1.5 million", "one point five million dollars"),
+                ("3.25%", "three point two five per cent"),
+                ("1,200 and a hundred", "twelve hundred and one hundred"),
+            ],
+        }.items():
+            for ref, pred in texts:
+                for normalization in [lang, lang + "+"]:
+                    self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} / {pred} ({normalization})")
+            self.assertGreater(compute_wer(["1,5 et 99"], ["15 et 99"], normalization=lang)["wer"], 0)
+        # The inputs are not modified
+        refs, preds = ["a euh b"], ["a b"]
+        compute_wer(refs, preds, replacements_ref={"euh": ""}, replacements_pred={"euh": ""})
+        self.assertEqual(refs, ["a euh b"])
+
     def test_normalize_english_numbers(self):
         for text, expected in {
             "two hundred and fifty and rock and roll": "two hundred fifty and rock and roll",
-            "a million and a half": "a million and a half",
+            "a million and a half": "one million and a half",
             "in twenty twenty-one and nineteen ninety five": "in two thousand twenty one and one thousand nine hundred ninety five",
             "in twenty twenty": "in two thousand twenty",
-            "in two thousand and twenty-one": "in two thousand twenty-one",
+            "in two thousand and twenty-one": "in two thousand twenty one",
         }.items():
-            self.assertEqual(normalize_english_numbers(text), expected)
+            self.assertEqual(normalize_spoken_numbers(text, "en"), expected)
 
     def test_format_currencies(self):
         for text in [

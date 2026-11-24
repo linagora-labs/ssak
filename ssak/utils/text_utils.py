@@ -1,12 +1,13 @@
 import re
 import warnings
 
-from num2words import num2words
+from num2words import CONVERTER_CLASSES, num2words
 
 from ssak.utils.misc import flatten
 from ssak.utils.text_basic import (
     regex_escape,
 )
+from ssak.utils.text_numbers import PADDING, base_language, clean_number_formats, clean_padding, currencies_after_numbers
 
 
 def custom_formatwarning(msg, *args, **kwargs):
@@ -246,6 +247,71 @@ _symbol_to_word = {
         "₹": "рупий",
         "₽": "рубль",
     },
+    "es": {
+        "%": "por ciento",
+        "‰": "por mil",
+        "+": "más",
+        "&": "y",
+        "@": "arroba",
+        "°C": "grados Celsius",
+        "°": "grados",
+        "€": "euros",
+        "$": "dólares",
+        "£": "libras",
+        "¥": "yenes",
+    },
+    "de": {
+        "%": "Prozent",
+        "‰": "Promille",
+        "+": "plus",
+        "&": "und",
+        "@": "at",
+        "°C": "Grad Celsius",
+        "°": "Grad",
+        "€": "Euro",
+        "$": "Dollar",
+        "£": "Pfund",
+        "¥": "Yen",
+    },
+    "it": {
+        "%": "per cento",
+        "‰": "per mille",
+        "+": "più",
+        "&": "e",
+        "@": "chiocciola",
+        "°C": "gradi Celsius",
+        "°": "gradi",
+        "€": "euro",
+        "$": "dollari",
+        "£": "sterline",
+        "¥": "yen",
+    },
+    "pt": {
+        "%": "por cento",
+        "‰": "por mil",
+        "+": "mais",
+        "&": "e",
+        "@": "arroba",
+        "°C": "graus Celsius",
+        "°": "graus",
+        "€": "euros",
+        "$": "dólares",
+        "£": "libras",
+        "¥": "ienes",
+    },
+    "nl": {
+        "%": "procent",
+        "‰": "promille",
+        "+": "plus",
+        "&": "en",
+        "@": "apenstaartje",
+        "°C": "graden Celsius",
+        "°": "graden",
+        "€": "euro",
+        "$": "dollar",
+        "£": "pond",
+        "¥": "yen",
+    },
 }
 
 _ar_currencies = {
@@ -301,9 +367,10 @@ def replace_keeping_word_boundaries(orig, dest, text):
     if orig in text:
         _orig = regex_escape(orig)
         text = re.sub(r"(\W)" + _orig + r"(\W)", r"\1" + dest + r"\2", text)
-        text = re.sub(_orig + r"(\W)", " " + dest + r"\1", text)
-        text = re.sub(r"(\W)" + _orig, r"\1" + dest + " ", text)
-        text = re.sub(_orig, " " + dest + " ", text)
+        text = re.sub(_orig + r"(\W)", PADDING + dest + r"\1", text)
+        text = re.sub(r"(\W)" + _orig, r"\1" + dest + PADDING, text)
+        text = re.sub(_orig, PADDING + dest + PADDING, text)
+        text = clean_padding(text)
     return text
 
 
@@ -353,27 +420,41 @@ def remove_special_characters(
     return output
 
 
+def is_number_language(lang):
+    """Whether the numbers can be converted into letters in this language"""
+    return lang in CONVERTER_CLASSES or lang[:2] in CONVERTER_CLASSES
+
+
 def cardinal_numbers_to_letters(text, lang, verbose=False):
     """
     Convert numbers to letters
     """
+    if not is_number_language(lang):
+        return text
+    punct_to_word = _punct_to_word.get(lang, _punct_to_word["en"])
     if lang == "en":
-        # Thousands separators ("1,250" -> "1250")
-        text = re.sub(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?!,?\d)", lambda m: m.group().replace(",", ""), text)
         # Decimals are read digit by digit ("3.25" -> "3 point two five"), unlike versions ("1.2.3")
         text = re.sub(
             r"(?<![\d.])(\d+)\.(\d+)(?!\.?\d)",
-            lambda m: m.group(1) + " point " + " ".join(undigit(d, lang=lang) for d in m.group(2)) + " ",
+            lambda m: m.group(1) + " point " + " ".join(undigit(d, lang=lang) for d in m.group(2)) + PADDING,
+            text,
+        )
+    elif not lang.startswith("ar"):
+        # Long decimal parts are read digit by digit ("3,14159"), and not as a number
+        text = re.sub(
+            r"(?<![\d.,])(\d+)([.,])(0*[1-9]\d{3,})(?![.,]?\d)",
+            lambda m: f"{m.group(1)} {punct_to_word[m.group(2)]} " + " ".join(undigit(d, lang=lang) for d in m.group(3)) + PADDING,
             text,
         )
     # Floating point numbers
-    text = re.sub(r"(\d)[,،](\d)", r"\1 " + _punct_to_word[lang][","] + r" \2", text)
-    text = re.sub(r"(\d)\.(\d)", r"\1 " + _punct_to_word[lang]["."] + r" \2", text)
+    text = re.sub(r"(?<=\d)[,،](?=\d)", f" {punct_to_word[',']} ", text)
+    text = re.sub(r"(?<=\d)\.(?=\d)", f" {punct_to_word['.']} ", text)
     # wav2vec -> wav to vec
     text = re.sub(r"([a-z])2([a-z])", r"\1 to \2", text)
     # space after digits
     text = re.sub(r"(\d)([a-zA-Z])", r"\1 \2", text)
     # For things like 40-MFCC
+    text = re.sub(r"(\d)-(?=\s|$)", r"\1", text)
     text = re.sub(r"(\d)-", r"\1 ", text)
 
     digits = re.findall(r"(?:\-?\b[\d/]*\d+(?: \d\d\d)+\b)|(?:\-?\d[/\d]*)", text)
@@ -458,9 +539,11 @@ def cardinal_numbers_to_letters(text, lang, verbose=False):
             print(digit, "->", word)
         # text = replace_keeping_word_boundaries(digit, word, text)
         if " " in digit:
-            text = re.sub(r"\b" + str(digit) + r"\b", " " + word + " ", text)
+            text = re.sub(r"\b" + str(digit) + r"\b", PADDING + word + PADDING, text)
         else:
-            text = re.sub(str(digit), " " + word + " ", text)
+            text = re.sub(str(digit), PADDING + word + PADDING, text)
+
+    text = clean_padding(text)
 
     if lang == "ru":
         text = ru_fix_ordinals(text)
@@ -474,10 +557,13 @@ WARNING_NOTIMPLEMENTED_ORDINAL = {}
 def ordinal_numbers_to_letters(text, lang):
     global WARNING_NOTIMPLEMENTED_ORDINAL
 
+    if not is_number_language(lang):
+        return text
+
     if lang == "en":
-        digits = re.findall(r"\b\d*1(?:st)|\d*2(?:nd)|\d*3(?:rd)|\d+(?:º|th)\b", text)
+        digits = re.findall(r"\b(?:\d*1st|\d*2nd|\d*3rd|\d+(?:º|th))\b", text)
     elif lang == "fr":
-        digits = re.findall(r"\b1(?:ère|ere|er|re|r)|2(?:nd|nde)|\d+(?:º|ème|eme|e)\b", text)
+        digits = re.findall(r"\b(?:1(?:ères?|eres?|ers?|res?|r)|2(?:ndes?|nds?)|\d+(?:º|[èe]mes?|e))\b", text)
     else:
         if not WARNING_NOTIMPLEMENTED_ORDINAL.get(lang):
             warnings.warn(f"WARNING: Normalization of ordinal numbers not supported for language '{lang}'")
@@ -488,12 +574,22 @@ def ordinal_numbers_to_letters(text, lang):
         digits = sorted(list(set(digits)), reverse=True, key=lambda x: (len(x), x))
         for digit in digits:
             word = undigit(re.findall(r"\d+", digit)[0], to="ordinal", lang=lang)
+            if lang == "fr":
+                suffix = re.sub(r"\d+", "", digit)
+                if re.match(r"1[^\d]", digit) and suffix.rstrip("s") in ["ère", "ere", "re"]:
+                    word = "première"
+                elif re.match(r"2[^\d]", digit) and suffix.startswith("nd"):
+                    word = "seconde" if suffix.startswith("nde") else "second"
+                if suffix.endswith("s"):
+                    word += "s"
             text = re.sub(r"\b" + str(digit) + r"\b", word, text)
 
     return text
 
 
 def roman_numbers_to_letters(text, lang):
+    if not is_number_language(lang):
+        return text
     # Roman digits
     if re.search(r"[IVX]", text):
         if lang == "en":
@@ -510,6 +606,9 @@ def roman_numbers_to_letters(text, lang):
             for s in digits:
                 filtered = re.sub("[a-zèº]", "", s)
                 ordinal = filtered != s
+                if filtered == "X" and not ordinal:
+                    # Likely not a number ("X-Prep", "rayons X", "Malcolm X")
+                    continue
                 digit = roman_to_decimal(filtered)
                 v = undigit(str(digit), lang=lang, to="ordinal" if ordinal else "cardinal")
                 text = re.sub(r"\b" + s + r"\b", v, text)
@@ -555,95 +654,26 @@ def roman_to_decimal(str):
     return res
 
 
-_SCALES_EN = "hundred|thousand|million|billion|trillion"
-_SCALE_SUFFIXES_EN = {"k": "thousand", "m": "million", "b": "billion", "bn": "billion"}
-
-
-def currencies_after_numbers(text, lang):
-    """
-    English: the currency written before a number is said after it, and after the scale word
-    "$1.5 million" -> "1.5 million dollars", "$5bn" -> "5 billion dollars", "$1" -> "1 dollar", "$4.99" -> "4 dollars 99"
-    """
-    if lang != "en":
-        return text
-
-    def reorder(match):
-        symbol, number, scale, suffix = match.groups()
-        word = _symbol_to_word["en"][symbol]
-        scale = scale or (_SCALE_SUFFIXES_EN[suffix.lower()] if suffix else None)
-        if scale:
-            return f" {number} {scale} {word}"
-        if re.fullmatch(r"[\d,]+\.\d\d", number):  # cents
-            integer, cents = number.split(".")
-            return f" {integer} {word[:-1] if integer == '1' else word} {cents}"
-        return f" {number} {word[:-1] if number == '1' else word}"
-
-    return re.sub(
-        r"([$€£¥₹])\s*(\d+(?:,\d{3})*(?:\.\d+)?)(?:\s*(" + _SCALES_EN + r")\b|(bn|[kmb])\b)?(?!\d)",
-        reorder,
-        text,
-        flags=re.IGNORECASE,
-    )
-
-
-def _english_years():
-    """{"twenty twenty one": "two thousand twenty one"} from 1910 to 2026 (except 2000-2009, which are said the same)"""
-    years = {}
-    for year in list(range(1910, 2000)) + list(range(2010, 2027)):
-        if year % 100 < 10:
-            continue
-        spoken = f"{undigit(str(year // 100), lang='en')} {undigit(str(year % 100), lang='en')}"
-        years[spoken.replace("-", " ")] = _remove_english_and(undigit(str(year), lang="en")).replace("-", " ").replace(",", "")
-    return years
-
-
-_NUMBER_WORDS_EN = (
-    "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
-    "nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
-)
-_ENGLISH_YEARS = None
-
-
-def _remove_english_and(text):
-    return re.sub(
-        r"\b(" + _SCALES_EN + r"),?[\s-]+and[\s-]+(?=(?:" + _NUMBER_WORDS_EN + r")\b)", r"\1 ", text, flags=re.IGNORECASE
-    )
-
-
-def normalize_english_numbers(text):
-    """
-    Single way to write the numbers in letters in English, for comparing texts (WER), once the digits are converted to letters:
-    - without "and": "two hundred and fifty" -> "two hundred fifty"
-    - years read in two parts: "twenty twenty-one" -> "two thousand twenty one"
-    """
-    global _ENGLISH_YEARS
-    text = _remove_english_and(text)
-    if _ENGLISH_YEARS is None:
-        _ENGLISH_YEARS = _english_years()
-    spoken = sorted(_ENGLISH_YEARS, key=len, reverse=True)
-    pattern = "|".join(s.replace(" ", r"[\s-]+") for s in spoken)
-    return re.sub(
-        r"(?<![\w-])(?:" + pattern + r")(?![\w-])",
-        lambda m: _ENGLISH_YEARS[re.sub(r"[\s-]+", " ", m.group().lower())],
-        text,
-        flags=re.IGNORECASE,
-    )
-
-
 def numbers_and_symbols_to_letters(text, lang, verbose=False):
+    """
+    Convert numbers and symbols to letters
+    In a language where the numbers cannot be converted, only the symbols known in this language are.
+    """
+    lang = base_language(lang)
     # "10 000"/"10,000"/"10.000" -> "10000"
     numbers = re.findall(r"\b[1-9]\d{0,2}(?:[\.,]000)+\b", text)
     for n in numbers:
         text = re.sub(r"\b" + n + r"\b", re.sub(r"[,.]", "", n), text)
 
-    text = currencies_after_numbers(text, lang=lang)
+    text = clean_number_formats(text, lang=lang)
+    text = currencies_after_numbers(text, lang=lang, symbol_to_word=_symbol_to_word.get(lang, {}))
 
-    # Reorder currencies (1,20€ -> 1 € 20)
-    coma = "," if lang in ["fr"] else r"\."
+    # Reorder currencies, with cents (1,20€ -> 1 € 20)
+    coma = r"\." if lang in ["en", "ar", "ar_tn", "ru"] else ","
     for c in _currencies:
         if c in text:
             c = regex_escape(c)
-            text = re.sub(r"\b(\d+)" + coma + r"(\d+)\s*" + c, r"\1 " + c + r" \2", text)
+            text = re.sub(r"\b(\d+)" + coma + r"(\d\d)\s*" + c, r"\1 " + c + r" \2", text)
 
     text = roman_numbers_to_letters(text, lang=lang)
     text = ordinal_numbers_to_letters(text, lang=lang)
@@ -727,6 +757,8 @@ def robust_num2words(x, lang, to="cardinal", orig=""):
             res = " ".join(robust_num2words(int(xi), lang=lang, to=to, orig=xi) for xi in orig)
         else:
             res = _minus.get(lang, _minus["en"]) + " " + robust_num2words(-x, lang=lang, to=to, orig=orig.replace("-", ""))
+    if lang == "en":
+        res = res.replace(",", "")  # "one thousand, two hundred"
     if lang == "fr" and to == "ordinal":
         res = res.replace("vingtsième", "vingtième")
     elif lang == "ar":
@@ -967,6 +999,34 @@ _punct_to_word = {
         ":": "двоеточие",
         "?": "вопросительный знак",
         "!": "восклицательный знак",
+    },
+    "es": {
+        ",": "coma",
+        ".": "punto",
+    },
+    "de": {
+        ",": "Komma",
+        ".": "Punkt",
+    },
+    "it": {
+        ",": "virgola",
+        ".": "punto",
+    },
+    "pt": {
+        ",": "vírgula",
+        ".": "ponto",
+    },
+    "nl": {
+        ",": "komma",
+        ".": "punt",
+    },
+    "ca": {
+        ",": "coma",
+        ".": "punt",
+    },
+    "pl": {
+        ",": "przecinek",
+        ".": "kropka",
     },
 }
 

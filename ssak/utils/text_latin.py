@@ -107,8 +107,10 @@ def format_text_latin(
         text = re.sub("''", '"', text)
         text = re.sub("-+", "-", text)  # ---- -> -
 
-        for reg, replacement in _corrections_caracteres_speciaux.get(lang, _corrections_caracteres_speciaux["fr"]):
-            text = re.sub(reg, replacement, text)
+        # The other languages have their own diacritics
+        if lang in ["fr", "en"]:
+            for reg, replacement in _corrections_caracteres_speciaux["fr"]:
+                text = re.sub(reg, replacement, text)
 
         text = " " + text + " "
 
@@ -116,6 +118,8 @@ def format_text_latin(
         # Find all the websites in the text
         if lang == "fr":
             websites = [w for w in re.findall(r"(?:(?:https?|ftp):\/\/)?[\w/\-?=%.]+\.[\w/\-&?=%.]+", text) if ".." not in w]
+            # Not the numbers ("1.234,56")
+            websites = [w for w in websites if re.search(r"[^\W\d]", w)]
             websites = sorted(set(websites), key=len, reverse=True)
             for w in websites:
                 w2 = w
@@ -141,7 +145,7 @@ def format_text_latin(
             text = re.sub(r"\.*\?\.*", "?", text)
             text = re.sub(r"\!", " ! ", text)
             text = re.sub(r"\?", " ? ", text)
-            text = re.sub(":", " : ", text)
+            text = re.sub(r"(?<!\d):|:(?!\d\d(?!\d))", " : ", text)  # not in hours ("14:30")
             text = re.sub(";", " ; ", text)
         # text = re.sub("^ *-+", "", text)
         if wer_format:
@@ -170,8 +174,9 @@ def format_text_latin(
         # text=re.sub('\]',' ] ',text)
         # text=re.sub(r"<([^<>]*)>",r"\1",text)
 
-        for reg, replacement in _corrections_regex_fr:
-            text = re.sub(reg, replacement, text)
+        if lang in ["fr", "en"]:
+            for reg, replacement in _corrections_regex_fr:
+                text = re.sub(reg, replacement, text)
 
         if convert_numbers:
             heures = re.findall(r"\d+ *h *\d+", text)
@@ -182,6 +187,8 @@ def format_text_latin(
                 text = text.replace(h, text_rep)
 
             text = numbers_and_symbols_to_letters(text, lang=lang)
+            if wer_format:
+                text = re.sub(r"\b(millions?|milliards?) d'(?=\w)", r"\1 d' ", text)  # "millions d'euros", from "M€"
 
             if lang == "fr":
                 for reg, replacement in _corrections_abbreviations_fr:

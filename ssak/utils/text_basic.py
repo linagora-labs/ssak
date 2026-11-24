@@ -33,6 +33,30 @@ def remove_punctuations(text, replace_by="", strong=False):
 _non_printable_pattern = r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]"  # r'[\x00-\x1F\x7F-\x9F]'
 
 
+_ligatures = {
+    "œ": "oe",
+    "æ": "ae",
+    "Œ": "Oe",
+    "Æ": "Ae",
+    "ĳ": "ij",
+    "Ĳ": "IJ",
+    "ﬀ": "ff",
+    "ﬁ": "fi",
+    "ﬂ": "fl",
+    "ﬃ": "ffi",
+    "ﬄ": "ffl",
+    "ﬅ": "st",
+    "ﬆ": "st",
+}
+_ligatures_pattern = re.compile("[" + "".join(_ligatures) + "]")
+
+
+def replace_ligatures(text):
+    """ "cœur" -> "coeur", "Œuvre" -> "Oeuvre", "ŒUVRE" -> "OEUVRE" """
+    text = re.sub(r"[ŒÆ](?=[^\W\d_])", lambda m: _ligatures[m.group()].upper() if text[m.end()].isupper() else _ligatures[m.group()], text)
+    return _ligatures_pattern.sub(lambda m: _ligatures[m.group()], text)
+
+
 def format_special_characters(text, remove_ligatures=False, format_whitespace=True):
     for before, after in [
         ("â", "â"),
@@ -62,13 +86,7 @@ def format_special_characters(text, remove_ligatures=False, format_whitespace=Tr
         text = re.sub(before, after, text)
 
     if remove_ligatures:
-        text = re.sub("œ", "oe", text)
-        text = re.sub("æ", "ae", text)
-        text = re.sub("ﬁ", "fi", text)
-        text = re.sub("ﬂ", "fl", text)
-        text = re.sub("ĳ", "ij", text)
-        text = re.sub("Œ", "Oe", text)
-        text = re.sub("Æ", "Ae", text)
+        text = replace_ligatures(text)
 
     text = re.sub(" - | -$|^- ", " ", text)
     # text = re.sub('--+',' ', text)

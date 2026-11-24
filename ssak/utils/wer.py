@@ -99,6 +99,9 @@ def compute_wer(
     assert isinstance(refs, list)
     assert isinstance(preds, list)
     assert len(refs) == len(preds)
+    # The inputs are not modified
+    refs, preds = list(refs), list(preds)
+    words_list = list(words_list) if words_list else words_list
 
     if words_blacklist:
         # Remove examples where the reference includes a word from the blacklist
@@ -127,6 +130,7 @@ def compute_wer(
 
     if normalization:
         from ssak.utils.text import format_text
+        from ssak.utils.text_numbers import base_language, normalize_spoken_numbers
 
         strong_normalization = normalization.endswith("+")
         if strong_normalization:
@@ -135,6 +139,7 @@ def compute_wer(
         if very_strong_normalization:
             normalization = normalization[:-1]
 
+        normalization = base_language(normalization)
         normalize_funcs = []
         if normalization.startswith("ar"):
             kwargs = {
@@ -145,19 +150,8 @@ def compute_wer(
         else:
             normalize_funcs.append(lambda x: format_text(x, language=normalization))
 
-        if normalization == "fr":
-
-            def further_normalize(s):
-                # Fix masculine / feminine for un ("1 fois" / "une fois" -> "un fois")
-                return re.sub(r"\bune?\b", "1", s)
-
-            normalize_funcs.append(further_normalize)
-
-        if normalization == "en":
-            from ssak.utils.text_utils import normalize_english_numbers
-
-            # "two hundred and fifty" -> "two hundred fifty", "twenty twenty-one" -> "two thousand twenty one"
-            normalize_funcs.append(normalize_english_numbers)
+        # Different ways to say the same numbers ("une fois" / "un fois", "two hundred and fifty" / "two hundred fifty")
+        normalize_funcs.append(lambda x: normalize_spoken_numbers(x, normalization))
 
         if strong_normalization:
             from ssak.utils.text_basic import collapse_whitespace

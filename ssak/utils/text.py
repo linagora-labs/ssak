@@ -2,7 +2,7 @@ from .text_latin import format_text_latin, numbers_and_symbols_to_letters
 
 
 def format_text(text, language, **kwargs):
-    if language in ["fr", "en"]:
+    if language in ["fr", "en", "es", "de", "it", "pt", "nl"]:
         return format_text_latin(text, lang=language, **kwargs)
     if language.startswith("ar"):
         from .text_ar import format_text_ar
