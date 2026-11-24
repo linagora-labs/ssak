@@ -1,6 +1,7 @@
 import os
 
 from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru
+from ssak.utils.text_utils import normalize_english_numbers
 
 from .utils import Test
 
@@ -113,6 +114,35 @@ class TestFormatTextLatin(Test):
                 ]
             ),
         )
+
+    def test_format_decimals_en(self):
+        self.assertEqual(
+            format_text_latin("It was 1.5 percent, then 3.25% and 0.05.", lang="en"),
+            "it was one point five percent then three point two five percent and zero point zero five",
+        )
+        self.assertEqual(
+            format_text_latin("1,250 people, 12,345 others, and 1,000 more", lang="en"),
+            "one thousand two hundred and fifty people twelve thousand three hundred and forty-five others and one thousand more",
+        )
+
+    def test_format_currencies_en(self):
+        for text, expected in {
+            "$1.5 million": "one point five million dollars",
+            "$5bn and $2.5M": "five billion dollars and two point five million dollars",
+            "$1 or £1,250": "one dollar or one thousand two hundred and fifty pounds",
+            "$4.99": "four dollars ninety-nine",
+        }.items():
+            self.assertEqual(format_text_latin(text, lang="en"), expected)
+
+    def test_normalize_english_numbers(self):
+        for text, expected in {
+            "two hundred and fifty and rock and roll": "two hundred fifty and rock and roll",
+            "a million and a half": "a million and a half",
+            "in twenty twenty-one and nineteen ninety five": "in two thousand twenty one and one thousand nine hundred ninety five",
+            "in twenty twenty": "in two thousand twenty",
+            "in two thousand and twenty-one": "in two thousand twenty-one",
+        }.items():
+            self.assertEqual(normalize_english_numbers(text), expected)
 
     def test_format_currencies(self):
         for text in [

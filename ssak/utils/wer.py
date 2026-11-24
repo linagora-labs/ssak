@@ -153,6 +153,12 @@ def compute_wer(
 
             normalize_funcs.append(further_normalize)
 
+        if normalization == "en":
+            from ssak.utils.text_utils import normalize_english_numbers
+
+            # "two hundred and fifty" -> "two hundred fifty", "twenty twenty-one" -> "two thousand twenty one"
+            normalize_funcs.append(normalize_english_numbers)
+
         if strong_normalization:
             from ssak.utils.text_basic import collapse_whitespace
 

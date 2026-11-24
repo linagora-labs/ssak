@@ -357,6 +357,15 @@ def cardinal_numbers_to_letters(text, lang, verbose=False):
     """
     Convert numbers to letters
     """
+    if lang == "en":
+        # Thousands separators ("1,250" -> "1250")
+        text = re.sub(r"(?<![\d.,])\d{1,3}(?:,\d{3})+(?!,?\d)", lambda m: m.group().replace(",", ""), text)
+        # Decimals are read digit by digit ("3.25" -> "3 point two five"), unlike versions ("1.2.3")
+        text = re.sub(
+            r"(?<![\d.])(\d+)\.(\d+)(?!\.?\d)",
+            lambda m: m.group(1) + " point " + " ".join(undigit(d, lang=lang) for d in m.group(2)) + " ",
+            text,
+        )
     # Floating point numbers
     text = re.sub(r"(\d)[,،](\d)", r"\1 " + _punct_to_word[lang][","] + r" \2", text)
     text = re.sub(r"(\d)\.(\d)", r"\1 " + _punct_to_word[lang]["."] + r" \2", text)
@@ -546,11 +555,88 @@ def roman_to_decimal(str):
     return res
 
 
+_SCALES_EN = "hundred|thousand|million|billion|trillion"
+_SCALE_SUFFIXES_EN = {"k": "thousand", "m": "million", "b": "billion", "bn": "billion"}
+
+
+def currencies_after_numbers(text, lang):
+    """
+    English: the currency written before a number is said after it, and after the scale word
+    "$1.5 million" -> "1.5 million dollars", "$5bn" -> "5 billion dollars", "$1" -> "1 dollar", "$4.99" -> "4 dollars 99"
+    """
+    if lang != "en":
+        return text
+
+    def reorder(match):
+        symbol, number, scale, suffix = match.groups()
+        word = _symbol_to_word["en"][symbol]
+        scale = scale or (_SCALE_SUFFIXES_EN[suffix.lower()] if suffix else None)
+        if scale:
+            return f" {number} {scale} {word}"
+        if re.fullmatch(r"[\d,]+\.\d\d", number):  # cents
+            integer, cents = number.split(".")
+            return f" {integer} {word[:-1] if integer == '1' else word} {cents}"
+        return f" {number} {word[:-1] if number == '1' else word}"
+
+    return re.sub(
+        r"([$€£¥₹])\s*(\d+(?:,\d{3})*(?:\.\d+)?)(?:\s*(" + _SCALES_EN + r")\b|(bn|[kmb])\b)?(?!\d)",
+        reorder,
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _english_years():
+    """{"twenty twenty one": "two thousand twenty one"} from 1910 to 2026 (except 2000-2009, which are said the same)"""
+    years = {}
+    for year in list(range(1910, 2000)) + list(range(2010, 2027)):
+        if year % 100 < 10:
+            continue
+        spoken = f"{undigit(str(year // 100), lang='en')} {undigit(str(year % 100), lang='en')}"
+        years[spoken.replace("-", " ")] = _remove_english_and(undigit(str(year), lang="en")).replace("-", " ").replace(",", "")
+    return years
+
+
+_NUMBER_WORDS_EN = (
+    "zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
+    "nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety"
+)
+_ENGLISH_YEARS = None
+
+
+def _remove_english_and(text):
+    return re.sub(
+        r"\b(" + _SCALES_EN + r"),?[\s-]+and[\s-]+(?=(?:" + _NUMBER_WORDS_EN + r")\b)", r"\1 ", text, flags=re.IGNORECASE
+    )
+
+
+def normalize_english_numbers(text):
+    """
+    Single way to write the numbers in letters in English, for comparing texts (WER), once the digits are converted to letters:
+    - without "and": "two hundred and fifty" -> "two hundred fifty"
+    - years read in two parts: "twenty twenty-one" -> "two thousand twenty one"
+    """
+    global _ENGLISH_YEARS
+    text = _remove_english_and(text)
+    if _ENGLISH_YEARS is None:
+        _ENGLISH_YEARS = _english_years()
+    spoken = sorted(_ENGLISH_YEARS, key=len, reverse=True)
+    pattern = "|".join(s.replace(" ", r"[\s-]+") for s in spoken)
+    return re.sub(
+        r"(?<![\w-])(?:" + pattern + r")(?![\w-])",
+        lambda m: _ENGLISH_YEARS[re.sub(r"[\s-]+", " ", m.group().lower())],
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
 def numbers_and_symbols_to_letters(text, lang, verbose=False):
     # "10 000"/"10,000"/"10.000" -> "10000"
     numbers = re.findall(r"\b[1-9]\d{0,2}(?:[\.,]000)+\b", text)
     for n in numbers:
         text = re.sub(r"\b" + n + r"\b", re.sub(r"[,.]", "", n), text)
+
+    text = currencies_after_numbers(text, lang=lang)
 
     # Reorder currencies (1,20€ -> 1 € 20)
     coma = "," if lang in ["fr"] else r"\."
