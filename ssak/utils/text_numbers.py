@@ -172,6 +172,13 @@ _SCALE_SUFFIXES = {
 }
 
 
+def is_singular_number(number, lang):
+    """Whether a name is singular after a number in digits: one only, or in French everything below two ("1,5 kilomètre")"""
+    if lang == "fr":
+        return bool(re.fullmatch(r"[01](?:[.,]\d+)?", number)) and not re.fullmatch(r"1(?:[.,]000)+", number)
+    return number == "1"
+
+
 _SINGULAR_CURRENCIES = {
     "es": {"dólares": "dólar", "yenes": "yen"},
     "pt": {"dólares": "dólar"},
@@ -204,15 +211,17 @@ def currencies_after_numbers(text, lang, symbol_to_word):
     def said(number, scale, suffix, word):
         scale = scale or (suffixes[suffix.lower()] if suffix else None)
         if scale:
+            if suffix and lang == "fr" and is_singular_number(number, lang):
+                scale = re.sub("s$", "", scale)
             if lang == "fr" and not scale.startswith("mille"):
                 return f"{number} {scale} " + ("d'" if word[0] in "aeiouy" else "de ") + word
             return f"{number} {scale} {word}"
-        if number == "1":
-            number, word = "1" + ONE_MARK, _singular_currency(word, lang)
         cents = re.fullmatch(r"([\d,. ]+)" + decimal + r"(\d\d)", number)
         if cents:
-            return f"{cents.group(1)} {_singular_currency(word, lang) if cents.group(1) == '1' else word} {cents.group(2)}"
-        return f"{number} {word}"
+            number = cents.group(1)
+        if is_singular_number(number, lang):
+            number, word = number + (ONE_MARK if number == "1" else ""), _singular_currency(word, lang)
+        return f"{number} {word}" + (f" {cents.group(2)}" if cents else "")
 
     # Before the number
     text = re.sub(
@@ -221,12 +230,17 @@ def currencies_after_numbers(text, lang, symbol_to_word):
         text,
         flags=re.IGNORECASE,
     )
-    # After the number one
-    text = re.sub(
-        r"(?<![\d.,/])(?<!\d[ \u00a0\u2009\u202f])1(\s?)" + symbol + r"(?!\s?\d)",
-        lambda m: f"1{ONE_MARK} " + _singular_currency(symbol_to_word[m.group(2)], lang) + PADDING,
-        text,
-    )
+
+    def singular_after(match):
+        number, word = match.group(1), symbol_to_word[match.group(2)]
+        if not is_singular_number(number, lang):
+            return match.group()
+        if re.fullmatch(r"\d,\d\d", number):  # with cents
+            return said(number, None, None, word) + PADDING
+        return f"{number}{ONE_MARK if number == '1' else ''} {_singular_currency(word, lang)}" + PADDING
+
+    # After the number, in singular
+    text = re.sub(r"(?<![\d.,/])(?<!\d[ \u00a0\u2009\u202f])([01](?:[.,]\d+)?)\s?" + symbol + r"(?!\s?\d)", singular_after, text)
     # After the number, with a scale (French: "1,5 M€", "3 millions €")
     if lang == "fr":
         text = re.sub(
@@ -462,7 +476,7 @@ def _normalize_french(text):
     text = re.sub(r"\b(u)ne\b", r"\1n", text, flags=re.IGNORECASE)
     # The singular and the plural of the units sound the same
     text = re.sub(r"\b(micro|milli|centi|déci|kilo)\s+(?=(?:gramme|litre|mètre)s?\b)", r"\1", text, flags=re.IGNORECASE)
-    text = re.sub(r"\b((?:micro|milli|centi|déci|kilo)?(?:gramme|litre|mètre))s\b", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b((?:micro|milli|centi|déci|kilo)?(?:gramme|litre|mètre)|hectare|heure|minute|jour|comprimé|degré|euro|dollar|livre|yen|million|milliard)s\b", r"\1", text, flags=re.IGNORECASE)
     text = re.sub(r"(?<=mètre )(carré|cube)s\b", r"\1", text, flags=re.IGNORECASE)
     text = _split_compounds(text, _NUMBERS_FR)
     text = re.sub(rf"\b({_NUMBERS_FR})\s+point\s+(?=(?:{_NUMBERS_FR})\b)", r"\1 virgule ", text, flags=re.IGNORECASE)

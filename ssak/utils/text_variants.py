@@ -9,7 +9,7 @@ The case is kept (used by format_text, which then lowers the case if asked to).
 import re
 from functools import cache
 
-from ssak.utils.text_numbers import ONE_MARK
+from ssak.utils.text_numbers import ONE_MARK, is_singular_number
 
 # ------------------------------------------------------------------------------------
 # Acronyms
@@ -76,6 +76,9 @@ _UNITS = {
         "ml|mL": ("millilitre", "millilitres"),
         "ha": ("hectare", "hectares"),
         "min": ("minute", "minutes"),
+        "°C": ("degré Celsius", "degrés Celsius"),
+        "°F": ("degré Fahrenheit", "degrés Fahrenheit"),
+        "°": ("degré", "degrés"),
     },
     "en": {
         "km": ("kilometer", "kilometers"),
@@ -91,6 +94,9 @@ _UNITS = {
         "lbs|lb": ("pound", "pounds"),
         "ft": ("foot", "feet"),
         "min": ("minute", "minutes"),
+        "°C": ("degree Celsius", "degrees Celsius"),
+        "°F": ("degree Fahrenheit", "degrees Fahrenheit"),
+        "°": ("degree", "degrees"),
     },
     "es": {
         "km": ("kilómetro", "kilómetros"),
@@ -107,6 +113,7 @@ _UNITS = {
         "ml|mL": ("mililitro", "mililitros"),
         "ha": ("hectárea", "hectáreas"),
         "min": ("minuto", "minutos"),
+        "°C": ("grado Celsius", "grados Celsius"),
     },
     "de": {
         "km": ("Kilometer", "Kilometer"),
@@ -123,6 +130,7 @@ _UNITS = {
         "ml|mL": ("Milliliter", "Milliliter"),
         "ha": ("Hektar", "Hektar"),
         "min": ("Minute", "Minuten"),
+        "°C": ("Grad Celsius", "Grad Celsius"),
     },
     "it": {
         "km": ("chilometro", "chilometri"),
@@ -139,6 +147,7 @@ _UNITS = {
         "ml|mL": ("millilitro", "millilitri"),
         "ha": ("ettaro", "ettari"),
         "min": ("minuto", "minuti"),
+        "°C": ("grado Celsius", "gradi Celsius"),
     },
     "pt": {
         "km": ("quilómetro", "quilómetros"),
@@ -155,6 +164,7 @@ _UNITS = {
         "ml|mL": ("mililitro", "mililitros"),
         "ha": ("hectare", "hectares"),
         "min": ("minuto", "minutos"),
+        "°C": ("grau Celsius", "graus Celsius"),
     },
     "nl": {
         "km": ("kilometer", "kilometer"),
@@ -171,6 +181,7 @@ _UNITS = {
         "ml|mL": ("milliliter", "milliliter"),
         "ha": ("hectare", "hectare"),
         "min": ("minuut", "minuten"),
+        "°C": ("graad Celsius", "graden Celsius"),
     },
 }
 
@@ -378,12 +389,12 @@ def expand_units(text, lang):
     patterns = _unit_patterns(lang)
 
     def number_and_name(number, names):
-        # Singular after one, or a fraction ("1/2 km")
+        # Singular after one (French: below two), or a fraction ("1/2 km")
         if "/" in number:
             numerator, denominator = map(int, number.split("/"))
             is_singular = numerator <= denominator
         else:
-            is_singular = number == "1" or (lang == "fr" and number == "0")
+            is_singular = is_singular_number(number, lang)
         return f"{number}{ONE_MARK if number == '1' else ''} {names[0 if is_singular else 1]}"
 
     def per(slashes):

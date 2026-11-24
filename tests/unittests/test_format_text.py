@@ -94,7 +94,7 @@ class TestFormatTextLatin(Test):
 
         self.assertEqual(
             format_text_latin("Attentats du 21//07: le suspect extradé d'Italie inculpé à Londres. Nous sommes le 01/01/2019 à 10h00 Il fait -1°C."),
-            "attentats du vingt et un juillet le suspect extradé d' italie inculpé à londres nous sommes le premier janvier deux mille dix-neuf à dix heures il fait moins un degrés celsius",
+            "attentats du vingt et un juillet le suspect extradé d' italie inculpé à londres nous sommes le premier janvier deux mille dix-neuf à dix heures il fait moins un degré celsius",
         )
 
         self.assertEqual(
@@ -166,7 +166,7 @@ class TestFormatTextLatin(Test):
             "COVID-19, B-6, le n°5 et il fait -5": "covid dix-neuf b six le numéro cinq et il fait moins cinq",
             "à 14:30, à 7h, à 15h00 et à 1h": "à quatorze heures trente à sept heures à quinze heures et à une heure",
             "la 1ère, la 2nde et les 3èmes": "la première la seconde et les troisièmes",
-            "$5, 12,5 € et 1,5 M€": "cinq dollars douze virgule cinq euros et un virgule cinq millions d' euros",
+            "$5, 12,5 € et 1,5 M€": "cinq dollars douze virgule cinq euros et un virgule cinq million d' euros",
             "X-Prep et XIXe siècle": "x-prep et dix-neuvième siècle",
             "et aujourd'hui 1 injection": "et aujourd'hui un injection",
         }.items():
@@ -247,7 +247,7 @@ class TestFormatTextLatin(Test):
         for lang, texts in {
             "fr": {
                 "10 km": "dix kilomètres",
-                "1 km et 1,5 km": "un kilomètre et un virgule cinq kilomètres",
+                "1 km et 1,5 km": "un kilomètre et un virgule cinq kilomètre",
                 "5 km/h et 10m/s": "cinq kilomètres par heure et dix mètres par seconde",
                 "10 m, 3 m² et 20 min": "dix mètres trois mètres carrés et vingt minutes",
                 "2 m'a": "deux m' a",
@@ -298,7 +298,7 @@ class TestFormatTextLatin(Test):
                 "3 mg / jour": "trois milligrammes par jour",
                 "1 mg/j": "un milligramme par jour",
                 "500 mg/kg": "cinq cents milligrammes par kilogramme",
-                "1,5 mg/kg/j": "un virgule cinq milligrammes par kilogramme par jour",
+                "1,5 mg/kg/j": "un virgule cinq milligramme par kilogramme par jour",
                 "1/2 mg/j": "un demi milligramme par jour",
                 "10 ml/h et 5 g/l": "dix millilitres par heure et cinq grammes par litre",
                 "3 mg/dl, 2 l/min": "trois milligrammes par décilitre deux litres par minute",
@@ -309,7 +309,7 @@ class TestFormatTextLatin(Test):
                 "2 gouttes/jour, 3 sachets/semaine": "deux gouttes par jour trois sachets par semaine",
                 "35h/semaine, 1 h/j": "trente-cinq heures par semaine une heure par jour",
                 "5 €/m²": "cinq euros par mètre carré",
-                "1 €/kg et 1,20 €/kg": "un euro par kilogramme et un euros vingt par kilogramme",
+                "1 €/kg et 1,20 €/kg": "un euro par kilogramme et un euro vingt par kilogramme",
                 "24h/24, 24 h/24h, 24 heures/24": "vingt-quatre heures sur vingt-quatre " * 2 + "vingt-quatre heures sur vingt-quatre",
                 "7j/7 et 6 jours/7": "sept jours sur sept et six jours sur sept",
                 # Not read as "par"
@@ -398,6 +398,30 @@ class TestFormatTextLatin(Test):
                 self.assertEqual(format_text_latin(text, lang=lang, keep_punc=True, lower_case=False), expected)
         # Numbers not converted
         self.assertEqual(format_text_latin("3 mg/j et/ou 1/2", keep_punc=True, convert_numbers=False), "3 mg j et ou 1 2")
+
+    def test_singular_below_two(self):
+        # French: the plural starts at two
+        for text, expected in {
+            "0 km, 0,5 km, 1 km, 1,5 km, 1,99 km": "zéro kilomètre zéro virgule cinq kilomètre un kilomètre un virgule cinq kilomètre un virgule quatre-vingt-dix-neuf kilomètre",
+            "2 km, 2,0 km, 11 km, 21 km, 1 500 km": "deux kilomètres deux virgule zéro kilomètres onze kilomètres vingt et un kilomètres mille cinq cents kilomètres",
+            "1.5 kg, 1.000 g": "un point cinq kilogramme mille grammes",
+            "1,5 mg/j, 0,5 µg/h": "un virgule cinq milligramme par jour zéro virgule cinq microgramme par heure",
+            "1,5 m²": "un virgule cinq mètre carré",
+            "1,20 €, 0,50 €, 1,5 €, 2,20 €": "un euro vingt zéro euro cinquante un virgule cinq euro deux euros vingt",
+            "$1,50, $1,5, $2,50": "un dollar cinquante un virgule cinq dollar deux dollars cinquante",
+            "1 M€, 1,5 M€, 2,5 M€": "un million d' euros un virgule cinq million d' euros deux virgule cinq millions d' euros",
+            "1,5 Md€, 2 Md€": "un virgule cinq milliard d' euros deux milliards d' euros",
+            "-1 °C, 1,5 °C, 2 °C, 1 °F, 1°": "moins un degré celsius un virgule cinq degré celsius deux degrés celsius un degré fahrenheit un degré",
+        }.items():
+            self.assertEqual(format_text_latin(text), expected)
+        # English: only for one
+        self.assertEqual(
+            format_text_latin("0 km, 0.5 km, 1 km, 1.5 km, 1 °C, 1.5 °C", lang="en"),
+            "zero kilometers zero point five kilometers one kilometer one point five kilometers one degree celsius one point five degrees celsius",
+        )
+        # The same sound, in the WER
+        for ref, pred in [("1,5 mg", "un virgule cinq milligrammes"), ("1,5 M€", "un virgule cinq millions d'euros"), ("1,20 €", "un euros vingt"), ("1 °C", "un degrés celsius")]:
+            self.assertEqual(compute_wer([ref], [pred], normalization="fr+")["wer"], 0, msg=f"{ref} / {pred}")
 
     def test_one_agreement(self):
         for lang, texts in {
@@ -798,7 +822,7 @@ class TestFormatTextLatin(Test):
         ]:
             self.assertEqual(
                 format_text_latin(text),
-                "ça coute un euros vingt",  # TODO: remove the s...
+                "ça coute un euro vingt",
             )
 
         for text in [
@@ -807,14 +831,14 @@ class TestFormatTextLatin(Test):
         ]:
             self.assertEqual(
                 format_text_latin(text),
-                "ça coute un dollars vingt",  # TODO: remove the s...
+                "ça coute un dollar vingt",  # TODO: remove the s...
             )
 
         for text in [
             "ça coute 1.20$ * 6 mois",
             "ça coute 1.20 $ * 6 mois",
         ]:
-            self.assertEqual(format_text_latin(text), "ça coute un point vingt dollars six mois")
+            self.assertEqual(format_text_latin(text), "ça coute un point vingt dollar six mois")
 
     def test_format_special_chars(self):
         self.assertEqual(format_text_latin("L’état “from scratch”."), "l' état from scratch")
