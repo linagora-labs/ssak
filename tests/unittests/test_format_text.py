@@ -59,13 +59,12 @@ class TestFormatTextLatin(Test):
         )
 
         self.assertEqual(
-            format_text_latin("Elle emploie 147 collaborateurs et dispose de 22 000 m² de surfaces d' entreposage " "situées Casablanca-Oukacha ( 4 000 m² ) , Had Soualem ( 4 100 m² ) et Ain Sebaâ ( 14 000m² )", remove_parenthesis=False),
+            format_text_latin("Elle emploie 147 collaborateurs et dispose de 22 000 m² de surfaces d' entreposage " "situées Casablanca-Oukacha ( 4 000 m² ) , Had Soualem ( 4 100 m² ) et Ain Sebaâ ( 14 000m² )"),
             "elle emploie cent quarante-sept collaborateurs et dispose de vingt-deux mille mètres carrés de surfaces d' entreposage "
             "situées casablanca-oukacha quatre mille mètres carrés had soualem quatre mille cent mètres carrés et ain sebaâ quatorze mille mètres carrés",
         )
 
-        # The text in parentheses is removed by default
-        self.assertEqual(format_text_latin("Had Soualem (4 100 m²) et Ain Sebaâ"), "had soualem et ain sebaâ")
+        self.assertEqual(format_text_latin("Had Soualem (4 100 m²) et Ain Sebaâ", remove_parenthesis=True), "had soualem et ain sebaâ")
 
         self.assertEqual(format_text_latin("1 200 et 01 2002"), "mille deux cents et zéro un deux mille deux")
 

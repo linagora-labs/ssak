@@ -16,7 +16,7 @@ def format_text_ru(
     keep_hyphen=False,
     remove_optional_diacritics=True,
     force_transliteration=True,
-    remove_parenthesis=True,
+    remove_parenthesis=False,
 ):
     """
 

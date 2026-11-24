@@ -56,7 +56,7 @@ def format_text_latin(
     wer_format=True,
     replacements=None,
     remove_disfluencies=False,
-    remove_parenthesis=True,
+    remove_parenthesis=False,
 ):
     opts = _rm_key(locals(), "text")
 
