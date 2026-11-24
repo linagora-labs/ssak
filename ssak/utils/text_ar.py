@@ -134,6 +134,9 @@ def convert_punct_to_arabic(text):
     return text.translate(str.maketrans(";,", "؛،"))
 
 
+normalize_punct = convert_punct_to_arabic  # previous name
+
+
 def remove_url(text):
     return re.sub(r"http://\S+|https://\S+", " ", text)
 
@@ -164,7 +167,7 @@ def remove_long_arabic_words(text, threshold=15):
     return " ".join(filtered_words)
 
 
-def format_text_ar(line, keep_punc=False, keep_latin_chars=True, bw=False, lang="ar", normalize_dialect_words=False):
+def format_text_ar(line, keep_punc=False, keep_latin_chars=True, bw=False, lang="ar", normalize_dialect_words=False, lower_case=False):
     try:
         line = remove_url(line)
         line = symbols_to_letters(line, lang=lang, lower_case=False)
@@ -172,6 +175,7 @@ def format_text_ar(line, keep_punc=False, keep_latin_chars=True, bw=False, lang=
         line = remove_arabic_diacritics(line)
         line = normalize_chars(line)
         line = digit2word(line, lang=lang)
+        line = remove_arabic_diacritics(line)  # the ones of the numbers
         if normalize_dialect_words and lang == "ar_tn":
             line = normalize_tunisan_words(line)
         line = convert_punct_to_arabic(line)
@@ -180,7 +184,8 @@ def format_text_ar(line, keep_punc=False, keep_latin_chars=True, bw=False, lang=
         if not keep_latin_chars:
             line = get_arabic_only(line, keep_punc=keep_punc)
         else:
-            line = line.lower()
+            if lower_case:
+                line = line.lower()
             line = remove_outer_apostrophes_and_hyphens(line)
             line = unglue_arabic_and_latin_chars(line)
             line = remove_special_characters(line)

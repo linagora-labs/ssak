@@ -353,7 +353,7 @@ if __name__ == "__main__":
                     text = symbols_to_letters(text, language, lower_case=False)
                     text = normalize_arabic_currencies(text)
                 if random.random() < 0.5:
-                    text = digit2word(text)
+                    text = digit2word(text, lang=language)
                 if random.random() < 0.5:
                     text = remove_punctuations(text)
                 else:

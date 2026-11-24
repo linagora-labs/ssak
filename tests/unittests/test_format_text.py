@@ -1,14 +1,32 @@
+import importlib
 import os
+import unittest
 
-from ssak.utils.text import format_text_latin, numbers_and_symbols_to_letters
-from ssak.utils.text_ar import format_text_ar
+from num2words import CONVERTER_CLASSES
+
+from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru, numbers_and_symbols_to_letters
 from ssak.utils.text_basic import replace_ligatures
 from ssak.utils.text_numbers import normalize_spoken_numbers
-from ssak.utils.text_ru import format_text_ru
 from ssak.utils.text_variants import join_acronyms, normalize_spelling, remove_disfluencies
 from ssak.utils.wer import compute_wer
 
 from .utils import Test
+
+
+class TestImports(Test):
+    def test_imports(self):
+        # Functions that are (also) imported from these modules
+        basic = (
+            "collapse_whitespace format_special_characters remove_parenthesis remove_punctuations remove_special_characters "
+            "remove_special_words split_around_space_and_apostrophe transliterate"
+        ).split()
+        for module, names in {
+            "ssak.utils.text": basic + ["format_text", "format_text_ar", "format_text_latin", "format_text_ru", "numbers_and_symbols_to_letters"],
+            "ssak.utils.text_utils": basic + ["numbers_and_symbols_to_letters"],
+            "ssak.utils.text_ar": ["normalize_punct", "symbols_to_letters"],
+        }.items():
+            for name in names:
+                self.assertTrue(callable(getattr(importlib.import_module(module), name)), msg=f"{module}.{name}")
 
 
 class TestFormatTextLatin(Test):
@@ -41,10 +59,13 @@ class TestFormatTextLatin(Test):
         )
 
         self.assertEqual(
-            format_text_latin("Elle emploie 147 collaborateurs et dispose de 22 000 m² de surfaces d' entreposage " "situées Casablanca-Oukacha ( 4 000 m² ) , Had Soualem ( 4 100 m² ) et Ain Sebaâ ( 14 000m² )"),
+            format_text_latin("Elle emploie 147 collaborateurs et dispose de 22 000 m² de surfaces d' entreposage " "situées Casablanca-Oukacha ( 4 000 m² ) , Had Soualem ( 4 100 m² ) et Ain Sebaâ ( 14 000m² )", remove_parenthesis=False),
             "elle emploie cent quarante-sept collaborateurs et dispose de vingt-deux mille mètres carrés de surfaces d' entreposage "
             "situées casablanca-oukacha quatre mille mètres carrés had soualem quatre mille cent mètres carrés et ain sebaâ quatorze mille mètres carrés",
         )
+
+        # The text in parentheses is removed by default
+        self.assertEqual(format_text_latin("Had Soualem (4 100 m²) et Ain Sebaâ"), "had soualem et ain sebaâ")
 
         self.assertEqual(format_text_latin("1 200 et 01 2002"), "mille deux cents et zéro un deux mille deux")
 
@@ -86,7 +107,7 @@ class TestFormatTextLatin(Test):
 
         self.assertEqual(
             format_text_latin("Une quantité c' est un volume  Quand on divise un volume par une surface on obtient une hauteur Par exemple un 1 litre / m² = 1 000 000 mm3/1 000 000 mm² = 1mm"),
-            "une quantité c' est un volume quand on divise un volume par une surface on obtient une hauteur par exemple un un litre mètres carrés un million millimètres trois un million millimètres carrés un millimètres",
+            "une quantité c' est un volume quand on divise un volume par une surface on obtient une hauteur par exemple un un litre mètres carrés égale un million millimètres trois un million millimètres carrés égale un millimètres",
         )
 
         text = "2" * 700
@@ -503,6 +524,21 @@ class TestFormatTextLatin(Test):
         for lang, ref, pred in [("fr", "0,025", "zéro virgule deux cinq"), ("en", "7 October", "eighth October"), ("nl", "1905", "negentienhonderdzes")]:
             self.assertGreater(compute_wer([ref], [pred], normalization=lang + "+")["wer"], 0, msg=f"{ref} / {pred}")
 
+    def test_wer_parentheses(self):
+        # The words in parentheses are kept
+        for lang, ref, pred, wrong in [
+            ("fr", "le matin (et le soir) oui", "le matin et le soir oui", "le matin oui"),
+            ("en", "the morning (and evening) yes", "the morning and evening yes", "the morning yes"),
+            ("ru", "утром (и вечером) да", "утром и вечером да", "утром да"),
+        ]:
+            for normalization in [lang, lang + "+"]:
+                self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} ({normalization})")
+                self.assertGreater(compute_wer([ref], [wrong], normalization=normalization)["wer"], 0, msg=f"{ref} ({normalization})")
+
+    def test_wer_arabic_case(self):
+        # The case of the Latin words does not count in the WER
+        self.assertEqual(compute_wer(["يقول Hello"], ["يقول hello"], normalization="ar")["wer"], 0)
+
     def test_ligatures(self):
         self.assertEqual(format_text_latin("Œuvre, cœur, ex æquo, aﬀaire, eﬃcace, ﬁn, reﬂet"), "oeuvre coeur ex aequo affaire efficace fin reflet")
         self.assertEqual(replace_ligatures("Œuvre ŒUVRE Œ"), "Oeuvre OEUVRE Oe")
@@ -656,6 +692,7 @@ class TestFormatTextLatin(Test):
                 "--empty_string_policy=ignore",
                 "--linebreak_policy=allow",
                 "--extract_parenthesis",
+                "--wer_format",
                 "--file_acro",
                 acronym_file,
                 "--file_special",
@@ -689,6 +726,8 @@ class TestFormatTextArabic(Test):
             format_text_ar(sentence, keep_punc=True, keep_latin_chars=True),
             sentence,  # "في اللغة الإنجليزية ، يمكن للمرء أن يقول \"Hello world\"!"
         )
+
+        self.assertEqual(format_text_ar(sentence, lower_case=True), "في اللغة الإنجليزية يمكن للمرء أن يقول hello world")
 
         sentence = "؟Jérôme。"
 
@@ -736,8 +775,6 @@ class TestFormatTextArabic(Test):
 
         self.assertEqual(format_text_ar("اليوم 22/04/2002"), "اليوم اثنان و عشرون أبريل ألفان و اثنان")
 
-        self.assertEqual(format_text_ar("اليوم 22/04/2002", lang="ar_tn"), "اليوم ثنين و عشرين أفريل ألفين و ثنين")
-
     def test_biggest_numbers(self):
         self.assertEqual(
             format_text_ar("-123456789123456789128942"),
@@ -746,15 +783,19 @@ class TestFormatTextArabic(Test):
         )
 
         self.assertEqual(
-            format_text_ar("-123456789123456789128942", lang="ar_tn"),
-            "ناقس مياة و ثلاث و عشرين سكستيليون و أربعمياة و ستة و خمسين كوينتليون و سبعمياة و تسع و ثمانين كوادريليون و مياة و ثلاث و"
-            " عشرين تريليون و أربعمياة و ستة و خمسين مليار و سبعمياة و تسع و ثمانين مليون و مياة و ثمني و عشرين ألف و تسعمياة و ثنين و أربعين",
-        )
-
-        self.assertEqual(
             format_text_ar("-1234567891234567891289425"),
             "سالب سبتيليون و مئتان و أربعة و ثلاثون سكستيليونا و خمسمائة و سبعة و ستون كوينتليونا و ثمانمائة و واحد و تسعون كوادريليونا و مئتان و أربعة و"
             " ثلاثون تريليونا و خمسمائة و سبعة و ستون مليارا و ثمانمائة و واحد و تسعون مليونا و مئتان و تسعة و ثمانون ألفا و أربعمائة و خمسة و عشرون",
+        )
+
+    @unittest.skipUnless("ar_tn" in CONVERTER_CLASSES, "this version of num2words does not support Tunisian Arabic")
+    def test_tunisian_numbers(self):
+        self.assertEqual(format_text_ar("اليوم 22/04/2002", lang="ar_tn"), "اليوم ثنين و عشرين أفريل ألفين و ثنين")
+
+        self.assertEqual(
+            format_text_ar("-123456789123456789128942", lang="ar_tn"),
+            "ناقس مياة و ثلاث و عشرين سكستيليون و أربعمياة و ستة و خمسين كوينتليون و سبعمياة و تسع و ثمانين كوادريليون و مياة و ثلاث و"
+            " عشرين تريليون و أربعمياة و ستة و خمسين مليار و سبعمياة و تسع و ثمانين مليون و مياة و ثمني و عشرين ألف و تسعمياة و ثنين و أربعين",
         )
 
         self.assertEqual(format_text_ar("-12", lang="ar_tn"), "ناقس أثناش")

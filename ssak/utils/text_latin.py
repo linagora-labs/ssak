@@ -56,6 +56,7 @@ def format_text_latin(
     wer_format=True,
     replacements=None,
     remove_disfluencies=False,
+    remove_parenthesis=True,
 ):
     opts = _rm_key(locals(), "text")
 
@@ -168,7 +169,8 @@ def format_text_latin(
         text = re.sub(" +(- +)+", " ", text)
         text = re.sub("- ", " ", text)
 
-        text = re.sub(r"\([^)]*\)", "", text)
+        if remove_parenthesis:
+            text = re.sub(r"\([^)]*\)", "", text)
         # text = re.sub("([a-zàâäçèéêëîïôùûü]+)- +", r"\1-", text)
         # text = re.sub(" -([a-zàâäçèéêëîïôùûü]+)", r"-\1", text)
         # text = re.sub("([,;:\!\?\.]) -([a-zàâäçèéêëîïôùûü]+)", r"\1 \2", text)

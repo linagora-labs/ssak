@@ -12,7 +12,7 @@ lang-trans
 Levenshtein
 librosa
 matplotlib<=3.7.4
-num2words
+num2words>=0.5.14
 psutil
 praat-textgrids
 py3nvml

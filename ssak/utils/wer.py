@@ -147,11 +147,14 @@ def compute_wer(
         if normalization.startswith("ar"):
             kwargs = {
                 "keep_latin_chars": True,
+                "lower_case": True,
                 "normalize_dialect_words": True if normalization.endswith("tn") else False,
             }
             normalize_funcs.append(lambda x: format_text(x, language=normalization, **kwargs))
         else:
-            kwargs = {"remove_disfluencies": remove_disfluencies} if normalization not in ["ru"] else {}
+            kwargs = {"remove_parenthesis": False}  # The words in parentheses are kept
+            if normalization != "ru":
+                kwargs["remove_disfluencies"] = remove_disfluencies
             normalize_funcs.append(lambda x: format_text(x, language=normalization, **kwargs))
 
         # Different ways to say the same numbers ("une fois" / "un fois", "two hundred and fifty" / "two hundred fifty")

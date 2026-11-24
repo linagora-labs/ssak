@@ -4,8 +4,19 @@ import warnings
 from num2words import CONVERTER_CLASSES, num2words
 
 from ssak.utils.misc import flatten
-from ssak.utils.text_basic import (
+from ssak.utils.text_basic import (  # noqa: F401 (some functions are only there to be imported from this module)
+    collapse_whitespace,
+    format_special_characters,
     regex_escape,
+    remove_parenthesis,
+    remove_punctuations,
+    remove_quotes,
+    remove_special_words,
+    replace_ligatures,
+    split_around,
+    split_around_apostrophe,
+    split_around_space_and_apostrophe,
+    transliterate,
 )
 from ssak.utils.text_numbers import (
     PADDING,

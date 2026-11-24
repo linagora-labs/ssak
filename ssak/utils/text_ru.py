@@ -3,9 +3,9 @@ import re
 from ssak.utils.text_basic import (
     collapse_whitespace,
     format_special_characters,
-    remove_parenthesis,
     remove_punctuations,
 )
+from ssak.utils.text_basic import remove_parenthesis as _remove_parenthesis
 from ssak.utils.text_utils import numbers_and_symbols_to_letters
 
 
@@ -16,6 +16,7 @@ def format_text_ru(
     keep_hyphen=False,
     remove_optional_diacritics=True,
     force_transliteration=True,
+    remove_parenthesis=True,
 ):
     """
 
@@ -26,6 +27,7 @@ def format_text_ru(
         keep_hyphen: keep hyphen even if other punctuations are removed
         remove_optional_diacritics: replaces all ё with е, does not change 'й'
         force_transliteration: transliterates all non-cyrillic sentences to cyrillic
+        remove_parenthesis: remove the text in parentheses
 
     Returns:
         normalized text
@@ -54,7 +56,8 @@ def format_text_ru(
 
     text = format_special_characters(text)
 
-    text = remove_parenthesis(text)
+    if remove_parenthesis:
+        text = _remove_parenthesis(text)
 
     if lower_case:
         text = text.lower()
