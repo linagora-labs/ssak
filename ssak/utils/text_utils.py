@@ -563,7 +563,13 @@ def ordinal_numbers_to_letters(text, lang):
     if lang == "en":
         digits = re.findall(r"\b(?:\d*1st|\d*2nd|\d*3rd|\d+(?:º|th))\b", text)
     elif lang == "fr":
-        digits = re.findall(r"\b(?:1(?:ères?|eres?|ers?|res?|r)|2(?:ndes?|nds?)|\d+(?:º|[èe]mes?|e))\b", text)
+        digits = re.findall(r"\b(?:1(?:ères?|eres?|ers?|res?|r)|2(?:ndes?|nds?)|\d+(?:º|[èe]mes?|es?))\b", text)
+    elif lang in ["es", "it", "pt"]:
+        digits = re.findall(r"\b\d+\.?[ºª]", text)
+    elif lang == "nl":
+        digits = re.findall(r"\b\d+(?:ste|de|e)\b", text)
+    elif lang == "de":
+        digits = []  # see clean_number_formats
     else:
         if not WARNING_NOTIMPLEMENTED_ORDINAL.get(lang):
             warnings.warn(f"WARNING: Normalization of ordinal numbers not supported for language '{lang}'")
@@ -582,7 +588,9 @@ def ordinal_numbers_to_letters(text, lang):
                     word = "seconde" if suffix.startswith("nde") else "second"
                 if suffix.endswith("s"):
                     word += "s"
-            text = re.sub(r"\b" + str(digit) + r"\b", word, text)
+            elif digit.endswith("ª"):
+                word = re.sub(r"o\b", "a", word)
+            text = re.sub(r"\b" + re.escape(digit) + (r"\b" if digit[-1].isalpha() and digit[-1] not in "ºª" else ""), word, text)
 
     return text
 

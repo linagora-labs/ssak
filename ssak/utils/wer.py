@@ -49,6 +49,7 @@ def compute_wer(
     replacements_pred=None,
     details_words_list=False,
     bootstrapping=False,
+    remove_disfluencies=True,
 ):
     """
     Compute WER between two files.
@@ -66,6 +67,8 @@ def compute_wer(
     :param replacements_pred: dictionary of replacements to perform in the hypothesis
     :param details_words_list: whether to output information about words that are well recognized (among the specified words_list)
     :param bootstrapping: whether to compute bootstrapping intervals (might be slow)
+    :param remove_disfluencies: whether to remove the disfluencies ("euh", "uh", "hmm", ...) when there is a normalization
+        (languages with latin alphabet)
     """
     # Open the test dataset human translation file
     if isinstance(refs, str):
@@ -148,7 +151,8 @@ def compute_wer(
             }
             normalize_funcs.append(lambda x: format_text(x, language=normalization, **kwargs))
         else:
-            normalize_funcs.append(lambda x: format_text(x, language=normalization))
+            kwargs = {"remove_disfluencies": remove_disfluencies} if normalization not in ["ru"] else {}
+            normalize_funcs.append(lambda x: format_text(x, language=normalization, **kwargs))
 
         # Different ways to say the same numbers ("une fois" / "un fois", "two hundred and fifty" / "two hundred fifty")
         normalize_funcs.append(lambda x: normalize_spoken_numbers(x, normalization))

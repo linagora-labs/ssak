@@ -13,6 +13,8 @@ from ssak.utils.text_utils import (
     regex_escape,
     remove_special_characters,
 )
+from ssak.utils.text_variants import expand_titles, expand_units, join_acronyms, normalize_spelling
+from ssak.utils.text_variants import remove_disfluencies as _remove_disfluencies
 
 
 def _rm_key(d, key):
@@ -53,6 +55,7 @@ def format_text_latin(
     remove_suspicious_entry=False,
     wer_format=True,
     replacements=None,
+    remove_disfluencies=False,
 ):
     opts = _rm_key(locals(), "text")
 
@@ -99,9 +102,18 @@ def format_text_latin(
                     fid_acronyms.flush()
                     _ALL_ACRONYMS.append(acronym)
 
+        text = re.sub("[’‘]", "'", text)
+        if remove_disfluencies:
+            text = _remove_disfluencies(text, lang)
+        text = join_acronyms(text)
+        text = expand_titles(text, lang)
+        if convert_numbers:
+            text = expand_units(text, lang)
+
         if lang == "fr":
             for reg, replacement in _multi_spelling_words_fr:
                 text = re.sub(reg, replacement, text)
+        text = normalize_spelling(text, lang)
 
         text = re.sub("``", '"', text)
         text = re.sub("''", '"', text)
@@ -551,7 +563,6 @@ _corrections_abbreviations_fr = [
         # ("L", "litres"), # Caution with "L'"
         ("ml", "millilitres"),
         ("cm2", "centimètres carrés"),
-        (r"[Mm]\.", "monsieur"),
         (r"[Mm]me\.?", "madame"),
         (r"[Mm]lle\.?", "mademoiselle"),
     ]

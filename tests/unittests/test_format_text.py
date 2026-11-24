@@ -1,7 +1,9 @@
 import os
 
 from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru, numbers_and_symbols_to_letters
+from ssak.utils.text_basic import replace_ligatures
 from ssak.utils.text_numbers import normalize_spoken_numbers
+from ssak.utils.text_variants import join_acronyms, normalize_spelling, remove_disfluencies
 from ssak.utils.wer import compute_wer
 
 from .utils import Test
@@ -11,7 +13,7 @@ class TestFormatTextLatin(Test):
     def test_format_digits(self):
         self.assertEqual(
             format_text_latin("Ma grand-mère version 2.0 ne connaît pas wav2vec. Commande1"),
-            "ma grand-mère version deux point zéro ne connaît pas wav to vec commande un",
+            "ma grand-mère version deux point zéro ne connait pas wav to vec commande un",
         )
         self.assertEqual(
             format_text_latin("Elle pesait 67,5kg en 1995, et + en 1996."),
@@ -176,6 +178,209 @@ class TestFormatTextLatin(Test):
         }.items():
             for text, expected in texts.items():
                 self.assertEqual(numbers_and_symbols_to_letters(text, lang=lang), expected)
+
+    def test_ordinals(self):
+        for lang, texts in {
+            "fr": {"les 3es": "les troisièmes"},
+            "es": {"el 2º": "el segundo", "la 2ª": "la segunda", "el 3.º": "el tercero"},
+            "it": {"il 1º": "il primo", "la 1ª": "la prima"},
+            "pt": {"o 2º": "o segundo", "a 2ª": "a segunda"},
+            "nl": {"de 2e": "de tweede", "de 1ste": "de eerste"},
+            "de": {
+                "am 2. Mai": "am zweiten mai",
+                "der 3. Oktober": "der dritte oktober",
+                "2. Mai": "zweiter mai",
+                "1960er Jahre": "neunzehnhundertsechziger jahre",
+                "Das sind 2. Und": "das sind zwei und",
+            },
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(format_text_latin(text, lang=lang), expected)
+
+    def test_thousands_spaces(self):
+        for space in " ", "\u00a0", "\u2009", "\u202f":
+            self.assertEqual(numbers_and_symbols_to_letters(f"20{space}000", lang="fr"), "vingt mille")
+
+    def test_titles(self):
+        for lang, texts in {
+            "fr": {
+                "M. Dupont et MM. Durand": "monsieur dupont et messieurs durand",
+                "Dr Martin et Dr. Martin": "docteur martin et docteur martin",
+                "Pr Durand, Mme Dupont et Mlle. Dupont": "professeur durand madame dupont et mademoiselle dupont",
+                "le plan M. est": "le plan m est",
+            },
+            "en": {
+                "Mr. Smith and Dr. Smith": "mister smith and doctor smith",
+                "Mrs. Smith, Ms Smith, Prof. Smith": "missus smith miss smith professor smith",
+                "Spain vs. Italy": "spain versus italy",
+                "no. 5 and No. 6": "number five and number six",
+                "he said no. Then": "he said no then",
+            },
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(format_text_latin(text, lang=lang), expected)
+        self.assertEqual(format_text_latin("Dr. Smith", lang="en", lower_case=False), "Doctor Smith")
+
+    def test_units(self):
+        for lang, texts in {
+            "fr": {
+                "10 km": "dix kilomètres",
+                "1 km et 1,5 km": "un kilomètre et un virgule cinq kilomètre",
+                "5 km/h et 10m/s": "cinq kilomètres par heure et dix mètres par seconde",
+                "10 m, 3 m² et 20 min": "dix mètres trois mètres carrés et vingt minutes",
+                "2 m'a": "deux m' a",
+            },
+            "en": {"10 km": "ten kilometers", "1 km": "one kilometer", "60 mph and 5 kg": "sixty miles per hour and five kilograms"},
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(format_text_latin(text, lang=lang), expected)
+
+    def test_acronyms(self):
+        # The case is kept, unless lower case is asked
+        for text, expected in {
+            "the U.S. and the U.K. are": "the US and the UK are",
+            "in the U.S.": "in the US.",
+            "la S.N.C.F. et l'O.N.U, oui": "la SNCF et l'ONU, oui",
+            "J. Smith. A. B and end. I am.": "J. Smith. A. B and end. I am.",
+            "www.a.b.com v1.2": "www.a.b.com v1.2",
+        }.items():
+            self.assertEqual(join_acronyms(text), expected)
+        self.assertEqual(format_text_latin("la S.N.C.F. est"), "la sncf est")
+        self.assertEqual(format_text_latin("la S.N.C.F. est", lower_case=False), "la SNCF est")
+        self.assertEqual(format_text_latin("the U.S. is", lang="en"), "the us is")
+        self.assertEqual(format_text_latin("the U.S. is", lang="en", lower_case=False), "the US is")
+        self.assertEqual(format_text_latin("the U.S. is big.", lang="en", lower_case=False, keep_punc=True), "the US is big.")
+
+    def test_spelling_variants(self):
+        for lang, texts in {
+            "fr": {
+                "L'événement, les événements": "l' évènement les évènements",
+                "le maître, la maîtresse et les maîtres": "le maitre la maitresse et les maitres",
+                "il connaît, il paraît, s'il vous plaît, naître": "il connait il parait s' il vous plait naitre",
+                "la boîte, les chaînes et l'île": "la boite les chaines et l' ile",
+                "goût, coûter, août, brûlé et piqûre": "gout couter aout brulé et piqure",
+                "ambiguë, ambigüe et ambiguïté": "ambigue ambigue et ambiguité",
+                "OK pour le week-end": "okay pour le weekend",
+                # Not changed
+                "dû, mûr, sûr, jeûne, il fût, nous fîmes, Nîmes, Benoît": "dû mûr sûr jeûne il fût nous fîmes nîmes benoît",
+            },
+            "en": {
+                "the colours of my neighbour's coloured favourite": "the colors of my neighbor' s colored favorite",
+                "organise, organised, the organisation, realising": "organize organized the organization realizing",
+                "analyse, travelled, cancelling, modelling": "analyze traveled canceling modeling",
+                "the centre, 5 metres, a grey theatre": "the center five meters a gray theater",
+                "the defence programme, OK, e-mail": "the defense program okay email",
+                "paediatric and anaemia": "pediatric and anemia",
+                # Not changed
+                "our hour, four of your, optimism, optimist, promise, exercise, emphasis, wise, analyses": "our hour four of your optimism optimist promise exercise emphasis wise analyses",
+                "glamour, contour, tour, devour, programmed, controlled, called, sell": "glamour contour tour devour programmed controlled called sell",
+            },
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(format_text_latin(text, lang=lang), expected)
+        self.assertEqual(normalize_spelling("Maître MAÎTRE maître Île", "fr"), "Maitre MAITRE maitre Ile")
+        self.assertEqual(normalize_spelling("Colour COLOUR Organise ORGANISE Centre", "en"), "Color COLOR Organize ORGANIZE Center")
+        self.assertEqual(normalize_spelling("événement", "es"), "événement")
+
+    def test_disfluencies(self):
+        for lang, texts in {
+            "fr": {
+                "Euh, le matin": "Le matin",
+                "le matin, euh, et le soir": "le matin, et le soir",
+                "le euh matin hum hmm mmh": "le matin",
+                "Le matin, euh.": "Le matin.",
+                "Euh. Oui euuuh heu non": "Oui non",
+                "un humain, l'euh, heureux, Meuh, euh-là": "un humain, l'euh, heureux, Meuh, euh-là",
+                "le um uh": "le um uh",
+            },
+            "en": {
+                "Uh, yes": "Yes",
+                "So um we, uh, go hmm": "So we, go",
+                "Um... I, erm, see.": "I, see.",
+                "uhh umm mmm ok": "ok",
+                # Not removed
+                "uh-huh, mhm, oh, ah, er, hum a tune, umbrella": "uh-huh, mhm, oh, ah, er, hum a tune, umbrella",
+            },
+            "de": {"ähm um zwei Uhr": "um zwei Uhr"},
+            "pt": {"hmm um dia": "um dia"},
+            "ru": {"euh": "euh"},
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(remove_disfluencies(text, lang), expected)
+        # Not by default in format_text
+        self.assertEqual(format_text_latin("euh le hum matin"), "euh le hum matin")
+        self.assertEqual(format_text_latin("euh le hum matin", remove_disfluencies=True), "le matin")
+        # By default in the WER
+        for ref, pred, normalization in [("euh le matin", "le matin hum", "fr"), ("uh yes", "yes um", "en+")]:
+            self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0)
+            self.assertGreater(compute_wer([ref], [pred], normalization=normalization, remove_disfluencies=False)["wer"], 0)
+        self.assertGreater(compute_wer(["uh yes"], ["yes"])["wer"], 0)  # no normalization
+
+    def test_wer_variants(self):
+        for lang, texts in {
+            "fr": [
+                ("M. Dupont", "monsieur Dupont"),
+                ("10 km", "dix kilomètres"),
+                ("5 km/h", "cinq kilomètres par heure"),
+                ("la S.N.C.F.", "la SNCF"),
+                ("l'événement", "l'évènement"),
+                ("le maître", "le maitre"),
+                ("les 3es", "les troisièmes"),
+            ],
+            "en": [
+                ("October 7", "October seventh"),
+                ("October 7", "October the seventh"),
+                ("May 21", "May twenty-first"),
+                ("in 1789", "in seventeen eighty-nine"),
+                ("in 1066", "in ten sixty-six"),
+                ("in 2030", "in twenty thirty"),
+                ("in 1905", "in nineteen oh-five"),
+                ("in 1900", "in nineteen hundred"),
+                ("the U.S.", "the US"),
+                ("Mr. Smith", "mister Smith"),
+                ("10 km", "ten kilometers"),
+                ("colour", "color"),
+                ("organise", "organize"),
+            ],
+            "es": [
+                ("200 casas", "doscientas casas"),
+                ("500 casas", "quinientas casas"),
+                ("21 personas", "veintiuna personas"),
+                ("2º", "segundo"),
+            ],
+            "it": [("1º", "primo"), ("1 casa", "una casa")],
+            "pt": [("200 casas", "duzentas casas"), ("2 casas", "duas casas"), ("16", "dezesseis"), ("16", "dezasseis"), ("2º", "segundo")],
+            "de": [
+                ("1 Haus", "ein Haus"),
+                ("1998", "neunzehnhundertachtundneunzig"),
+                ("1998", "eintausendneunhundertachtundneunzig"),
+                ("am 2. Mai", "am zweiten Mai"),
+                ("1960er Jahre", "neunzehnhundertsechziger Jahre"),
+            ],
+            "nl": [
+                ("1998", "negentienachtennegentig"),
+                ("1998", "negentienhonderd achtennegentig"),
+                ("1998", "duizendnegenhonderdachtennegentig"),
+                ("de 2e", "de tweede"),
+            ],
+        }.items():
+            for ref, pred in texts:
+                for normalization in [lang, lang + "+"]:
+                    self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} / {pred} ({normalization})")
+        # Numbers that are not years, not changed
+        self.assertEqual(normalize_spoken_numbers("one hundred twenty twenty one", "en"), "one hundred twenty twenty one")
+        self.assertEqual(normalize_spoken_numbers("twenty twenty thousand", "en"), "twenty twenty thousand")
+        # What was said is different
+        for ref, pred in [("don't", "do not"), ("gonna", "going to"), ("in 1789", "in 1798")]:
+            self.assertGreater(compute_wer([ref], [pred], normalization="en+")["wer"], 0)
+
+    def test_ligatures(self):
+        self.assertEqual(format_text_latin("Œuvre, cœur, ex æquo, aﬀaire, eﬃcace, ﬁn, reﬂet"), "oeuvre coeur ex aequo affaire efficace fin reflet")
+        self.assertEqual(replace_ligatures("Œuvre ŒUVRE Œ"), "Oeuvre OEUVRE Oe")
+
+    def test_diacritics_other_languages(self):
+        for lang, text in {"es": "el año pasado qué pingüino", "de": "größe für öl", "it": "perché è così", "pt": "não é você coração", "nl": "één café"}.items():
+            self.assertEqual(format_text_latin(text, lang=lang), text)
 
     def test_number_other_languages(self):
         for lang, expected in {
