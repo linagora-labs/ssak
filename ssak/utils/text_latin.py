@@ -24,6 +24,31 @@ def _rm_key(d, key):
     return d
 
 
+# Ends of domain names that are neither French words nor abbreviations (a space can be missing after a dot: "venu.il est")
+_domain_ends = "com|fr|org|net|eu|io|ai|info|be|ch|uk|tv|ly|edu|gov|biz"
+_url_regex = re.compile(
+    r"(?<![\w@.-])(?:"
+    r"(?:(?:https?|ftp)://|www\.)[\w.-]*\w(?::\d+)?(?:/(?:[\w/\-?=%.&]*[\w/])?)?"
+    rf"|[A-Za-z0-9][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*\.(?:{_domain_ends})(?![\w-])(?:/(?:[\w/\-?=%.&]*[\w/])?)?"
+    r")"
+)
+_email_regex = re.compile(r"(?<![\w.-])([\w.+-]*\w)@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)")
+_url_symbols_fr = {".": " point ", ":": " deux points ", "/": " slash ", "-": " tiret "}
+
+
+def read_urls(text):
+    """
+    Internet addresses as they are read in French (and only them: the marks are not read in the rest of the text)
+    "www.mon-site.fr" -> "www point mon tiret site point fr"
+    """
+
+    def read(address):
+        return "".join(_url_symbols_fr.get(c, c) for c in address)
+
+    text = _email_regex.sub(lambda m: m.group(1).replace(".", _url_symbols_fr["."]) + "@" + read(m.group(2)), text)
+    return _url_regex.sub(lambda m: read(m.group()), text)
+
+
 def find_acronyms(text, ignore_first_upper_words=True):
     if not text:
         return []
@@ -129,21 +154,8 @@ def format_text_latin(
 
         text = " " + text + " "
 
-        # Replace "." by "point" and "/" by "slash" in internet websites
-        # Find all the websites in the text
         if lang == "fr":
-            websites = [w for w in re.findall(r"(?:(?:https?|ftp):\/\/)?[\w/\-?=%.]+\.[\w/\-&?=%.]+", text) if ".." not in w]
-            # Not the numbers ("1.234,56")
-            websites = [w for w in websites if re.search(r"[^\W\d]", w)]
-            websites = sorted(set(websites), key=len, reverse=True)
-            for w in websites:
-                w2 = w
-                w2 = re.sub(r"\.", " point ", w2)
-                w2 = re.sub(":", " deux points ", w2)
-                w2 = re.sub("/", " slash ", w2)
-                w2 = re.sub("-", " tiret ", w2)
-                # text = re.sub(w, w2, text)
-                text = text.replace(w, w2)
+            text = read_urls(text)
 
         # Special Symbols
         text = format_special_characters(text, remove_ligatures=remove_ligatures)

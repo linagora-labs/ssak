@@ -989,6 +989,45 @@ class TestFormatTextLatin(Test):
 
         self.assertEqual(format_text_latin("www.len.com len.. ralenti"), "www point len point com len ralenti")
 
+        # Marks are read in the addresses
+        for text, expected in [
+            ("www.linagora.com.", "www point linagora point com"),
+            ("(www.linagora.com)", "www point linagora point com"),
+            ("«linagora.com»", "linagora point com"),
+            ("http://www.linagora.com/page.html", "http deux points slash slash www point linagora point com slash page point html"),
+            ("https://a.fr/", "https deux points slash slash a point fr slash"),
+            ("www.mon-site.fr", "www point mon tiret site point fr"),
+            ("le site mon-site.fr, voilà", "le site mon tiret site point fr voilà"),
+            ("C'est sur LibriVox.org.", "c est sur librivox point org"),
+            ("C'est sur LibriVox.org", "c est sur librivox point org"),
+            ("lifead.io, Musical.ly et Avaaz.org", "lifead point io musical point ly et avaaz point org"),
+            ("jean.dupont@linagora.com.", "jean point dupont arobase linagora point com"),
+            ("jean-luc@mon-site.fr", "jean luc arobase mon tiret site point fr"),
+        ]:
+            self.assertEqual(normalize_text(text, "fr", remove_apostrophes_and_dashes=True, for_wer=True), expected, msg=text)
+
+        # ... and only there
+        for text, expected, expected_punctuation in [
+            ("sensée.Toi, tes poissons", "sensée toi tes poissons", "sensée . toi , tes poissons"),
+            ("deux sels.Il n'y a plus personne.Je sais pas", "deux sels il n y a plus personne je sais pas", "deux sels . il n y a plus personne . je sais pas"),
+            ("venu.il est", "venu il est", "venu . il est"),
+            ("là-dessus.fr. Et", "là dessus fr et", "là dessus . fr . et"),
+            ("quel marché.fr. Je", "quel marché fr je", "quel marché . fr . je"),
+            ("50 avant J.-C. à Rome", "cinquante avant j c à rome", "cinquante avant j . , c . à rome"),
+            ("H.Paradoxaï", "h paradoxaï", "h . paradoxaï"),
+            ("etc.?", "et cetera", "et cetera ?"),
+            ("prénom.nom.", "prénom nom", "prénom . nom ."),
+            ("peut-être - oui", "peut être oui", "peut être oui"),
+            ("802.11a/b", "huit cent deux virgule un un a b", "huit cent deux virgule un un a b"),
+            ("version 2.0.1", "version deux virgule zéro virgule un", "version deux virgule zéro virgule un"),
+        ]:
+            options = {"remove_apostrophes_and_dashes": True, "for_wer": True}
+            self.assertEqual(normalize_text(text, "fr", **options), expected, msg=text)
+            self.assertEqual(normalize_text(text, "fr", keep_punctuation=True, **options), expected_punctuation, msg=text)
+            for words in ["point", "tiret", "slash"]:
+                self.assertNotIn(words, normalize_text(text, "fr", **options).split())
+        self.assertEqual(compute_wer(["Je suis venu. Il est parti."], ["Je suis venu.Il est parti"], language="fr")["wer"], 0)
+
     def test_abbr(self):
         self.assertEqual(
             format_text_latin("M. Dupont, Mme. Dupont, Mlle. Dupont"),
