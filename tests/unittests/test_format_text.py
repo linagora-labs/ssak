@@ -243,6 +243,15 @@ class TestFormatTextLatin(Test):
             for text, expected in texts.items():
                 self.assertEqual(format_text_latin(text, lang=lang), expected)
         self.assertEqual(format_text_latin("Dr. Smith", lang="en", lower_case=False), "Doctor Smith")
+        # With a capital letter at the beginning of a sentence
+        for text, expected in {
+            "M. Dupont et M. Durand": "Monsieur Dupont et monsieur Durand",
+            "Avec Mme Dupont. Mlle Durand aussi": "Avec madame Dupont. Mademoiselle Durand aussi",
+            "Non ! Dr. Martin": "Non! Docteur Martin",
+            "« M. Dupont », oui, M. Durand": "Monsieur Dupont, oui, monsieur Durand",
+            "Alors... M. Dupont": "Alors... monsieur Dupont",
+        }.items():
+            self.assertEqual(format_text_latin(text, lower_case=False, keep_punc=True), expected)
 
     def test_units(self):
         for lang, texts in {
@@ -1327,7 +1336,7 @@ class TestWer(Test):
             # Punctuation that is not punctuation
             ("Il prend 1,5 mg, 3 fois.", "il prend un virgule cinq milligramme , trois fois .", {"keep_punctuation": True}, (0, 0, 0, 10, 10)),
             ("À 14:30, la S.N.C.F. dit oui.", "à quatorze heures trente, la SNCF dit oui.", {"keep_punctuation": True}, (0, 0, 0, 10, 10)),
-            ("M. Dupont vient.", "monsieur Dupont vient.", {"keep_punctuation": True, "case_sensitive": True}, (0, 0, 0, 4, 4)),
+            ("M. Dupont vient.", "Monsieur Dupont vient.", {"keep_punctuation": True, "case_sensitive": True}, (0, 0, 0, 4, 4)),
             # Apostrophes and dashes
             ("L'état-major d'hier", "l état major d hier", {}, (3, 0, 1, 1, 4)),
             ("L'état-major d'hier", "l état major d hier", {"remove_apostrophes_and_dashes": True}, (0, 0, 0, 5, 5)),
@@ -1371,6 +1380,10 @@ class TestWer(Test):
             self.assertGreater(sum(self.errors(ref, pred, language=lang, keep_punctuation=True)[:3]), 0, msg=f"{ref} / {pred}")
             for options in self.all_options:
                 self.assertEqual(self.errors(ref, ref, language=lang, **options)[:3], (0, 0, 0), msg=f"{ref} ({options})")
+
+    def test_titles(self):
+        for ref, pred in [("M. Dupont est avec Mme Durand.", "Monsieur Dupont est avec madame Durand"), ("Oui. Dr Martin", "oui. Docteur Martin")]:
+            self.assertEqual(self.errors(ref.replace("Oui", "oui"), pred, language="fr", case_sensitive=True)[:3], (0, 0, 0))
 
     def test_aujourdhui(self):
         # A single word, anywhere in the text

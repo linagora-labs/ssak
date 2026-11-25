@@ -52,8 +52,15 @@ _TITLES = {
 
 
 def expand_titles(text, lang):
+    """ "Dr. Smith" -> "Doctor Smith", "avec M. Dupont" -> "avec monsieur Dupont" (with a capital letter at the beginning of a sentence)"""
+
+    def expand(match, replacement):
+        # (an ellipsis does not end a sentence)
+        starts = re.search(r"(?:^|(?:(?<!\.)\.|[?!])\s)[^\w.,;:]*$", text[: match.start()])
+        return replacement[0].upper() + replacement[1:] if starts else replacement
+
     for pattern, replacement in _TITLES.get(lang, []):
-        text = re.sub(pattern, replacement, text)
+        text = re.sub(pattern, lambda m, r=replacement: expand(m, r), text)
     return text
 
 
