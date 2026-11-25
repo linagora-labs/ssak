@@ -82,7 +82,8 @@ def normalize_text(
     language = base_language(language)
     kwargs = {"lower_case": not case_sensitive, "keep_punc": keep_punctuation}
     if language.startswith("ar"):
-        kwargs.update(keep_latin_chars=True, normalize_dialect_words=language.endswith("tn"))
+        # The long words (several words without space) are errors to count when two texts are compared
+        kwargs.update(keep_latin_chars=True, normalize_dialect_words=language.endswith("tn"), remove_long_words=not for_wer)
     elif language != "ru":
         kwargs.update(remove_disfluencies=not keep_disfluencies)
     text = format_text(text, language, **kwargs)

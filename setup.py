@@ -42,6 +42,7 @@ setup(
         ],
     },
     include_package_data=True,
+    package_data={"ssak": ["assets/*.json"]},
     # extras_require={
     #     "full": [
     #         "soxbindings",

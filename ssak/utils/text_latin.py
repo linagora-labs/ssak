@@ -5,6 +5,7 @@ from ssak.utils.text_basic import (
     _punctuation,
     collapse_whitespace,
     format_special_characters,
+    normalize_dashes,
     remove_punctuations,
     transliterate,
 )
@@ -103,7 +104,8 @@ def format_text_latin(
                     fid_acronyms.flush()
                     _ALL_ACRONYMS.append(acronym)
 
-        text = re.sub("[’‘]", "'", text)
+        text = re.sub("[’‘ʼ′]", "'", text)
+        text = normalize_dashes(text)
         if remove_disfluencies:
             text = _remove_disfluencies(text, lang)
         text = join_acronyms(text)

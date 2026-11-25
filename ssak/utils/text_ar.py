@@ -12,6 +12,7 @@ from ssak.utils.text_utils import (
 from ssak.utils.text_basic import (
     collapse_whitespace,
     format_special_characters,
+    normalize_dashes,
     remove_punctuations,
 )
 
@@ -49,7 +50,7 @@ arabic_diacritics = re.compile(
 )
 
 script_dir = os.path.dirname(os.path.realpath(__file__))
-assets_path = os.path.join(script_dir, "../../assets")
+assets_path = os.path.join(script_dir, "../assets")
 
 # Cache for JSON files
 _cache = {}
@@ -135,12 +136,28 @@ def normalize_arabic_letters(text):
     return _arabic_alef_forms.sub("\u0627", _optional_arabic_marks.sub("", text))
 
 
+_arabic_digits = "\u0660\u0661\u0662\u0663\u0664\u0665\u0666\u0667\u0668\u0669"
+_persian_digits = "\u06f0\u06f1\u06f2\u06f3\u06f4\u06f5\u06f6\u06f7\u06f8\u06f9"
+_to_latin_digits = str.maketrans(_arabic_digits + _persian_digits + "\u066b\u066c", "0123456789" * 2 + ".,")
+_arabic_number = re.compile(f"[{_arabic_digits}{_persian_digits}]+(?:[.,\u060c\u066b\u066c][{_arabic_digits}{_persian_digits}]+)*")
+
+
 def convert_hindi_numbers(text):
-    return text.translate(str.maketrans("۰۱۲۳٤٥٦۷۸۹", "0123456789"))
+    """Digits 0-9. An Arabic zero alone is left as it is: it is often written for a dot."""
+    return _arabic_number.sub(lambda m: m.group() if not m.group().strip("\u0660") else m.group().translate(_to_latin_digits), text)
+
+
+def join_thousands(text):
+    """ "10.000", "10,000", "1,234,567" -> "10000", "1234567" (but "0.009", "802.11", and "951.357.123" which can be an address, are not changed)"""
+    return re.sub(
+        r"(?<![\d.,\u060c])[1-9]\d{0,2}(?:(?:[,\u060c]\d{3})+|\.\d{3}|(?:\.000)+)(?![.,\u060c]?\d)",
+        lambda m: re.sub(r"\D", "", m.group()),
+        text,
+    )
 
 
 def digit2word(text, lang):
-    text = convert_hindi_numbers(text)
+    text = join_thousands(convert_hindi_numbers(text))
     return cardinal_numbers_to_letters(text, lang=lang)
 
 
@@ -181,9 +198,11 @@ def remove_long_arabic_words(text, threshold=15):
     return " ".join(filtered_words)
 
 
-def format_text_ar(line, keep_punc=False, keep_latin_chars=True, bw=False, lang="ar", normalize_dialect_words=False, lower_case=False):
+def format_text_ar(line, keep_punc=False, keep_latin_chars=True, bw=False, lang="ar", normalize_dialect_words=False, lower_case=False, remove_long_words=True):
     try:
         line = remove_url(line)
+        line = normalize_dashes(line)
+        line = convert_hindi_numbers(line)
         line = symbols_to_letters(line, lang=lang, lower_case=False)
         line = normalize_arabic_currencies(line, lang=lang)
         line = remove_arabic_diacritics(line)
@@ -194,7 +213,8 @@ def format_text_ar(line, keep_punc=False, keep_latin_chars=True, bw=False, lang=
             line = normalize_tunisan_words(line)
         line = convert_punct_to_arabic(line)
         line = remove_repeated_ar_chars(line)
-        line = remove_long_arabic_words(line)
+        if remove_long_words:
+            line = remove_long_arabic_words(line)
         if not keep_latin_chars:
             line = get_arabic_only(line, keep_punc=keep_punc)
         else:

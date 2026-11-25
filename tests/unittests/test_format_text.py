@@ -1,5 +1,6 @@
 import importlib
 import os
+import re
 import unittest
 import warnings
 
@@ -1473,6 +1474,70 @@ class TestWer(Test):
         self.assertEqual(normalize_text("أكل", "ar"), "أكل")
         self.assertEqual(normalize_text("أكل", "ar", for_wer=True), "اكل")
         self.assertGreater(compute_wer(["أكل"], ["اكل"])["wer"], 0)
+
+    def test_dashes(self):
+        # All the dashes are the same
+        for dash in "\u2010\u2011\u2012\u2013\u2014\u2015\u2212":
+            for lang, text in [
+                ("en", "only by one person-the former"),
+                ("en", "only - or not - by one"),
+                ("fr", "Il fait -5 °C, rendez-vous - oui -"),
+                ("fr", "- Oui. -Non"),
+                ("es", "encuentros... -Este es"),
+                ("nl", "De EU-gelden, die deel ik."),
+                ("ar", "مهمة-جدا - نعم"),
+            ]:
+                for options in self.all_options:
+                    self.assertEqual(
+                        normalize_text(text.replace("-", dash), lang, for_wer=True, **options), normalize_text(text, lang, for_wer=True, **options), msg=f"{text} {hex(ord(dash))} {options}"
+                    )
+        for options in self.all_options:
+            self.assertEqual(
+                normalize_text("one person\u2014the", "en", for_wer=True, **options), "one person the" if options["remove_apostrophes_and_dashes"] else "one person-the", msg=options
+            )
+
+    def test_quotes(self):
+        # The marks are removed, without gluing the words
+        for lang, text, expected in [
+            ("de", "Blogs „kann Schüler“ sind »gut« und „so“.", "blogs kann schüler sind gut und so"),
+            ("fr", "Il dit « oui » et «non», “peut-être” : « là ».", "il dit oui et non peut être là"),
+            ("en", "He said “yes” and “no” to 5″ long", "he said yes and no to five long"),
+        ]:
+            for options in self.all_options:
+                if not options["ignore_final_s"] and options["remove_apostrophes_and_dashes"]:
+                    out = normalize_text(text, lang, for_wer=True, **options)
+                    self.assertEqual(re.sub(r"\s+", " ", re.sub(r"[.,:]", " ", out)).strip().lower(), expected, msg=f"{options}")
+        self.assertEqual(format_text_latin("Il dit « oui » et «non».", keep_punc=True, lower_case=False), "Il dit oui et non.")
+        # Apostrophes
+        for apostrophe in "\u2019\u2018\u02bc\u2032":
+            self.assertEqual(normalize_text(f"l{apostrophe}eau", "fr"), normalize_text("l'eau", "fr"))
+
+    def test_arabic_numbers(self):
+        for text, same in [
+            ("10.000", "10000"),
+            ("10,000", "10000"),
+            ("35,822", "35822"),
+            ("2.450", "2450"),
+            ("1,234,567", "1234567"),
+            ("1.000.000", "1000000"),
+            ("٢٠٢٠", "2020"),
+            ("١٠٫٥", "10.5"),
+            ("٠٫٥", "0.5"),
+            ("٣٥٬٨٢٢", "35822"),
+            ("۱۲۳۴۵۶۷۸۹۰", "1234567890"),
+        ]:
+            for lang in ["ar"]:
+                self.assertEqual(normalize_text(f"دفع {text} دولار", lang, for_wer=True), normalize_text(f"دفع {same} دولار", lang, for_wer=True), msg=text)
+        # Not thousands
+        for text, different in [("802.11", "80211"), ("0.009", "9"), ("6.5", "65"), ("951.357.123", "951357123")]:
+            self.assertNotEqual(normalize_text(text, "ar"), normalize_text(different, "ar"), msg=text)
+        # Zero written for a dot
+        self.assertEqual(normalize_text("نهاية٠", "ar"), "نهاية")
+
+    def test_arabic_long_words(self):
+        long_word = "المسؤولياتالاجتماعيةالكبرى"
+        self.assertEqual(normalize_text(f"مهمة {long_word}", "ar"), "مهمة")
+        self.assertEqual(compute_wer([f"مهمة {long_word}"], ["مهمة"], language="ar")["wer"], 0.5)
 
     def test_stricter_options(self):
         # Being stricter on the case, and keeping more words, cannot remove errors

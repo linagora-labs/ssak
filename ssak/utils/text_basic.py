@@ -57,6 +57,15 @@ def replace_ligatures(text):
     return _ligatures_pattern.sub(lambda m: _ligatures[m.group()], text)
 
 
+# Hyphens, en dash, em dash, horizontal bar, minus
+_dashes_pattern = re.compile("[\u2010-\u2015\u2212]")
+
+
+def normalize_dashes(text):
+    """ "person\u2014the" -> "person-the" """
+    return _dashes_pattern.sub("-", text)
+
+
 def format_special_characters(text, remove_ligatures=False, format_whitespace=True):
     for before, after in [
         ("â", "â"),
@@ -70,14 +79,16 @@ def format_special_characters(text, remove_ligatures=False, format_whitespace=Tr
         ("î", "î"),
         ("\x92", "'"),
         ("…", "..."),
-        (r"[«“][^\S\r\n]*", '"'),
-        (r"[^\S\r\n]*[»”″„]", '"'),
+        # The space inside the quotes is removed, but not the one that separates two words ("a „b“ c", "a »b« c")
+        (r"(?<!\w)[«“„][^\S\r\n]*", '"'),
+        (r"[^\S\r\n]*[»”″](?!\w)", '"'),
+        (r"[«“„»”″]", '"'),
         (r"(``|'')", '"'),
-        (r"[’‘‛ʿ]", "'"),
+        (r"[’‘‛ʿʼ′]", "'"),
         ("‚", ","),
         (r"–", "-"),
         # non
-        ("[  ]", " "),  # weird whitespace
+        ("[\u00a0\u2009\u202f]", " "),  # weird whitespace
         (_non_printable_pattern, ""),  # non-printable characters
         ("·", "."),
         (r"ᵉʳ", "er"),
