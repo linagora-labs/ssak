@@ -64,8 +64,9 @@ def compute_wer(
                   Must be of the same type as refs.
     :param use_ids: (for files) whether reference and prediction files includes id as a first field
     :param language: language code ("fr", "ar", ...) to normalize the texts, as ssak.utils.text.normalize_text(..., for_wer=True) does.
-        If None, the texts are compared as they are (and the options below, until ignore_final_s, have no effect)
-    :param case_sensitive: whether the case matters
+        If None, the texts are compared as they are (and the options below, until ignore_final_s, have no effect, except case_sensitive)
+    :param case_sensitive: whether the case matters. A capital letter at the beginning of the prediction is not an error if the reference has none:
+        the first word of the prediction is written as the first word of the reference, when they only differ by this capital
     :param keep_punctuation: whether the punctuation marks matter (each mark is a word)
     :param remove_apostrophes_and_dashes: whether to replace apostrophes, dashes, ... by spaces ("l'état" -> "l état")
     :param keep_disfluencies: whether the disfluencies ("euh", "uh", "hmm", ...) matter (languages with latin alphabet)
@@ -201,6 +202,9 @@ def compute_wer(
                 for i, pred in enumerate(preds):
                     if k in pred:
                         preds[i] = re.sub(r"\b" + k + r"\b", v, preds[i])
+
+    if case_sensitive:
+        preds = [ignore_first_capital(ref, pred) for ref, pred in zip(refs, preds)]
 
     refs, preds, hits_bias = ensure_not_empty_reference(refs, preds, character_level)
 
@@ -468,6 +472,25 @@ def compute_wer_differences(refs, preds1, preds2, **kwargs):
         for k, v in diffs.items():
             res[what + "_" + k] = v / count
     return res
+
+
+def ignore_first_capital(ref, pred):
+    """
+    Prediction without the capital letter of its first word, when it is the only difference with the first word of the reference.
+    ("le chat", "Le chien") -> "le chien"
+    Punctuation marks before the first word (separated from it) are ignored.
+    """
+
+    def first_word(text):
+        return next((m for m in re.finditer(r"\S+", text) if re.search(r"\w", m.group())), None)
+
+    ref_word, pred_word = first_word(ref), first_word(pred)
+    if ref_word and pred_word and ref_word.group() != pred_word.group():
+        start = pred_word.start()
+        lowered = pred[start].lower() + pred_word.group()[1:]
+        if lowered == ref_word.group():
+            return pred[:start] + lowered + pred[pred_word.end() :]
+    return pred
 
 
 def ensure_not_empty_reference(refs, preds, character_level):

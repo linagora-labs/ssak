@@ -3,8 +3,6 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from lang_trans.arabic import buckwalter as bw
-
 from ssak.utils.text_utils import (
     cardinal_numbers_to_letters,
     normalize_arabic_currencies,
@@ -107,7 +105,9 @@ def normalize_tunisan_words(text):
 
 # to transliterate arabi into bw
 def bw_transliterate(text):
-    return bw.transliterate(text)
+    from lang_trans.arabic import buckwalter
+
+    return buckwalter.transliterate(text)
 
 
 # This removes the apostrophes and hyphens that are not part of words
@@ -119,6 +119,20 @@ def remove_outer_apostrophes_and_hyphens(text):
 
 def remove_arabic_diacritics(text):
     return re.sub(arabic_diacritics, "", text)
+
+
+# All the marks that can be written or not: short vowels, shadda, sukun, dagger alef, Quranic marks, tatweel
+_optional_arabic_marks = re.compile("[\u0610-\u061a\u0640\u064b-\u065f\u0670\u06d6-\u06dc\u06df-\u06e8\u06ea-\u06ed]")
+# Alef with madda, hamza above, hamza below, and alef wasla
+_arabic_alef_forms = re.compile("[\u0622\u0623\u0625\u0671]")
+
+
+def normalize_arabic_letters(text):
+    """
+    The same letters for what is written in several ways (to compare two texts): optional marks removed, alef forms merged.
+    "\u0623\u064e\u0643\u064e\u0644" -> "\u0627\u0643\u0644"
+    """
+    return _arabic_alef_forms.sub("\u0627", _optional_arabic_marks.sub("", text))
 
 
 def convert_hindi_numbers(text):

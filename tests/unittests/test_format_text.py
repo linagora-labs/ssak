@@ -1049,6 +1049,7 @@ class TestFormatTextLatin(Test):
 class TestWer(Test):
     """
     The expected values of test_no_regression_* are the ones of the code before the options language, case_sensitive, ...
+    (except the forms of the alef in Arabic, merged since)
     """
 
     pairs_fr = [
@@ -1151,12 +1152,12 @@ class TestWer(Test):
                     "مرحبا بكم",
                 ],
                 "في اللغة الإنجليزية ، يمكن للمرء أن يقول \"Hello world\"!": [
-                    "في اللغة الإنجليزية يمكن للمرء أن يقول hello world",
-                    "في اللغة الإنجليزية يمكن للمرء أن يقول hello world",
+                    "في اللغة الانجليزية يمكن للمرء ان يقول hello world",
+                    "في اللغة الانجليزية يمكن للمرء ان يقول hello world",
                 ],
                 "يوجد 10 أشخاص": [
-                    "يوجد عشرة أشخاص",
-                    "يوجد عشرة أشخاص",
+                    "يوجد عشرة اشخاص",
+                    "يوجد عشرة اشخاص",
                 ],
                 "كِتَابٌ جَدِيد": [
                     "كتاب جديد",
@@ -1171,16 +1172,16 @@ class TestWer(Test):
                     "صبباح النوور",
                 ],
                 "بعض الأرقام: 01 و 314": [
-                    "بعض الأرقام صفر واحد و ثلاثمائة و أربعة عشر",
-                    "بعض الأرقام صفر واحد و ثلاثمائة و أربعة عشر",
+                    "بعض الارقام صفر واحد و ثلاثمائة و اربعة عشر",
+                    "بعض الارقام صفر واحد و ثلاثمائة و اربعة عشر",
                 ],
                 "الخبزة، والماء؟": [
                     "الخبزة والماء",
                     "الخبزة والماء",
                 ],
                 "2020/04/22 اليوم": [
-                    "اثنان و عشرون أبريل ألفان و عشرون اليوم",
-                    "اثنان و عشرون أبريل ألفان و عشرون اليوم",
+                    "اثنان و عشرون ابريل الفان و عشرون اليوم",
+                    "اثنان و عشرون ابريل الفان و عشرون اليوم",
                 ],
                 "نص بسيط don't high-quality": [
                     "نص بسيط don't high-quality",
@@ -1195,8 +1196,8 @@ class TestWer(Test):
 
     def test_no_regression_tunisian(self):
         for text, tunisian, arabic in [
-            ("انشا الله  بسبعه عسلامة يسلمك ديجا", "إن شاء الله بسبع عالسلامة يسلمك déjà", "انشا الله بسبعه عسلامة يسلمك ديجا"),
-            ("بڨداش أﻛ الخبزﻫ", "بقداش أك الخبزه", "بقداش أك الخبزه"),
+            ("انشا الله  بسبعه عسلامة يسلمك ديجا", "ان شاء الله بسبع عالسلامة يسلمك déjà", "انشا الله بسبعه عسلامة يسلمك ديجا"),
+            ("بڨداش أﻛ الخبزﻫ", "بقداش اك الخبزه", "بقداش اك الخبزه"),
         ]:
             for kwargs in [{"normalization": "ar_tn"}, {"normalization": "ar_tn+"}, {"language": "ar_tn"}, {"language": "ar_tn", "remove_apostrophes_and_dashes": True}]:
                 self.assertEqual(self.compared_texts([text], **kwargs), [tunisian])
@@ -1409,11 +1410,69 @@ class TestWer(Test):
             for character_level in [False, True]:
                 self.assertEqual(
                     compute_wer(texts, preds, language="fr", character_level=character_level, **options),
-                    compute_wer(refs_normalized, preds_normalized, character_level=character_level),
+                    compute_wer(refs_normalized, preds_normalized, character_level=character_level, case_sensitive=options["case_sensitive"]),
                     msg=f"{options}",
                 )
             # Normalizing twice changes nothing
             self.assertEqual([normalize_text(t, "fr", for_wer=True, **options) for t in refs_normalized], refs_normalized, msg=f"{options}")
+
+    def test_first_capital(self):
+        # A capital letter at the beginning of the prediction is not an error when the reference has none
+        for ref, pred, options, errors in [
+            ("le chat noir", "Le chat noir", {}, 0),
+            ("le chat noir", "Le chien noir", {}, 1),
+            ("le chat noir", "Le Chat noir", {}, 1),
+            ("le chat noir", "LE chat noir", {}, 1),
+            ("le chat noir", "La chat noir", {}, 1),
+            ("le chat noir", "Le", {}, 2),
+            ("iPhone", "IPhone", {}, 0),
+            ("école", "École", {}, 0),
+            ("à", "À", {}, 0),
+            # Only in this direction, and only the first word
+            ("Le chat noir", "le chat noir", {}, 1),
+            ("LE chat", "Le chat", {}, 1),
+            ("le chat. Il dort", "Le chat il dort", {}, 1),
+            # With the rest of the normalization
+            ("l'état", "L'état", {}, 0),
+            ("l'état", "L'état", {"remove_apostrophes_and_dashes": True}, 0),
+            ("l'état", "L'État", {"remove_apostrophes_and_dashes": True}, 1),
+            ("euh le chat", "Le chat", {}, 0),
+            ("le chat", "Euh, Le chat", {}, 0),
+            ("trois chats", "3 chats", {}, 0),
+            ("le chat.", "Le chat.", {"keep_punctuation": True}, 0),
+            ("oui, le chat", "Oui ? Le chat", {"keep_punctuation": True}, 2),
+            ("le chat", "", {}, 2),
+        ]:
+            self.assertEqual(sum(self.errors(ref, pred, language="fr", case_sensitive=True, **options)[:3]), errors, msg=f"{ref} / {pred} ({options})")
+        # In the other languages, without language, on characters
+        for lang in ["en", "es", "de", "it", "pt", "nl"]:
+            self.assertEqual(compute_wer(["la casa"], ["La casa"], language=lang, case_sensitive=True)["wer"], 0)
+        self.assertEqual(compute_wer(["le chat"], ["Le chat"], case_sensitive=True)["wer"], 0)
+        self.assertEqual(compute_wer(["le chat"], ["Le chat"])["wer"], 0.5)
+        self.assertEqual(compute_wer([", le chat"], ["« Le chat"], case_sensitive=True)["sub"], 1 / 3)
+        self.assertEqual(compute_wer(["le chat"], ["Le chat"], language="fr", case_sensitive=True, character_level=True)["wer"], 0)
+        # Each utterance separately, and the inputs are not modified
+        refs, preds = ["le chat", "Le chat"], ["Le chat", "le chat"]
+        self.assertEqual(compute_wer(refs, preds, language="fr", case_sensitive=True)["wer"], 0.25)
+        self.assertEqual((refs, preds), (["le chat", "Le chat"], ["Le chat", "le chat"]))
+
+    def test_arabic_letters(self):
+        # Optional marks, and forms of the alef, with and without punctuation
+        for ref, pred in [
+            ("أَكَلَ الخُبْزَ", "اكل الخبز"),
+            ("إلى آخر ٱلكتاب", "الى اخر الكتاب"),
+            ("ه\u0670ذا", "هذا"),
+            ("كتـــاب", "كتاب"),
+            ("يوجد 10 أشخاص", "يوجد عشرة اشخاص"),
+        ]:
+            for options in self.all_options:
+                self.assertEqual(self.errors(ref, pred, language="ar", **options)[:3], (0, 0, 0), msg=f"{ref} / {pred} ({options})")
+        # Other letters are different
+        self.assertEqual(compute_wer(["على"], ["علي"], language="ar")["wer"], 1)
+        # Only to compare texts, in Arabic
+        self.assertEqual(normalize_text("أكل", "ar"), "أكل")
+        self.assertEqual(normalize_text("أكل", "ar", for_wer=True), "اكل")
+        self.assertGreater(compute_wer(["أكل"], ["اكل"])["wer"], 0)
 
     def test_stricter_options(self):
         # Being stricter on the case, and keeping more words, cannot remove errors

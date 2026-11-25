@@ -77,6 +77,7 @@ def normalize_text(
     :param for_wer: whether to also do what only makes sense to compare two texts:
         - the same form for what is said the same way, even if it is not correct ("une femme" -> "un femme", "two hundred and fifty" -> "two hundred fifty")
         - the punctuation marks, if kept, separated from the words
+        - (Arabic) without any diacritics, and with the same letter for all the alef forms
     """
     language = base_language(language)
     kwargs = {"lower_case": not case_sensitive, "keep_punc": keep_punctuation}
@@ -88,6 +89,10 @@ def normalize_text(
 
     if for_wer:
         text = normalize_spoken_numbers(text, language)
+        if language.startswith("ar"):
+            from .text_ar import normalize_arabic_letters
+
+            text = normalize_arabic_letters(text)
         if keep_punctuation:
             text = re.sub(f"([{_punctuation_marks}])", r" \1 ", text)
     if remove_apostrophes_and_dashes:
