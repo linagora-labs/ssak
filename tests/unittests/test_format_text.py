@@ -1,10 +1,11 @@
 import importlib
 import os
 import unittest
+import warnings
 
 from num2words import CONVERTER_CLASSES
 
-from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru, numbers_and_symbols_to_letters
+from ssak.utils.text import format_text_ar, format_text_latin, format_text_ru, normalize_text, numbers_and_symbols_to_letters
 from ssak.utils.text_basic import replace_ligatures
 from ssak.utils.text_numbers import normalize_spoken_numbers
 from ssak.utils.text_variants import _UNITS, join_acronyms, normalize_spelling, remove_disfluencies
@@ -421,7 +422,7 @@ class TestFormatTextLatin(Test):
         )
         # The same sound, in the WER
         for ref, pred in [("1,5 mg", "un virgule cinq milligrammes"), ("1,5 M€", "un virgule cinq millions d'euros"), ("1,20 €", "un euros vingt"), ("1 °C", "un degrés celsius")]:
-            self.assertEqual(compute_wer([ref], [pred], normalization="fr+")["wer"], 0, msg=f"{ref} / {pred}")
+            self.assertEqual(compute_wer([ref], [pred], language="fr", remove_apostrophes_and_dashes=True)["wer"], 0, msg=f"{ref} / {pred}")
 
     def test_one_agreement(self):
         for lang, texts in {
@@ -470,10 +471,10 @@ class TestFormatTextLatin(Test):
             "nl": [("3 mg/dag", "drie milligram per dag")],
         }.items():
             for ref, pred in texts:
-                for normalization in [lang, lang + "+"]:
-                    self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} / {pred} ({normalization})")
+                for remove in [False, True]:
+                    self.assertEqual(compute_wer([ref], [pred], language=lang, remove_apostrophes_and_dashes=remove)["wer"], 0, msg=f"{ref} / {pred} ({remove})")
         for lang, ref, pred in [("fr", "3 mg/j", "trois grammes par jour"), ("fr", "3 mg/j", "trois milligrammes par heure"), ("en", "5 mg/day", "five milligrams per hour")]:
-            self.assertGreater(compute_wer([ref], [pred], normalization=lang)["wer"], 0, msg=f"{ref} / {pred}")
+            self.assertGreater(compute_wer([ref], [pred], language=lang)["wer"], 0, msg=f"{ref} / {pred}")
 
     def test_acronyms(self):
         # The case is kept, unless lower case is asked
@@ -490,6 +491,116 @@ class TestFormatTextLatin(Test):
         self.assertEqual(format_text_latin("the U.S. is", lang="en"), "the us is")
         self.assertEqual(format_text_latin("the U.S. is", lang="en", lower_case=False), "the US is")
         self.assertEqual(format_text_latin("the U.S. is big.", lang="en", lower_case=False, keep_punc=True), "the US is big.")
+
+    def test_acronyms_without_punctuation(self):
+        # The dots of the acronyms do not split them, whatever is kept
+        for lang, texts in {
+            "fr": {
+                "La S.N.C.F. a dit": "la sncf a dit",
+                "la S.N.C.F, oui": "la sncf oui",
+                "la (S.N.C.F.).": "la sncf",
+                "l'O.N.U. et l'U.E.": "l' onu et l' ue",
+                "À la S.N.C.F.": "à la sncf",
+                "50,0 U.I. par jour": "cinquante virgule zéro ui par jour",
+            },
+            "en": {"The U.S. and the U.K. are": "the us and the uk are", "in the U.S.A.": "in the usa"},
+            "es": {"la O.N.U. dijo": "la onu dijo"},
+            "de": {"die U.S.A. sind": "die usa sind"},
+        }.items():
+            for text, expected in texts.items():
+                self.assertEqual(normalize_text(text, lang), expected)
+                self.assertEqual(normalize_text(text, lang, for_wer=True), expected)
+                self.assertEqual(normalize_text(text, lang, for_wer=True, remove_apostrophes_and_dashes=True), expected.replace("'", ""))
+        self.assertEqual(normalize_text("La S.N.C.F. a dit", "fr", case_sensitive=True), "La SNCF a dit")
+        self.assertEqual(normalize_text("La S.N.C.F. a dit.", "fr", case_sensitive=True, keep_punctuation=True), "La SNCF a dit.")
+        for lang, ref, pred in [("fr", "La S.N.C.F. a dit", "La SNCF a dit"), ("en", "The U.S. is", "The US is")]:
+            for kwargs in [{}, {"case_sensitive": True}, {"keep_punctuation": True}, {"remove_apostrophes_and_dashes": True}]:
+                self.assertEqual(compute_wer([ref], [pred], language=lang, **kwargs)["wer"], 0, msg=f"{ref} / {pred} ({kwargs})")
+            self.assertGreater(compute_wer([ref], [pred.replace("US", "U S").replace("SNCF", "S N C F")], language=lang)["wer"], 0)
+            self.assertGreater(compute_wer([ref], [pred.lower()], language=lang, case_sensitive=True)["wer"], 0)
+
+    def test_normalize_text(self):
+        text = "Euh, Nicotine 1,5 mg. L'infirmière prend une semaine au rendez-vous, à 14:30 !"
+        for kwargs, expected in [
+            ({"keep_disfluencies": True}, "euh nicotine un virgule cinq milligramme l' infirmière prend une semaine au rendez-vous à quatorze heures trente"),
+            ({"case_sensitive": True, "keep_disfluencies": True}, "Euh Nicotine un virgule cinq milligramme L' infirmière prend une semaine au rendez-vous à quatorze heures trente"),
+            ({}, "nicotine un virgule cinq milligramme l' infirmière prend une semaine au rendez-vous à quatorze heures trente"),
+            ({"for_wer": True}, "nicotine un virgule cinq milligramme l' infirmière prend un semaine au rendez-vous à quatorze heure trente"),
+            ({"for_wer": True, "keep_disfluencies": True}, "euh nicotine un virgule cinq milligramme l' infirmière prend un semaine au rendez-vous à quatorze heure trente"),
+            (
+                {"for_wer": True, "remove_apostrophes_and_dashes": True},
+                "nicotine un virgule cinq milligramme l infirmière prend un semaine au rendez vous à quatorze heure trente",
+            ),
+            (
+                {"for_wer": True, "case_sensitive": True, "remove_apostrophes_and_dashes": True},
+                "Nicotine un virgule cinq milligramme L infirmière prend un semaine au rendez vous à quatorze heure trente",
+            ),
+            (
+                {"for_wer": True, "case_sensitive": True, "keep_punctuation": True},
+                "Nicotine un virgule cinq milligramme . L' infirmière prend un semaine au rendez-vous , à quatorze heure trente !",
+            ),
+            (
+                {"for_wer": True, "keep_punctuation": True, "remove_apostrophes_and_dashes": True},
+                "nicotine un virgule cinq milligramme . l infirmière prend un semaine au rendez vous , à quatorze heure trente !",
+            ),
+        ]:
+            self.assertEqual(normalize_text(text, "fr", **kwargs), expected, msg=f"{kwargs}")
+        self.assertEqual(normalize_text("les chats noirs", "fr", ignore_final_s=True), "le chat noir")
+        self.assertEqual(normalize_text("Two hundred and fifty", "en"), "two hundred and fifty")
+        self.assertEqual(normalize_text("Two hundred and fifty", "en-US", for_wer=True), "two hundred fifty")
+        self.assertEqual(normalize_text("Тест №1, 36%", "ru"), normalize_text("Тест №1, 36%", "ru", for_wer=True))
+        self.assertEqual(normalize_text("يقول Hello", "ar"), "يقول hello")
+        self.assertEqual(normalize_text("يقول Hello", "ar", case_sensitive=True), "يقول Hello")
+        with self.assertRaises(NotImplementedError):
+            normalize_text("a", "xx")
+
+    def test_wer_interface(self):
+        def wer(ref, pred, **kwargs):
+            return compute_wer([ref], [pred], **kwargs)["wer"]
+
+        ref = "L'état, le rendez-vous"
+        # Case and punctuation do not matter by default
+        self.assertEqual(wer(ref, "l'état le rendez-vous", language="fr"), 0)
+        self.assertGreater(wer(ref, "l'état, le rendez-vous", language="fr", case_sensitive=True), 0)
+        self.assertEqual(wer(ref, "L'état le rendez-vous", language="fr", case_sensitive=True), 0)
+        self.assertGreater(wer(ref, "L'état le rendez-vous", language="fr", keep_punctuation=True), 0)
+        self.assertEqual(wer(ref, "l'état , le rendez-vous", language="fr", keep_punctuation=True), 0)
+        # Each punctuation mark is a word
+        self.assertEqual(compute_wer(["oui, non."], ["oui non"], language="fr", keep_punctuation=True)["wer"], 0.5)
+        # Apostrophes and dashes
+        self.assertGreater(wer(ref, "l état le rendez vous", language="fr"), 0)
+        self.assertEqual(wer(ref, "l état le rendez vous", language="fr", remove_apostrophes_and_dashes=True), 0)
+        # Final s
+        self.assertGreater(wer("les chats", "le chat", language="fr"), 0)
+        self.assertEqual(wer("les chats", "le chat", language="fr", ignore_final_s=True), 0)
+        # Punctuation removed after the numbers
+        for kwargs in [{}, {"case_sensitive": True}]:
+            self.assertEqual(wer("Il prend 1,5 mg.", "Il prend un virgule cinq milligramme", language="fr", **kwargs), 0)
+        # No language: the texts as they are
+        self.assertGreater(wer("Oui.", "oui"), 0)
+
+        # normalize_text does what compute_wer does
+        texts = ["Euh, l'état prend 1,5 mg. Une femme, la S.N.C.F. !", "Two"]
+        for kwargs in [{}, {"case_sensitive": True}, {"keep_punctuation": True}, {"remove_apostrophes_and_dashes": True}, {"ignore_final_s": True}, {"keep_disfluencies": True}]:
+            out = compute_wer(texts, texts, language="fr", alignment=os.devnull, **kwargs)["raw_alignement"]
+            self.assertEqual([" ".join(words) for words in out.references], [normalize_text(text, "fr", for_wer=True, **kwargs) for text in texts])
+
+    def test_wer_deprecated_normalization(self):
+        texts = ["Euh, l'état prend 1,5 mg. Les rendez-vous, la S.N.C.F. !", "Une femme"]
+        preds = ["L état prend 1,5 mg, le rendez vous", "un femme"]
+        for normalization, kwargs in {
+            "fr": {"language": "fr"},
+            "fr+": {"language": "fr", "remove_apostrophes_and_dashes": True},
+            "fr++": {"language": "fr", "remove_apostrophes_and_dashes": True, "ignore_final_s": True},
+        }.items():
+            with self.assertWarns(FutureWarning) as warning:
+                old = compute_wer(texts, preds, normalization=normalization)
+            self.assertIn("deprecated", str(warning.warning))
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", FutureWarning)
+                self.assertEqual(old, compute_wer(texts, preds, **kwargs))
+        with self.assertRaises(ValueError):
+            compute_wer(texts, preds, normalization="fr", language="fr")
 
     def test_spelling_variants(self):
         for lang, texts in {
@@ -551,9 +662,9 @@ class TestFormatTextLatin(Test):
         self.assertEqual(format_text_latin("euh le hum matin"), "euh le hum matin")
         self.assertEqual(format_text_latin("euh le hum matin", remove_disfluencies=True), "le matin")
         # By default in the WER
-        for ref, pred, normalization in [("euh le matin", "le matin hum", "fr"), ("uh yes", "yes um", "en+")]:
-            self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0)
-            self.assertGreater(compute_wer([ref], [pred], normalization=normalization, remove_disfluencies=False)["wer"], 0)
+        for ref, pred, lang in [("euh le matin", "le matin hum", "fr"), ("uh yes", "yes um", "en")]:
+            self.assertEqual(compute_wer([ref], [pred], language=lang)["wer"], 0)
+            self.assertGreater(compute_wer([ref], [pred], language=lang, keep_disfluencies=True)["wer"], 0)
         self.assertGreater(compute_wer(["uh yes"], ["yes"])["wer"], 0)  # no normalization
 
     def test_wer_variants(self):
@@ -605,14 +716,14 @@ class TestFormatTextLatin(Test):
             ],
         }.items():
             for ref, pred in texts:
-                for normalization in [lang, lang + "+"]:
-                    self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} / {pred} ({normalization})")
+                for remove in [False, True]:
+                    self.assertEqual(compute_wer([ref], [pred], language=lang, remove_apostrophes_and_dashes=remove)["wer"], 0, msg=f"{ref} / {pred} ({remove})")
         # Numbers that are not years, not changed
         self.assertEqual(normalize_spoken_numbers("one hundred twenty twenty one", "en"), "one hundred twenty twenty one")
         self.assertEqual(normalize_spoken_numbers("twenty twenty thousand", "en"), "twenty twenty thousand")
         # What was said is different
         for ref, pred in [("don't", "do not"), ("gonna", "going to"), ("in 1789", "in 1798")]:
-            self.assertGreater(compute_wer([ref], [pred], normalization="en+")["wer"], 0)
+            self.assertGreater(compute_wer([ref], [pred], language="en", remove_apostrophes_and_dashes=True)["wer"], 0)
 
     def test_roman_numbers(self):
         for lang, texts in {
@@ -642,7 +753,7 @@ class TestFormatTextLatin(Test):
             for text, expected in texts.items():
                 self.assertEqual(numbers_and_symbols_to_letters(text, lang=lang), expected)
         for lang, ref, pred in [("fr", "la Ve République", "la cinquième République"), ("fr", "François Ier", "François premier"), ("en", "Henry VIII", "Henry the eighth")]:
-            self.assertEqual(compute_wer([ref], [pred], normalization=lang + "+")["wer"], 0)
+            self.assertEqual(compute_wer([ref], [pred], language=lang, remove_apostrophes_and_dashes=True)["wer"], 0)
 
     def test_degrees_or_ordinals(self):
         for lang, texts in {
@@ -703,6 +814,9 @@ class TestFormatTextLatin(Test):
         }.items():
             for text, expected in texts.items():
                 self.assertEqual(numbers_and_symbols_to_letters(text, lang=lang), expected)
+        # A number alone can be in the middle of a text converted word by word
+        for text, expected in {"3.": "trois.", "2024,": "deux mille vingt-quatre,", "12?": "douze?", "5€.": "cinq euros."}.items():
+            self.assertEqual(numbers_and_symbols_to_letters(text, lang="fr"), expected)
         self.assertEqual(format_text_latin("3 comprimés."), "trois comprimés")
         self.assertEqual(format_text_latin("3 comprimés.", lower_case=False), "Trois comprimés")
         self.assertEqual(format_text_latin("3 comprimés.", lower_case=False, keep_punc=True), "Trois comprimés.")
@@ -737,9 +851,9 @@ class TestFormatTextLatin(Test):
             ("pt", "16", "dezesseis"),
             ("pt", "16", "dezasseis"),
         ]:
-            self.assertEqual(compute_wer([ref], [pred], normalization=lang + "+")["wer"], 0, msg=f"{ref} / {pred}")
+            self.assertEqual(compute_wer([ref], [pred], language=lang, remove_apostrophes_and_dashes=True)["wer"], 0, msg=f"{ref} / {pred}")
         for lang, ref, pred in [("fr", "0,025", "zéro virgule deux cinq"), ("en", "7 October", "eighth October"), ("nl", "1905", "negentienhonderdzes")]:
-            self.assertGreater(compute_wer([ref], [pred], normalization=lang + "+")["wer"], 0, msg=f"{ref} / {pred}")
+            self.assertGreater(compute_wer([ref], [pred], language=lang, remove_apostrophes_and_dashes=True)["wer"], 0, msg=f"{ref} / {pred}")
 
     def test_wer_parentheses(self):
         # The words in parentheses are kept
@@ -748,13 +862,13 @@ class TestFormatTextLatin(Test):
             ("en", "the morning (and evening) yes", "the morning and evening yes", "the morning yes"),
             ("ru", "утром (и вечером) да", "утром и вечером да", "утром да"),
         ]:
-            for normalization in [lang, lang + "+"]:
-                self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} ({normalization})")
-                self.assertGreater(compute_wer([ref], [wrong], normalization=normalization)["wer"], 0, msg=f"{ref} ({normalization})")
+            for remove in [False, True]:
+                self.assertEqual(compute_wer([ref], [pred], language=lang, remove_apostrophes_and_dashes=remove)["wer"], 0, msg=f"{ref} ({remove})")
+                self.assertGreater(compute_wer([ref], [wrong], language=lang, remove_apostrophes_and_dashes=remove)["wer"], 0, msg=f"{ref} ({remove})")
 
     def test_wer_arabic_case(self):
         # The case of the Latin words does not count in the WER
-        self.assertEqual(compute_wer(["يقول Hello"], ["يقول hello"], normalization="ar")["wer"], 0)
+        self.assertEqual(compute_wer(["يقول Hello"], ["يقول hello"], language="ar")["wer"], 0)
 
     def test_ligatures(self):
         self.assertEqual(format_text_latin("Œuvre, cœur, ex æquo, aﬀaire, eﬃcace, ﬁn, reﬂet"), "oeuvre coeur ex aequo affaire efficace fin reflet")
@@ -797,9 +911,9 @@ class TestFormatTextLatin(Test):
             ],
         }.items():
             for ref, pred in texts:
-                for normalization in [lang, lang + "+"]:
-                    self.assertEqual(compute_wer([ref], [pred], normalization=normalization)["wer"], 0, msg=f"{ref} / {pred} ({normalization})")
-            self.assertGreater(compute_wer(["1,5 et 99"], ["15 et 99"], normalization=lang)["wer"], 0)
+                for remove in [False, True]:
+                    self.assertEqual(compute_wer([ref], [pred], language=lang, remove_apostrophes_and_dashes=remove)["wer"], 0, msg=f"{ref} / {pred} ({remove})")
+            self.assertGreater(compute_wer(["1,5 et 99"], ["15 et 99"], language=lang)["wer"], 0)
         # The inputs are not modified
         refs, preds = ["a euh b"], ["a b"]
         compute_wer(refs, preds, replacements_ref={"euh": ""}, replacements_pred={"euh": ""})
@@ -920,6 +1034,462 @@ class TestFormatTextLatin(Test):
         self.assertNonRegression(acronym_file, "format_text/acronyms.txt")
         self.assertNonRegression(special_char_file, "format_text/special_chars.txt")
         for f in [output_file, acronym_file, special_char_file]:
+            os.remove(f)
+
+
+class TestWer(Test):
+    """
+    The expected values of test_no_regression_* are the ones of the code before the options language, case_sensitive, ...
+    """
+
+    pairs_fr = [
+        ("Le chat, la souris et les chiens.", "le chat la souris et les chien"),
+        ("C'est l'état d'hier !", "c'est l état hier"),
+        ("Un rendez-vous important.", "un rendez vous important"),
+        ("Les garçons mangent 3 pommes", "le garçon mange trois pommes"),
+        ("Oui", "oui non peut-être"),
+        ("Il pleut beaucoup ici", "il pleut"),
+        ("Œuvre, cœur et garçon", "oeuvre coeur garçon"),
+        ("Une femme arrive", "un femme arrive"),
+    ]
+    pairs_ar = [
+        ("مرحبا بكم في المدينة", "مرحبا بكم المدينة"),
+        ("كِتَابٌ جَدِيد", "كتاب جديد"),
+        ("نص بسيط don't high-quality", "نص بسيط don t high quality"),
+        ("الخبزة، والماء؟", "الخبزة والماء"),
+        ("يوجد 10 أشخاص", "يوجد عشرة أشخاص هنا"),
+    ]
+
+    # Previous syntax -> new syntax
+    syntaxes = {
+        "fr": {"language": "fr"},
+        "fr+": {"language": "fr", "remove_apostrophes_and_dashes": True},
+        "fr++": {"language": "fr", "remove_apostrophes_and_dashes": True, "ignore_final_s": True},
+        "ar": {"language": "ar"},
+        "ar+": {"language": "ar", "remove_apostrophes_and_dashes": True},
+    }
+
+    all_options = [
+        dict(case_sensitive=c, keep_punctuation=p, remove_apostrophes_and_dashes=r, keep_disfluencies=d, ignore_final_s=s)
+        for c in [False, True]
+        for p in [False, True]
+        for r in [False, True]
+        for d in [False, True]
+        for s in [False, True]
+    ]
+
+    def setUp(self):
+        super().setUp()
+        warnings.simplefilter("ignore", FutureWarning)
+
+    def tearDown(self):
+        warnings.resetwarnings()
+        super().tearDown()
+
+    def compared_texts(self, texts, **kwargs):
+        """The texts as they are compared in compute_wer"""
+        out = compute_wer(texts, texts, alignment=os.devnull, **kwargs)["raw_alignement"]
+        return [" ".join(words) for words in out.references]
+
+    def errors(self, ref, pred, **kwargs):
+        """(substitutions, deletions, insertions, hits, number of words of the reference)"""
+        refs, preds = ([ref], [pred]) if isinstance(ref, str) else (ref, pred)
+        res = compute_wer(refs, preds, **kwargs)
+        return tuple(round(res[k] * res["count"]) for k in ["sub", "del", "ins", "hits"]) + (res["count"],)
+
+    def test_no_regression_texts(self):
+        for lang, texts in {
+            "fr": {
+                "Le chat, la souris et les chiens.": [
+                    "le chat la souris et les chiens",
+                    "le chat la souris et les chiens",
+                    "le chat la souri et le chien",
+                ],
+                "C'est l'état d'aujourd'hui !": [
+                    "c' est l' état d' aujourd'hui",
+                    "c est l état d aujourd hui",
+                    "c est l état d aujourd hui",
+                ],
+                "Œuvre, cœur et garçon": [
+                    "oeuvre coeur et garçon",
+                    "oeuvre coeur et garçon",
+                    "oeuvre coeur et garçon",
+                ],
+                "Les 20 000 personnes": [
+                    "les vingt mille personnes",
+                    "les vingt mille personnes",
+                    "le vingt mille personne",
+                ],
+                "des mots déjà normalisés": [
+                    "des mots déjà normalisés",
+                    "des mots déjà normalisés",
+                    "de mot déjà normalisé",
+                ],
+                "2ème étage": [
+                    "deuxième étage",
+                    "deuxième étage",
+                    "deuxième étage",
+                ],
+                "www.linagora.com": [
+                    "www point linagora point com",
+                    "www point linagora point com",
+                    "www point linagora point com",
+                ],
+            },
+            "ar": {
+                "مرحبا بكم": [
+                    "مرحبا بكم",
+                    "مرحبا بكم",
+                ],
+                "في اللغة الإنجليزية ، يمكن للمرء أن يقول \"Hello world\"!": [
+                    "في اللغة الإنجليزية يمكن للمرء أن يقول hello world",
+                    "في اللغة الإنجليزية يمكن للمرء أن يقول hello world",
+                ],
+                "يوجد 10 أشخاص": [
+                    "يوجد عشرة أشخاص",
+                    "يوجد عشرة أشخاص",
+                ],
+                "كِتَابٌ جَدِيد": [
+                    "كتاب جديد",
+                    "كتاب جديد",
+                ],
+                "10 $": [
+                    "عشرة دولار",
+                    "عشرة دولار",
+                ],
+                "صببباح النووووور": [
+                    "صبباح النوور",
+                    "صبباح النوور",
+                ],
+                "بعض الأرقام: 01 و 314": [
+                    "بعض الأرقام صفر واحد و ثلاثمائة و أربعة عشر",
+                    "بعض الأرقام صفر واحد و ثلاثمائة و أربعة عشر",
+                ],
+                "الخبزة، والماء؟": [
+                    "الخبزة والماء",
+                    "الخبزة والماء",
+                ],
+                "2020/04/22 اليوم": [
+                    "اثنان و عشرون أبريل ألفان و عشرون اليوم",
+                    "اثنان و عشرون أبريل ألفان و عشرون اليوم",
+                ],
+                "نص بسيط don't high-quality": [
+                    "نص بسيط don't high-quality",
+                    "نص بسيط don t high quality",
+                ],
+            },
+        }.items():
+            for text, expected in texts.items():
+                for suffix, e in zip(["", "+", "++"], expected):
+                    self.assertEqual(self.compared_texts([text], normalization=lang + suffix), [e], msg=f"{text} ({lang + suffix})")
+                    self.assertEqual(self.compared_texts([text], **self.syntaxes[lang + suffix]), [e], msg=f"{text} ({lang + suffix})")
+
+    def test_no_regression_tunisian(self):
+        for text, tunisian, arabic in [
+            ("انشا الله  بسبعه عسلامة يسلمك ديجا", "إن شاء الله بسبع عالسلامة يسلمك déjà", "انشا الله بسبعه عسلامة يسلمك ديجا"),
+            ("بڨداش أﻛ الخبزﻫ", "بقداش أك الخبزه", "بقداش أك الخبزه"),
+        ]:
+            for kwargs in [{"normalization": "ar_tn"}, {"normalization": "ar_tn+"}, {"language": "ar_tn"}, {"language": "ar_tn", "remove_apostrophes_and_dashes": True}]:
+                self.assertEqual(self.compared_texts([text], **kwargs), [tunisian])
+            self.assertEqual(self.compared_texts([text], language="ar"), [arabic])
+
+    def test_changes_on_purpose(self):
+        # Numbers ("une femme" -> "1 femme" before), units, acronyms, titles, spelling, disfluencies, text in parentheses
+        for lang, texts in {
+            "fr": {
+                "Un rendez-vous à Aix-en-Provence": [
+                    "un rendez-vous à aix-en-provence",
+                    "un rendez vous à aix en provence",
+                    "un rendez vou à aix en provence",
+                ],
+                "Une femme et un homme": [
+                    "un femme et un homme",
+                    "un femme et un homme",
+                    "un femme et un homme",
+                ],
+                "Il y a 3 enfants et 21 adultes": [
+                    "il y a trois enfants et vingt et un adultes",
+                    "il y a trois enfants et vingt et un adultes",
+                    "il y a troi enfant et vingt et un adulte",
+                ],
+                "En 1998, 50 % des gens": [
+                    "en mille neuf cent quatre vingt dix huit cinquante pour cent des gens",
+                    "en mille neuf cent quatre vingt dix huit cinquante pour cent des gens",
+                    "en mille neuf cent quatre vingt dix huit cinquante pour cent de gen",
+                ],
+                "Ça coûte 12 € ou 1,20 €": [
+                    "ça coute douze euro ou un euro vingt",
+                    "ça coute douze euro ou un euro vingt",
+                    "ça coute douze euro ou un euro vingt",
+                ],
+                "À 10h30, le 1er mai 2020": [
+                    "à dix heure trente le premier mai deux mille vingt",
+                    "à dix heure trente le premier mai deux mille vingt",
+                    "à dix heure trente le premier mai deux mille vingt",
+                ],
+                "Il a dit : « Bonjour » (oui)": [
+                    "il a dit bonjour oui",
+                    "il a dit bonjour oui",
+                    "il a dit bonjour oui",
+                ],
+                "Euh, je ne sais pas hum": [
+                    "je ne sais pas",
+                    "je ne sais pas",
+                    "je ne sai pa",
+                ],
+                "L'événement du maître": [
+                    "l' évènement du maitre",
+                    "l évènement du maitre",
+                    "l évènement du maitre",
+                ],
+                "M. Dupont et Mme Durand": [
+                    "monsieur dupont et madame durand",
+                    "monsieur dupont et madame durand",
+                    "monsieur dupont et madame durand",
+                ],
+                "La S.N.C.F. et l'ONU": [
+                    "la sncf et l' onu",
+                    "la sncf et l onu",
+                    "la sncf et l onu",
+                ],
+                "3 kg et 1 km": [
+                    "trois kilogramme et un kilomètre",
+                    "trois kilogramme et un kilomètre",
+                    "troi kilogramme et un kilomètre",
+                ],
+                "Il a 1,5 million": [
+                    "il a un virgule cinq million",
+                    "il a un virgule cinq million",
+                    "il a un virgule cinq million",
+                ],
+            },
+        }.items():
+            for text, expected in texts.items():
+                for suffix, e in zip(["", "+", "++"], expected):
+                    self.assertEqual(self.compared_texts([text], normalization=lang + suffix), [e], msg=f"{text} ({lang + suffix})")
+                    self.assertEqual(self.compared_texts([text], **self.syntaxes[lang + suffix]), [e], msg=f"{text} ({lang + suffix})")
+
+    def test_no_regression_wer(self):
+        for normalization, expected in {
+            # (substitutions, deletions, insertions, hits, words of the reference)
+            "fr": (6, 4, 3, 23, 33),
+            "fr+": (4, 4, 3, 26, 34),
+            "fr++": (1, 4, 3, 29, 34),
+            "ar": (2, 1, 3, 12, 15),
+            "ar+": (0, 1, 1, 16, 17),
+        }.items():
+            refs, preds = map(list, zip(*(self.pairs_fr if normalization.startswith("fr") else self.pairs_ar)))
+            self.assertEqual(self.errors(refs, preds, normalization=normalization), expected)
+            self.assertEqual(self.errors(refs, preds, **self.syntaxes[normalization]), expected)
+            res = compute_wer(refs, preds, normalization=normalization, use_percents=True)
+            self.assertAlmostEqual(res["wer"], 100 * sum(expected[:3]) / expected[-1])
+        refs, preds = map(list, zip(*self.pairs_fr))
+        # Without normalization
+        self.assertEqual(self.errors(refs, preds), (19, 3, 3, 9, 31))
+        # Words to exclude, replacements, words to focus on
+        self.assertEqual(self.errors(refs, preds, normalization="fr+", words_blacklist=["pommes"]), (1, 4, 3, 24, 29))
+        self.assertEqual(self.errors(refs, preds, normalization="fr+", replacements_ref={"chat": "chien"}, replacements_pred={"non": "oui"}), (5, 4, 3, 25, 34))
+        res = compute_wer(refs, preds, normalization="fr+", words_list=["Chat", "garçons", "pommes", "œuvre"])
+        self.assertEqual({k: res[k] for k in ["TP", "FP", "FN"]}, {"TP": 3, "FP": 0, "FN": 1})
+
+    def test_no_regression_cer(self):
+        # (without the sentences with "un", that was "1" before)
+        indices = [0, 1, 3, 4, 5, 6]
+        for normalization, expected in {
+            "fr": [0.03225806451612903, 0.18181818181818182, 0.125, 4.666666666666667, 0.6190476190476191, 0.13636363636363635],
+            "fr+": [0.03225806451612903, 0.10526315789473684, 0.125, 4.666666666666667, 0.6190476190476191, 0.13636363636363635],
+            "fr++": [0.0, 0.10526315789473684, 0.07142857142857142, 4.666666666666667, 0.6190476190476191, 0.13636363636363635],
+            "ar": [0.15, 0.0, 0.07692307692307693, 0.0, 0.26666666666666666],
+            "ar+": [0.15, 0.0, 0.0, 0.0, 0.26666666666666666],
+        }.items():
+            pairs = [self.pairs_fr[i] for i in indices] if normalization.startswith("fr") else self.pairs_ar
+            for (ref, pred), e in zip(pairs, expected):
+                for kwargs in [{"normalization": normalization}, self.syntaxes[normalization]]:
+                    self.assertAlmostEqual(compute_wer([ref], [pred], character_level=True, **kwargs)["wer"], e, msg=f"{ref} / {pred} ({kwargs})")
+
+    def test_option_effects(self):
+        for ref, pred, options, expected in [
+            # Case
+            ("Le Chat noir", "le chat noir", {}, (0, 0, 0, 3, 3)),
+            ("Le Chat noir", "le chat noir", {"case_sensitive": True}, (2, 0, 0, 1, 3)),
+            ("DOLIPRANE", "Doliprane", {"case_sensitive": True}, (1, 0, 0, 0, 1)),
+            ("Été à Évian", "été à évian", {"case_sensitive": True}, (2, 0, 0, 1, 3)),
+            ("ŒUVRE", "OEUVRE", {"case_sensitive": True}, (0, 0, 0, 1, 1)),
+            ("La S.N.C.F.", "La SNCF", {"case_sensitive": True}, (0, 0, 0, 2, 2)),
+            # Punctuation
+            ("Oui, non.", "oui non", {}, (0, 0, 0, 2, 2)),
+            ("Oui, non.", "oui non", {"keep_punctuation": True}, (0, 2, 0, 2, 4)),
+            ("Oui non", "oui, non.", {"keep_punctuation": True}, (0, 0, 2, 2, 2)),
+            ("Oui, non.", "oui. Non.", {"keep_punctuation": True}, (1, 0, 0, 3, 4)),
+            ("Oui , non !", "oui, non!", {"keep_punctuation": True}, (0, 0, 0, 4, 4)),
+            ("Vraiment ?", "Vraiment ?", {"keep_punctuation": True, "case_sensitive": True}, (0, 0, 0, 2, 2)),
+            ("« Oui », dit-il", '"Oui", dit-il', {"keep_punctuation": True}, (0, 0, 0, 3, 3)),
+            # Punctuation that is not punctuation
+            ("Il prend 1,5 mg, 3 fois.", "il prend un virgule cinq milligramme , trois fois .", {"keep_punctuation": True}, (0, 0, 0, 10, 10)),
+            ("À 14:30, la S.N.C.F. dit oui.", "à quatorze heures trente, la SNCF dit oui.", {"keep_punctuation": True}, (0, 0, 0, 10, 10)),
+            ("M. Dupont vient.", "monsieur Dupont vient.", {"keep_punctuation": True, "case_sensitive": True}, (0, 0, 0, 4, 4)),
+            # Apostrophes and dashes
+            ("L'état-major d'hier", "l état major d hier", {}, (3, 0, 1, 1, 4)),
+            ("L'état-major d'hier", "l état major d hier", {"remove_apostrophes_and_dashes": True}, (0, 0, 0, 5, 5)),
+            ("l’état", "l'état", {}, (0, 0, 0, 2, 2)),
+            # (the punctuation marks are still there)
+            ("L'état-major, oui.", "l état major oui", {"remove_apostrophes_and_dashes": True, "keep_punctuation": True}, (0, 2, 0, 4, 6)),
+            # Disfluencies
+            ("Euh, oui hum", "oui", {}, (0, 0, 0, 1, 1)),
+            ("Euh, oui hum", "oui", {"keep_disfluencies": True}, (0, 2, 0, 1, 3)),
+            # Final s
+            ("les chats noirs", "le chat noir", {}, (3, 0, 0, 0, 3)),
+            ("les chats noirs", "le chat noir", {"ignore_final_s": True}, (0, 0, 0, 3, 3)),
+            # Said the same way
+            ("une femme, 2 hommes", "un femme deux hommes", {"case_sensitive": True}, (0, 0, 0, 4, 4)),
+            # All together
+            (
+                "Euh, l'État-Major prend 1,5 mg.",
+                "L État Major prend un virgule cinq milligrammes .",
+                {"case_sensitive": True, "keep_punctuation": True, "remove_apostrophes_and_dashes": True},
+                (0, 0, 0, 9, 9),
+            ),
+        ]:
+            self.assertEqual(self.errors(ref, pred, language="fr", **options), expected, msg=f"{ref} / {pred} ({options})")
+
+    def test_options_languages(self):
+        for lang, ref, pred in [
+            ("en", "Mr. Smith paid $1.50, uh, in the U.S.", "mister smith paid one dollar fifty in the us"),
+            ("es", "Son 3 km, él dijo.", "son tres kilómetros él dijo"),
+            ("de", "Das sind 2 km, sagte er.", "das sind zwei kilometer sagte er"),
+            ("it", "Sono 3 km, disse.", "sono tre chilometri disse"),
+            ("pt", "São 16 km, disse.", "são dezesseis quilômetros disse"),
+            ("nl", "Het is 2 km, zei hij.", "het is twee kilometer zei hij"),
+            ("ru", "Это 2 дома, да.", "это два дома да"),
+            ("ar", "الخبزة، والماء Hello", "الخبزة والماء hello"),
+        ]:
+            self.assertEqual(self.errors(ref, pred, language=lang)[:3], (0, 0, 0), msg=f"{ref} / {pred}")
+            self.assertEqual(self.errors(ref, pred, language=lang, remove_apostrophes_and_dashes=True)[:3], (0, 0, 0), msg=f"{ref} / {pred}")
+            # Regional codes
+            self.assertEqual(self.errors(ref, pred, language=f"{lang}-XX")[:3], (0, 0, 0), msg=f"{ref} / {pred}")
+            self.assertGreater(sum(self.errors(ref, pred, language=lang, case_sensitive=True)[:3]), 0, msg=f"{ref} / {pred}")
+            self.assertGreater(sum(self.errors(ref, pred, language=lang, keep_punctuation=True)[:3]), 0, msg=f"{ref} / {pred}")
+            for options in self.all_options:
+                self.assertEqual(self.errors(ref, ref, language=lang, **options)[:3], (0, 0, 0), msg=f"{ref} ({options})")
+
+    def test_aujourdhui(self):
+        # A single word, anywhere in the text
+        for text, expected in {
+            "Aujourd'hui": "Aujourd'hui",
+            "Aujourd'hui il pleut": "Aujourd'hui il pleut",
+            "il pleut aujourd'hui": "il pleut aujourd'hui",
+            "aujourd’hui, d'aujourd'hui.": "aujourd'hui d' aujourd'hui",
+            "aujourd' hui": "aujourd'hui",
+            "jusqu'aujourd'hui oui": "jusqu' aujourd'hui oui",
+        }.items():
+            self.assertEqual(normalize_text(text, "fr", case_sensitive=True), expected)
+            self.assertEqual(normalize_text(text, "fr", case_sensitive=True, remove_apostrophes_and_dashes=True), expected.replace("'", " ").replace("  ", " "))
+        self.assertEqual(self.errors("il pleut aujourd'hui", "aujourd'hui il pleut", language="fr"), (0, 1, 1, 2, 3))
+
+    def test_same_as_normalize_text(self):
+        texts = [ref for ref, _ in self.pairs_fr] + ["Euh, 1,5 mg. La S.N.C.F. (oui) !", "À 14:30, M. Dupont dit : « non »...", "3 comprimés/jour, 1 €"]
+        preds = [pred for _, pred in self.pairs_fr] + ["un virgule cinq milligramme, la sncf", "à quatorze heures trente", "Trois comprimés par jour"]
+        for options in self.all_options:
+            refs_normalized, preds_normalized = ([normalize_text(t, "fr", for_wer=True, **options) for t in T] for T in [texts, preds])
+            self.assertEqual(self.compared_texts(texts, language="fr", **options), refs_normalized)
+            # compute_wer on normalized texts
+            for character_level in [False, True]:
+                self.assertEqual(
+                    compute_wer(texts, preds, language="fr", character_level=character_level, **options),
+                    compute_wer(refs_normalized, preds_normalized, character_level=character_level),
+                    msg=f"{options}",
+                )
+            # Normalizing twice changes nothing
+            self.assertEqual([normalize_text(t, "fr", for_wer=True, **options) for t in refs_normalized], refs_normalized, msg=f"{options}")
+
+    def test_stricter_options(self):
+        # Being stricter on the case, and keeping more words, cannot remove errors
+        refs, preds = map(list, zip(*self.pairs_fr))
+        for options in self.all_options:
+            errors = sum(self.errors(refs, preds, language="fr", **options)[:3])
+            for stricter in [{"case_sensitive": True}, {"keep_punctuation": True}, {"ignore_final_s": False}]:
+                self.assertGreaterEqual(sum(self.errors(refs, preds, language="fr", **{**options, **stricter})[:3]), errors, msg=f"{options} {stricter}")
+
+    def test_empty_texts(self):
+        for options in self.all_options:
+            self.assertEqual(compute_wer(["", "oui"], ["", "oui"], language="fr", **options)["wer"], 0)
+            self.assertEqual(self.errors(["oui", "non"], ["", "non"], language="fr", **options)[:3], (0, 1, 0))
+        for empty in ["...", "!", "-", "  ", "euh", "Euh..."]:
+            self.assertEqual(normalize_text(empty, "fr", for_wer=True), "", msg=empty)
+            self.assertEqual(self.errors(["oui", "non"], ["oui " + empty, "non"], language="fr")[:3], (0, 0, 0), msg=empty)
+            self.assertEqual(self.errors(["oui", empty], ["oui", ""], language="fr")[:3], (0, 0, 0), msg=empty)
+            # Said, but nothing in the reference
+            self.assertGreater(compute_wer(["oui", empty], ["oui", "non"], language="fr")["wer"], 0, msg=empty)
+
+    def test_no_language(self):
+        # The texts are compared as they are, whatever the options
+        for options in self.all_options:
+            self.assertEqual(self.errors("Le Chat, l'état.", "Le chat l'état.", **options), (1, 0, 0, 2, 3))
+        with self.assertRaises(NotImplementedError):
+            compute_wer(["a"], ["a"], language="xx")
+
+    def test_positional_and_deprecated(self):
+        ref, pred = ["L'état"], ["l état"]
+        warnings.resetwarnings()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", FutureWarning)
+            self.assertGreater(compute_wer(ref, pred, False, "fr")["wer"], 0)
+            self.assertEqual(compute_wer(ref, pred, False, "fr", False, False, True)["wer"], 0)
+        for args, kwargs in [((), {"normalization": "fr+"}), ((False, "fr+"), {}), ((), {"language": "fr+"})]:
+            with self.assertWarnsRegex(FutureWarning, "deprecated.*language='fr', remove_apostrophes_and_dashes=True\\)"):
+                self.assertEqual(compute_wer(ref, pred, *args, **kwargs)["wer"], 0)
+        # With the other options
+        self.assertGreater(compute_wer(["L'état"], ["l état"], normalization="fr+", case_sensitive=True)["wer"], 0)
+        with self.assertRaises(ValueError):
+            compute_wer(ref, pred, language="fr", normalization="fr")
+
+    def test_words_list(self):
+        refs, preds = ["La S.N.C.F. et le Doliprane 1,5 mg", "un doliprane"], ["La SNCF et le doliprane 1,5 mg", "un Doliprane"]
+        for options, expected in [
+            ({}, {"TP": 3, "FP": 0, "FN": 0}),
+            ({"case_sensitive": True}, {"TP": 1, "FP": 1, "FN": 1}),
+        ]:
+            res = compute_wer(refs, preds, language="fr", words_list=["S.N.C.F.", "Doliprane"], **options)
+            self.assertEqual({k: res[k] for k in expected}, expected)
+        # The inputs are not modified
+        words = ["S.N.C.F."]
+        compute_wer(refs, preds, language="fr", words_list=words, replacements_ref={"La": "Le"})
+        self.assertEqual((refs[0], words), ("La S.N.C.F. et le Doliprane 1,5 mg", ["S.N.C.F."]))
+
+    def test_inputs_and_outputs(self):
+        options = {"language": "fr", "case_sensitive": True, "remove_apostrophes_and_dashes": True}
+        expected = compute_wer(["L'état, oui.", "Non"], ["L état oui", "non"], **options)
+        self.assertEqual(expected["wer"], 1 / 4)
+        # Dictionaries, in any order
+        self.assertEqual(compute_wer({"a": "L'état, oui.", "b": "Non"}, {"b": "non", "a": "L état oui"}, **options), expected)
+        # Files
+        files = {name: self.get_temp_path(name) for name in ["wer_ref.txt", "wer_pred.txt", "wer_alignment.txt"]}
+        ref, pred, alignment = files.values()
+        for with_ids in [False, True]:
+            for f, lines in [(ref, ["L'état, oui.", "Non"]), (pred, ["L état oui", "non"])]:
+                with open(f, "w", encoding="utf-8") as fid:
+                    fid.write("".join(f"id{i} {line}\n" if with_ids else line + "\n" for i, line in enumerate(lines)))
+            self.assertEqual(compute_wer(ref, pred, use_ids=with_ids, **options), expected)
+        # Command line (with ids)
+        for args, wer in [
+            ([], "83.33"),
+            (["--language", "fr"], "25.00"),
+            (["--language", "fr", "--remove_apostrophes_and_dashes"], "0.00"),
+            (["--language", "fr", "--remove_apostrophes_and_dashes", "--case_sensitive"], "25.00"),
+            (["--language", "fr", "--remove_apostrophes_and_dashes", "--keep_punctuation"], "33.33"),
+            (["--norm", "fr+"], "0.00"),
+        ]:
+            stdout = self.assertRun([self.get_lib_path("utils/wer.py"), ref, pred, *args])
+            self.assertIn("WER: ", stdout)
+            if args:
+                self.assertIn(f"WER: {wer} %", stdout, msg=f"{args}")
+        # Alignment in a file, percents, confidence intervals
+        compute_wer(["Le Chat"], ["le chat"], alignment=alignment, **options)
+        with open(alignment, encoding="utf-8") as fid:
+            self.assertIn("Chat", fid.read())
+        self.assertEqual(compute_wer(["Le chat"], ["le chat"], use_percents=True, **options)["wer"], 50)
+        self.assertEqual(compute_wer(["Le chat"] * 3, ["le chat"] * 3, bootstrapping=True, **options)["wer"], 0.5)
+        for f in files.values():
             os.remove(f)
 
 

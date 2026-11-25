@@ -188,6 +188,10 @@ def format_text_latin(
         # text=re.sub('\]',' ] ',text)
         # text=re.sub(r"<([^<>]*)>",r"\1",text)
 
+        if lang == "fr":
+            # A single word, anywhere in the text
+            text = re.sub(r"\b(aujourd)' +(hui)\b", r"\1'\2", text, flags=re.IGNORECASE)
+
         if lang in ["fr", "en"]:
             for reg, replacement in _corrections_regex_fr:
                 text = re.sub(reg, replacement, text)

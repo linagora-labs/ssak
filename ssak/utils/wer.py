@@ -3,6 +3,7 @@
 import csv
 import os
 import re
+import warnings
 
 import jiwer
 import numpy as np
@@ -38,7 +39,12 @@ def compute_wer(
     refs,
     preds,
     use_ids=False,
-    normalization=None,
+    language=None,
+    case_sensitive=False,
+    keep_punctuation=False,
+    remove_apostrophes_and_dashes=False,
+    keep_disfluencies=False,
+    ignore_final_s=False,
     character_level=False,
     use_percents=False,
     alignment=False,
@@ -49,7 +55,7 @@ def compute_wer(
     replacements_pred=None,
     details_words_list=False,
     bootstrapping=False,
-    remove_disfluencies=True,
+    normalization=None,
 ):
     """
     Compute WER between two files.
@@ -57,8 +63,15 @@ def compute_wer(
     :param preds: path to the prediction file, or dictionary {"id": "text..."}, or list of texts.
                   Must be of the same type as refs.
     :param use_ids: (for files) whether reference and prediction files includes id as a first field
-    :param normalization: None or a language code ("fr", "ar", ...).
-        Use suffix '+' (ex: 'fr+', 'ar+', ...) to remove all non-alpha-num characters (apostrophes, dashes, ...)
+    :param language: language code ("fr", "ar", ...) to normalize the texts, as ssak.utils.text.normalize_text(..., for_wer=True) does.
+        If None, the texts are compared as they are (and the options below, until ignore_final_s, have no effect)
+    :param case_sensitive: whether the case matters
+    :param keep_punctuation: whether the punctuation marks matter (each mark is a word)
+    :param remove_apostrophes_and_dashes: whether to replace apostrophes, dashes, ... by spaces ("l'état" -> "l état")
+    :param keep_disfluencies: whether the disfluencies ("euh", "uh", "hmm", ...) matter (languages with latin alphabet)
+    :param ignore_final_s: whether to ignore the "s" at the end of the words
+    :param character_level: whether to compute the error rate on characters (CER) instead of words
+    :param use_percents: whether to give the rates in percents
     :param alignment: if True, print alignment information. If string, write alignment information to the file.
     :param include_correct_in_alignement: whether to include correct words in the alignment
     :param words_list: list of words to focus on
@@ -67,9 +80,26 @@ def compute_wer(
     :param replacements_pred: dictionary of replacements to perform in the hypothesis
     :param details_words_list: whether to output information about words that are well recognized (among the specified words_list)
     :param bootstrapping: whether to compute bootstrapping intervals (might be slow)
-    :param remove_disfluencies: whether to remove the disfluencies ("euh", "uh", "hmm", ...) when there is a normalization
-        (languages with latin alphabet)
+    :param normalization: deprecated, use language instead ("fr+" is language="fr" with remove_apostrophes_and_dashes=True,
+        and "fr++" also with ignore_final_s=True)
     """
+    if language and language.endswith("+") and not normalization:
+        # Previous syntax, with positional arguments
+        language, normalization = None, language
+    if normalization:
+        if language:
+            raise ValueError("The option normalization is deprecated, and cannot be used with the option language")
+        language = normalization.rstrip("+")
+        strength = len(normalization) - len(language)
+        remove_apostrophes_and_dashes = remove_apostrophes_and_dashes or strength >= 1
+        ignore_final_s = ignore_final_s or strength >= 2
+        new_syntax = [f"language={language!r}"] + ["remove_apostrophes_and_dashes=True"] * (strength >= 1) + ["ignore_final_s=True"] * (strength >= 2)
+        warnings.warn(
+            f"compute_wer(..., normalization={normalization!r}) is deprecated, and might disappear in the future. Use compute_wer(..., {', '.join(new_syntax)})",
+            FutureWarning,
+            stacklevel=2,
+        )
+
     # Open the test dataset human translation file
     if isinstance(refs, str):
         assert os.path.isfile(refs), f"Reference file {refs} doesn't exist"
@@ -131,54 +161,20 @@ def compute_wer(
                 if k in pred:
                     preds[i] = re.sub(r"\b" + k + r"\b", v, preds[i])
 
-    if normalization:
-        from ssak.utils.text import format_text
-        from ssak.utils.text_numbers import base_language, normalize_spoken_numbers
-
-        strong_normalization = normalization.endswith("+")
-        if strong_normalization:
-            normalization = normalization[:-1]
-        very_strong_normalization = normalization.endswith("+")
-        if very_strong_normalization:
-            normalization = normalization[:-1]
-
-        normalization = base_language(normalization)
-        normalize_funcs = []
-        if normalization.startswith("ar"):
-            kwargs = {
-                "keep_latin_chars": True,
-                "lower_case": True,
-                "normalize_dialect_words": True if normalization.endswith("tn") else False,
-            }
-            normalize_funcs.append(lambda x: format_text(x, language=normalization, **kwargs))
-        else:
-            kwargs = {"remove_disfluencies": remove_disfluencies} if normalization not in ["ru"] else {}
-            normalize_funcs.append(lambda x: format_text(x, language=normalization, **kwargs))
-
-        # Different ways to say the same numbers ("une fois" / "un fois", "two hundred and fifty" / "two hundred fifty")
-        normalize_funcs.append(lambda x: normalize_spoken_numbers(x, normalization))
-
-        if strong_normalization:
-            from ssak.utils.text_basic import collapse_whitespace
-
-            def remove_not_words(s):
-                # Remove any character that is not alpha-numeric (e.g. apostrophes, dashes, ...)
-                return collapse_whitespace(re.sub(r"[^\w]", " ", s))
-
-            normalize_funcs.append(remove_not_words)
-
-        if very_strong_normalization:
-
-            def remove_ending_s(s):
-                # Remove "s" at the end of words, like "les" -> "le"
-                return re.sub(r"(\w)s\b", r"\1", s)
-
-            normalize_funcs.append(remove_ending_s)
+    if language:
+        from ssak.utils.text import normalize_text
 
         def normalize_func(s):
-            for f in normalize_funcs:
-                s = f(s)
-            return s
+            return normalize_text(
+                s,
+                language,
+                case_sensitive=case_sensitive,
+                keep_punctuation=keep_punctuation,
+                remove_apostrophes_and_dashes=remove_apostrophes_and_dashes,
+                keep_disfluencies=keep_disfluencies,
+                ignore_final_s=ignore_final_s,
+                for_wer=True,
+            )
 
         refs = [normalize_func(ref) for ref in tqdm.tqdm(refs, desc="Normalizing references", leave=False)]
         preds = [normalize_func(pred) for pred in tqdm.tqdm(preds, desc="Normalizing predictions", leave=False)]
@@ -520,7 +516,8 @@ def list_to_confidence_intervals(measures, n_bootstraps=10000, max_samples=1000)
         sample = {k: [measures[k][i] for i in indices] for k in keys_to_sum}
         sample = {k[:-5]: np.sum(v) for k, v in sample.items()}
         sample.update(aggregate_wer(sample, norm_rates=True))
-        sample.update(aggregate_f1_recall_precision(sample))
+        if "TP" in sample:  # with words_list
+            sample.update(aggregate_f1_recall_precision(sample))
         samples.append(sample)
 
     assert len(samples)
@@ -1144,8 +1141,23 @@ if __name__ == "__main__":
     )
     parser.add_argument("--include_correct_in_alignement", help="To also give correct alignement", action="store_true", default=False)
     parser.add_argument(
+        "--language",
+        help="Language to use for text normalization ('fr', 'ar', ...). By default, the texts are compared as they are",
+        default=None,
+    )
+    parser.add_argument("--case_sensitive", help="Whether the case matters (with --language)", default=False, action="store_true")
+    parser.add_argument("--keep_punctuation", help="Whether the punctuation marks matter (with --language)", default=False, action="store_true")
+    parser.add_argument(
+        "--remove_apostrophes_and_dashes",
+        help="Whether to replace apostrophes, dashes, ... by spaces (with --language)",
+        default=False,
+        action="store_true",
+    )
+    parser.add_argument("--keep_disfluencies", help="Whether the disfluencies ('euh', 'uh', ...) matter (with --language)", default=False, action="store_true")
+    parser.add_argument("--ignore_final_s", help="Whether to ignore the 's' at the end of the words (with --language)", default=False, action="store_true")
+    parser.add_argument(
         "--norm",
-        help="Language to use for text normalization ('fr', 'ar', ...). Use suffix '+' (ex: 'fr+', 'ar+', ...) to remove all non-alpha-num characters (apostrophes, dashes, ...)",
+        help="(Deprecated: see --language) Language to use for text normalization ('fr', 'ar', ...). Use suffix '+' (ex: 'fr+', 'ar+', ...) to remove all non-alpha-num characters (apostrophes, dashes, ...)",
         default=None,
     )
     parser.add_argument("--char", default=False, action="store_true", help="For character-level error rate (CER)")
@@ -1248,7 +1260,12 @@ if __name__ == "__main__":
             targets,
             predictions_system,
             use_ids=use_ids,
-            normalization=args.norm,
+            language=args.language,
+            case_sensitive=args.case_sensitive,
+            keep_punctuation=args.keep_punctuation,
+            remove_apostrophes_and_dashes=args.remove_apostrophes_and_dashes,
+            keep_disfluencies=args.keep_disfluencies,
+            ignore_final_s=args.ignore_final_s,
             character_level=args.char,
             alignment=alignment,
             include_correct_in_alignement=args.include_correct_in_alignement,
@@ -1258,6 +1275,7 @@ if __name__ == "__main__":
             replacements_pred=replacements_pred,
             details_words_list=details_words_list,
             bootstrapping=args.intervals,
+            normalization=args.norm,
         )
 
     for system_name, result in results.items():

@@ -38,7 +38,10 @@ _ABBREVIATIONS = "no|vs|n|p|pp|art|fig|vol|cf|approx|env|st|dr|mr|mrs|ms|m|mme|m
 
 
 def mark_sentence_starts(text):
-    """Mark the numbers at the beginning of a sentence, in a text with case or punctuation (not in "3 comprimés", nor in lower case without punctuation)"""
+    """Mark the numbers at the beginning of a sentence, in a text with case or punctuation (not in "3 comprimés", nor in lower case without punctuation).
+    Nothing is known about a number alone ("3."): it can be a word of a text converted word by word."""
+    if len(text.split()) < 2:
+        return text
     if not re.search(r"[^\W\d_a-zà-öø-ÿ][a-zà-öø-ÿ]|[.?!…]\s*$", text):
         return text
 

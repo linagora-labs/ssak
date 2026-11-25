@@ -82,7 +82,7 @@ def compute_metrics(pred, language):
     pred_str = processor.tokenizer.batch_decode(pred_ids, skip_special_tokens=True)
     label_str = processor.tokenizer.batch_decode(label_ids, skip_special_tokens=True)
 
-    return compute_wer(label_str, pred_str, normalization=language, use_percents=True)
+    return compute_wer(label_str, pred_str, language=language, use_percents=True)
 
 
 class SavePeftModelCallback(TrainerCallback):
